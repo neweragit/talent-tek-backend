@@ -2,18 +2,23 @@ import Navbar from "@/components/Navbar";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Mail, Video, Users, Calendar, FileText, Eye, EyeOff, Code, Database, Cpu, GitBranch } from "lucide-react";
+import { Mail, Video, Users, Calendar, FileText, Eye, EyeOff, UserCheck, Search, MessageSquare, Target } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 
 const TechnicalInterviewLogin = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const { login } = useAuth();
+  const { toast } = useToast();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !email.includes("@")) {
       setError("Please enter a valid email address.");
@@ -23,8 +28,54 @@ const TechnicalInterviewLogin = () => {
       setError("Please enter a valid password (minimum 6 characters).");
       return;
     }
+    
     setError("");
-    navigate("/technical-interviewer/overview");
+    setIsLoading(true);
+    
+    try {
+      const success = await login({ email, password });
+      
+      if (success) {
+        // Check if user is actually a technical interviewer
+        const userRole = localStorage.getItem('userRole');
+        const interviewerType = localStorage.getItem('interviewerType');
+        
+        if (userRole === 'interviewer' && interviewerType === 'technical') {
+          toast({
+            title: "Welcome back!",
+            description: "Successfully logged into Technical Interview portal",
+          });
+          navigate("/technical-interviewer/overview");
+        } else {
+          setError("Access denied. This portal is for Technical interviewers only.");
+          // Optionally redirect to appropriate portal
+          if (userRole === 'interviewer') {
+            switch (interviewerType) {
+              case 'talent-acquisition':
+                navigate('/talent-acquisition/overview');
+                break;
+              case 'leadership':
+                navigate('/leadership-interviewer/overview');
+                break;
+              default:
+                navigate('/technical-interviewer/overview');
+            }
+          } else {
+            navigate('/login');
+          }
+        }
+      } else {
+        setError("Invalid email or password. Please try again.");
+      }
+    } catch (error: any) {
+      if (error?.message === 'ACCOUNT_INACTIVE') {
+        setError("Your account has been deactivated. Please contact admin@talentek.com for assistance.");
+      } else {
+        setError("An error occurred during login. Please try again.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -37,8 +88,8 @@ const TechnicalInterviewLogin = () => {
             <div className="flex flex-col justify-center items-start p-12 bg-gradient-to-br from-[#f93712]/10 to-[#f93712]/5 rounded-l-3xl">
               <div className="mb-8">
                 <img 
-                  src="https://images.unsplash.com/photo-1551434678-e076c223a692?w=800&auto=format&fit=crop" 
-                  alt="Technical interview"
+                  src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&auto=format&fit=crop" 
+                  alt="Technical interview coding session"
                   className="w-full h-64 object-cover rounded-2xl shadow-lg mb-8"
                 />
               </div>
@@ -47,102 +98,135 @@ const TechnicalInterviewLogin = () => {
               </CardTitle>
               <ul className="space-y-8 text-lg text-black dark:text-slate-300">
                 <li className="flex items-start gap-4">
-                  <Code className="w-8 h-8 flex-shrink-0 mt-1" style={{ color: '#f93712' }} />
+                  <UserCheck className="w-8 h-8 flex-shrink-0 mt-1" style={{ color: '#f93712' }} />
                   <div>
-                    <p className="font-semibold">Conduct technical assessments</p>
-                    <p className="text-sm text-gray-700">Evaluate coding skills and problem-solving</p>
+                    <h4 className="font-semibold text-xl mb-2">Conduct Technical Interviews</h4>
+                    <p className="text-base dark:text-slate-400">
+                      Lead technical interviews to assess candidates' programming skills, algorithmic thinking, and software development expertise.
+                    </p>
                   </div>
                 </li>
                 <li className="flex items-start gap-4">
-                  <Database className="w-8 h-8 flex-shrink-0 mt-1" style={{ color: '#f93712' }} />
+                  <Search className="w-8 h-8 flex-shrink-0 mt-1" style={{ color: '#f93712' }} />
                   <div>
-                    <p className="font-semibold">Review system design solutions</p>
-                    <p className="text-sm text-gray-700">Assess architecture and scalability knowledge</p>
+                    <h4 className="font-semibold text-xl mb-2">Code Review & Analysis</h4>
+                    <p className="text-base dark:text-slate-400">
+                      Evaluate candidates' coding solutions, analyze their approach to problem-solving, and assess code quality.
+                    </p>
                   </div>
                 </li>
                 <li className="flex items-start gap-4">
-                  <Cpu className="w-8 h-8 flex-shrink-0 mt-1" style={{ color: '#f93712' }} />
+                  <MessageSquare className="w-8 h-8 flex-shrink-0 mt-1" style={{ color: '#f93712' }} />
                   <div>
-                    <p className="font-semibold">Evaluate algorithms expertise</p>
-                    <p className="text-sm text-gray-700">Test data structures and complexity analysis</p>
+                    <h4 className="font-semibold text-xl mb-2">Technical Feedback</h4>
+                    <p className="text-base dark:text-slate-400">
+                      Provide detailed technical evaluations covering algorithms, system design, and coding proficiency.
+                    </p>
                   </div>
                 </li>
                 <li className="flex items-start gap-4">
-                  <GitBranch className="w-8 h-8 flex-shrink-0 mt-1" style={{ color: '#f93712' }} />
+                  <Target className="w-8 h-8 flex-shrink-0 mt-1" style={{ color: '#f93712' }} />
                   <div>
-                    <p className="font-semibold">Track technical documentation</p>
-                    <p className="text-sm text-gray-700">Manage code reviews and feedback</p>
+                    <h4 className="font-semibold text-xl mb-2">Skills Assessment</h4>
+                    <p className="text-base dark:text-slate-400">
+                      Evaluate technical competencies, data structures knowledge, and ability to solve complex programming challenges.
+                    </p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-4">
+                  <Calendar className="w-8 h-8 flex-shrink-0 mt-1" style={{ color: '#f93712' }} />
+                  <div>
+                    <h4 className="font-semibold text-xl mb-2">Schedule Management</h4>
+                    <p className="text-base dark:text-slate-400">
+                      Manage your interview calendar, track upcoming sessions, and coordinate with the hiring team.
+                    </p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-4">
+                  <FileText className="w-8 h-8 flex-shrink-0 mt-1" style={{ color: '#f93712' }} />
+                  <div>
+                    <h4 className="font-semibold text-xl mb-2">Technical Reports</h4>
+                    <p className="text-base dark:text-slate-400">
+                      Generate comprehensive technical evaluation reports with detailed coding assessment and recommendations.
+                    </p>
                   </div>
                 </li>
               </ul>
-              <div className="flex items-center gap-3 mt-10 p-4 bg-[#fff5f2] rounded-xl" style={{ border: '1px solid #ffe6df' }}>
-                <Video className="w-10 h-10" style={{ color: '#f93712' }} />
-                <span className="text-lg text-black font-medium">
-                  We use Google Meet for all interviews
-                </span>
-              </div>
             </div>
+
             {/* Login Form - Right Side */}
-            <div className="flex flex-col justify-center items-center p-12">
-              <div className="flex flex-col items-center mb-8 w-full">
-                <div className="w-24 h-24 rounded-full bg-[#f93712] flex items-center justify-center mb-6 shadow-lg">
-                  <Code className="w-12 h-12 text-white" />
-                </div>
-                <CardTitle className="text-3xl font-bold text-center mb-3" style={{ color: '#f93712' }}>
-                  Technical Interviewer Login
+            <div className="flex flex-col justify-center p-12">
+              <div className="text-center mb-8">
+                <CardTitle className="text-4xl font-bold mb-4" style={{ color: '#f93712' }}>
+                  Technical Interview Login
                 </CardTitle>
-                <p className="text-lg text-muted-foreground text-center mb-2">
-                  Access your technical assessment dashboard
+                <p className="text-lg text-gray-600 dark:text-slate-400 font-medium">
+                  Access your technical interview dashboard
                 </p>
               </div>
-              <form onSubmit={handleLogin} className="space-y-6 w-full max-w-md">
-                <div className="space-y-3">
-                  <label className="text-sm font-medium text-black">Email Address</label>
+
+              <form onSubmit={handleLogin} className="space-y-6">
+                <div className="relative">
+                  <Mail className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <Input
                     type="email"
-                    placeholder="technical.interviewer@company.com"
+                    placeholder="Enter your email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    required
-                    className="text-lg py-3"
-                    style={{ fontFamily: '"Helvetica Neue", Arial, sans-serif' }}
+                    className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-[#f93712] rounded-xl"
+                    style={{ fontSize: '16px' }}
                   />
                 </div>
-                <div className="space-y-3">
-                  <label className="text-sm font-medium text-black">Password</label>
-                  <div className="relative">
-                    <Input
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder="Enter your password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                      className="text-lg py-3 pr-12"
-                      style={{ fontFamily: '"Helvetica Neue", Arial, sans-serif' }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 p-1 rounded focus:outline-none"
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    >
-                      {showPassword ? (
-                        <EyeOff className="w-5 h-5 text-gray-600" />
-                      ) : (
-                        <Eye className="w-5 h-5 text-gray-600" />
-                      )}
-                    </button>
+                
+                <div className="relative">
+                  <div className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400">
+                    🔒
                   </div>
+                  <Input
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="pl-12 pr-12 h-14 text-base border-2 border-gray-200 focus:border-[#f93712] rounded-xl"
+                    style={{ fontSize: '16px' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
                 </div>
-                {error && <div className="text-red-500 text-base font-medium">{error}</div>}
+                
+                {error && (
+                  <p className="text-red-500 text-sm font-medium bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
+                    {error}
+                  </p>
+                )}
+                
                 <Button
                   type="submit"
-                  className="w-full hover:opacity-90 text-xl py-4 shadow-lg rounded-xl"
-                  style={{ background: '#f93712', color: '#fff', fontFamily: '"Helvetica Neue", Arial, sans-serif' }}
+                  disabled={isLoading}
+                  className="w-full h-14 text-lg font-semibold rounded-xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ 
+                    backgroundColor: '#f93712',
+                    color: 'white',
+                    border: 'none'
+                  }}
                 >
-                  Login to Dashboard
+                  {isLoading ? "Signing in..." : "Login to Dashboard"}
                 </Button>
               </form>
+              
+              <div className="text-center mt-8">
+                <p className="text-sm text-gray-500 dark:text-slate-400">
+                  Need help accessing your account?{' '}
+                  <a href="/contact" className="font-semibold hover:underline" style={{ color: '#f93712' }}>
+                    Contact Support
+                  </a>
+                </p>
+              </div>
             </div>
           </div>
         </Card>

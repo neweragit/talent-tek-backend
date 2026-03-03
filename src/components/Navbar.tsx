@@ -1,10 +1,22 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Menu, X } from "lucide-react";
+import { Menu, X, User, LogOut } from "lucide-react";
 import { useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
 
 const Navbar = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, logout, isAuthenticated } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navLinks = [
@@ -42,12 +54,62 @@ const Navbar = () => {
           </div>
 
           <div className="hidden md:flex items-center gap-4">
-            <Button variant="outline" asChild>
-              <Link to="/login">Login</Link>
-            </Button>
-            <Button asChild className="bg-gradient-primary hover:opacity-90">
-              <Link to="/get-started">Get Started</Link>
-            </Button>
+            {isAuthenticated && user ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="flex items-center gap-2">
+                    <div className="w-8 h-8 bg-gradient-primary text-white rounded-full flex items-center justify-center">
+                      <User className="w-4 h-4" />
+                    </div>
+                    <div className="text-left">
+                      <div className="text-sm font-semibold">
+                        {user.profile?.full_name || user.email.split('@')[0]}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        <Badge variant="secondary" className="text-xs px-1 py-0">
+                          {user.user_role}
+                        </Badge>
+                      </div>
+                    </div>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => {
+                    const dashboardRoutes: Record<string, string> = {
+                      talent: '/talent/dashboard',
+                      employer: '/employer/dashboard',
+                      interviewer: '/technical-interview/profile',
+                      owner: '/owner/dashboard',
+                      superadmin: '/admin/dashboard',
+                      admin: '/admin/dashboard'
+                    };
+                    navigate(dashboardRoutes[user.user_role] || '/');
+                  }}>
+                    <User className="mr-2 h-4 w-4" />
+                    Dashboard
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => {
+                    logout();
+                    navigate('/');
+                  }}>
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Logout
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <>
+                <Button variant="outline" asChild>
+                  <Link to="/login">Login</Link>
+                </Button>
+                <Button asChild className="bg-gradient-primary hover:opacity-90">
+                  <Link to="/get-started">Get Started</Link>
+                </Button>
+              </>
+            )}
           </div>
 
           {/* Mobile Menu Button */}
@@ -77,16 +139,59 @@ const Navbar = () => {
                 </Link>
               ))}
               <div className="flex flex-col gap-2 pt-4">
-                <Button variant="outline" asChild>
-                  <Link to="/login" onClick={() => setMobileMenuOpen(false)}>
-                    Login
-                  </Link>
-                </Button>
-                <Button asChild className="bg-gradient-primary">
-                  <Link to="/get-started" onClick={() => setMobileMenuOpen(false)}>
-                    Get Started
-                  </Link>
-                </Button>
+                {isAuthenticated && user ? (
+                  <>
+                    <div className="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                      <div className="w-10 h-10 bg-gradient-primary text-white rounded-full flex items-center justify-center">
+                        <User className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-semibold">
+                          {user.profile?.full_name || user.email.split('@')[0]}
+                        </div>
+                        <Badge variant="secondary" className="text-xs">
+                          {user.user_role}
+                        </Badge>
+                      </div>
+                    </div>
+                    <Button variant="outline" onClick={() => {
+                      const dashboardRoutes: Record<string, string> = {
+                        talent: '/talent/dashboard',
+                        employer: '/employer/dashboard',
+                        interviewer: '/technical-interview/profile',
+                        owner: '/owner/dashboard',
+                        superadmin: '/admin/dashboard',
+                        admin: '/admin/dashboard'
+                      };
+                      navigate(dashboardRoutes[user.user_role] || '/');
+                      setMobileMenuOpen(false);
+                    }}>
+                      <User className="mr-2 h-4 w-4" />
+                      Dashboard
+                    </Button>
+                    <Button variant="outline" onClick={() => {
+                      logout();
+                      navigate('/');
+                      setMobileMenuOpen(false);
+                    }}>
+                      <LogOut className="mr-2 h-4 w-4" />
+                      Logout
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="outline" asChild>
+                      <Link to="/login" onClick={() => setMobileMenuOpen(false)}>
+                        Login
+                      </Link>
+                    </Button>
+                    <Button asChild className="bg-gradient-primary">
+                      <Link to="/get-started" onClick={() => setMobileMenuOpen(false)}>
+                        Get Started
+                      </Link>
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           </div>

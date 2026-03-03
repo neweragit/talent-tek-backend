@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import TalentLayout from "@/components/layouts/TalentLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,23 +23,31 @@ import {
   Trash2,
   Sparkles,
   CreditCard,
-  CheckCircle2
+  CheckCircle2,
+  Loader2
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/contexts/AuthContext";
+import { servicesApi } from "@/lib/api";
+import type { Service, Talent } from "@/lib/types";
+import { useToast } from "@/hooks/use-toast";
 
 const TalentServices = () => {
+  const { user } = useAuth();
+  const { toast } = useToast();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
   const [showManageDialog, setShowManageDialog] = useState(false);
   const [autoRenew, setAutoRenew] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [myServices, setMyServices] = useState<Service[]>([]);
+  const [editingService, setEditingService] = useState<Service | null>(null);
+  const [subscription, setSubscription] = useState<any>(null);
+  const [loadingSubscription, setLoadingSubscription] = useState(true);
   
-  // Mock subscription data
-  const subscription = {
-    status: "active",
-    plan: "Premium Freelancer",
-    expiryDate: "2025-12-31",
-    autoRenew: autoRenew,
-  };
+  const talentProfile = user?.profile as Talent;
 
   const plans = [
     {
@@ -68,28 +76,6 @@ const TalentServices = () => {
       current: false,
     },
   ];
-  const [myServices, setMyServices] = useState([
-    {
-      id: 1,
-      title: "React Development",
-      description: "Custom React components and applications",
-      price: 150,
-      deliveryTime: "7 days",
-      location: "Remote",
-      tags: ["React", "TypeScript", "Tailwind"],
-      icon: Code,
-    },
-    {
-      id: 2,
-      title: "UI/UX Design",
-      description: "Modern interface design and prototyping",
-      price: 120,
-      deliveryTime: "5 days",
-      location: "Remote",
-      tags: ["Figma", "Design System", "Prototyping"],
-      icon: Palette,
-    },
-  ]);
 
   const [formData, setFormData] = useState({
     title: "",
@@ -97,43 +83,227 @@ const TalentServices = () => {
     price: "",
     deliveryTime: "",
     tags: "",
+    category: "",
   });
 
-  const handleCreateService = () => {
+  // Load services on mount
+  useEffect(() => {
+    loadServices();
+  }, [talentProfile?.id]);
+
+  const loadServices = async () => {
+    if (!talentProfile?.id) return;
+    
+    try {
+      setLoading(true);
+      const data = await servicesApi.getAll(talentProfile.id);
+      setMyServices(data);
+    } catch (error) {
+      console.error('Failed to load services:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load services. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadSubscription = async () => {
+    if (!talentProfile?.id) return;
+    
+    try {
+      const { subscriptionsApi } = await import('@/lib/api');
+      const data = await subscriptionsApi.getByUserId(talentProfile.id, 'talent');
+      setSubscription(data);
+      if (data) {
+        setAutoRenew(data.auto_renew);
+      }
+    } catch (error) {
+      console.error('Failed to load subscription:', error);
+    } finally {
+      setLoadingSubscription(false);
+    }
+  };
+
+  const handleCreateService = async () => {
+    if (!talentProfile?.id) {
+      toast({
+        title: "Error",
+        description: "User profile not found",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (
-      formData.title &&
-      formData.description &&
-      formData.price &&
-      formData.deliveryTime
+      !formData.title ||
+      !formData.description ||
+      !formData.price ||
+      !formData.deliveryTime
     ) {
-      const newService = {
-        id: myServices.length + 1,
+      toast({
+        title: "Error",
+        description: "Please fill in all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const newService = await servicesApi.create(talentProfile.id, {
         title: formData.title,
         description: formData.description,
-        price: parseInt(formData.price),
-        deliveryTime: formData.deliveryTime,
-        location: "Remote",
+        starting_price: parseFloat(formData.price),
+        delivery_time: formData.deliveryTime,
+        category: formData.category || 'Development',
         tags: formData.tags
           .split(",")
           .map((tag) => tag.trim())
           .filter((tag) => tag),
-        icon: Code,
-      };
+        icon: 'Code',
+      });
 
-      setMyServices([...myServices, newService]);
+      setMyServices([newService, ...myServices]);
       setFormData({
         title: "",
         description: "",
         price: "",
         deliveryTime: "",
         tags: "",
+        category: "",
       });
       setShowCreateDialog(false);
+      
+      toast({
+        title: "Success",
+        description: "Service created successfully!",
+      });
+    } catch (error) {
+      console.error('Failed to create service:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create service. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleDeleteService = (id) => {
-    setMyServices(myServices.filter((service) => service.id !== id));
+  const handleEditService = async () => {
+    if (!editingService) return;
+
+    if (
+      !formData.title ||
+      !formData.description ||
+      !formData.price ||
+      !formData.deliveryTime
+    ) {
+      toast({
+        title: "Error",
+        description: "Please fill in all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const updatedService = await servicesApi.update(editingService.id, {
+        title: formData.title,
+        description: formData.description,
+        starting_price: parseFloat(formData.price),
+        delivery_time: formData.deliveryTime,
+        category: formData.category || editingService.category,
+        tags: formData.tags
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter((tag) => tag),
+      });
+
+      setMyServices(
+        myServices.map((service) =>
+          service.id === updatedService.id ? updatedService : service
+        )
+      );
+      
+      setFormData({
+        title: "",
+        description: "",
+        price: "",
+        deliveryTime: "",
+        tags: "",
+        category: "",
+      });
+      setEditingService(null);
+      setShowEditDialog(false);
+      
+      toast({
+        title: "Success",
+        description: "Service updated successfully!",
+      });
+    } catch (error) {
+      console.error('Failed to update service:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update service. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteService = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this service?')) return;
+
+    try {
+      await servicesApi.delete(id);
+      setMyServices(myServices.filter((service) => service.id !== id));
+      
+      toast({
+        title: "Success",
+        description: "Service deleted successfully!",
+      });
+    } catch (error) {
+      console.error('Failed to delete service:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete service. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const openEditDialog = (service: Service) => {
+    setEditingService(service);
+    setFormData({
+      title: service.title,
+      description: service.description || "",
+      price: service.starting_price?.toString() || "",
+      deliveryTime: service.delivery_time || "",
+      tags: service.tags?.join(", ") || "",
+      category: service.category || "",
+    });
+    setShowEditDialog(true);
+  };
+
+  const getIconComponent = (iconName?: string) => {
+    const iconMap: { [key: string]: any } = {
+      Code,
+      Palette,
+      PenTool,
+      Megaphone,
+      TrendingUp,
+      FileText,
+      Languages,
+      Video,
+      Smartphone,
+    };
+    return iconMap[iconName || 'Code'] || Code;
   };
 
   return (
@@ -174,15 +344,15 @@ const TalentServices = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
               <div>
                 <p className="text-xs opacity-80">Current Plan</p>
-                <p className="font-bold text-lg">{subscription.plan}</p>
+                <p className="font-bold text-lg">{loadingSubscription ? 'Loading...' : subscription?.plan?.display_name || 'Free'}</p>
               </div>
               <div>
                 <p className="text-xs opacity-80">Renewal Date</p>
-                <p className="font-bold text-lg">{subscription.expiryDate}</p>
+                <p className="font-bold text-lg">{loadingSubscription ? 'Loading...' : subscription?.expires_at ? new Date(subscription.expires_at).toLocaleDateString() : 'N/A'}</p>
               </div>
               <div>
                 <p className="text-xs opacity-80">Auto-Renewal</p>
-                <p className="font-bold text-lg">{subscription.autoRenew ? 'Enabled' : 'Disabled'}</p>
+                <p className="font-bold text-lg">{loadingSubscription ? 'Loading...' : subscription?.auto_renew ? 'Enabled' : 'Disabled'}</p>
               </div>
             </div>
             <div className="flex flex-col md:flex-row gap-3 md:gap-6">
@@ -299,15 +469,15 @@ const TalentServices = () => {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                   <div>
                     <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Plan Name</p>
-                    <p className="text-lg font-bold" style={{ color: '#f93712' }}>{subscription.plan}</p>
+                    <p className="text-lg font-bold" style={{ color: '#f93712' }}>{subscription?.plan?.display_name || 'Free'}</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Renewal Date</p>
-                    <p className="text-lg font-bold text-gray-800">{subscription.expiryDate}</p>
+                    <p className="text-lg font-bold text-gray-800">{subscription?.expires_at ? new Date(subscription.expires_at).toLocaleDateString() : 'N/A'}</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Billing Cycle</p>
-                    <p className="text-lg font-bold text-gray-800">Monthly</p>
+                    <p className="text-lg font-bold text-gray-800">{subscription?.plan?.billing_cycle ? subscription.plan.billing_cycle.charAt(0).toUpperCase() + subscription.plan.billing_cycle.slice(1) : 'N/A'}</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Monthly Cost</p>
@@ -416,6 +586,18 @@ const TalentServices = () => {
                 />
               </div>
 
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold text-gray-900">Category</Label>
+                <Input
+                  placeholder="e.g., Development, Design, Marketing"
+                  value={formData.category}
+                  onChange={(e) =>
+                    setFormData({ ...formData, category: e.target.value })
+                  }
+                  className="border-orange-200 focus:ring-orange-500"
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold text-gray-900">Starting Price ($) *</Label>
@@ -462,14 +644,148 @@ const TalentServices = () => {
                 variant="outline"
                 onClick={() => setShowCreateDialog(false)}
                 className="border-orange-200 text-gray-700 hover:bg-gray-50"
+                disabled={submitting}
               >
                 Cancel
               </Button>
               <Button
                 onClick={handleCreateService}
                 className="bg-orange-500 hover:bg-orange-600 text-white"
+                disabled={submitting}
               >
-                Create Service
+                {submitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  'Create Service'
+                )}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Service Dialog */}
+        <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl border border-orange-100 p-0 flex flex-col">
+            {/* Header */}
+            <div className="bg-white px-8 py-6 border-b border-orange-100 flex items-center justify-between sticky top-0 z-10">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Edit Service</h2>
+                <p className="text-gray-600 mt-1">Update your service details</p>
+              </div>
+              <button
+                onClick={() => setShowEditDialog(false)}
+                className="p-2 rounded-full hover:bg-gray-100 transition"
+                aria-label="Close"
+              >
+                <X className="w-6 h-6 text-gray-400" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <div className="p-8 space-y-6 flex-1 overflow-y-auto">
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold text-gray-900">Service Title *</Label>
+                <Input
+                  placeholder="e.g., React Web Development"
+                  value={formData.title}
+                  onChange={(e) =>
+                    setFormData({ ...formData, title: e.target.value })
+                  }
+                  className="border-orange-200 focus:ring-orange-500"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold text-gray-900">Description *</Label>
+                <textarea
+                  placeholder="Describe your service in detail..."
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData({ ...formData, description: e.target.value })
+                  }
+                  className="w-full border border-orange-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                  rows={4}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold text-gray-900">Category</Label>
+                <Input
+                  placeholder="e.g., Development, Design, Marketing"
+                  value={formData.category}
+                  onChange={(e) =>
+                    setFormData({ ...formData, category: e.target.value })
+                  }
+                  className="border-orange-200 focus:ring-orange-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-gray-900">Starting Price ($) *</Label>
+                  <Input
+                    type="number"
+                    placeholder="e.g., 150"
+                    value={formData.price}
+                    onChange={(e) =>
+                      setFormData({ ...formData, price: e.target.value })
+                    }
+                    className="border-orange-200 focus:ring-orange-500"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-gray-900">Delivery Time *</Label>
+                  <Input
+                    placeholder="e.g., 7 days"
+                    value={formData.deliveryTime}
+                    onChange={(e) =>
+                      setFormData({ ...formData, deliveryTime: e.target.value })
+                    }
+                    className="border-orange-200 focus:ring-orange-500"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold text-gray-900">Tags (comma-separated)</Label>
+                <Input
+                  placeholder="e.g., React, TypeScript, Tailwind"
+                  value={formData.tags}
+                  onChange={(e) =>
+                    setFormData({ ...formData, tags: e.target.value })
+                  }
+                  className="border-orange-200 focus:ring-orange-500"
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-white border-t border-orange-100 px-8 py-6 flex gap-3 justify-end sticky bottom-0">
+              <Button
+                variant="outline"
+                onClick={() => setShowEditDialog(false)}
+                className="border-orange-200 text-gray-700 hover:bg-gray-50"
+                disabled={submitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleEditService}
+                className="bg-orange-500 hover:bg-orange-600 text-white"
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  'Update Service'
+                )}
               </Button>
             </div>
           </DialogContent>
@@ -480,17 +796,23 @@ const TalentServices = () => {
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-2xl font-bold">
-                {myServices.length === 0 ? "No Services Yet" : "My Services"}
+                {loading ? "Loading..." : myServices.length === 0 ? "No Services Yet" : "My Services"}
               </h2>
               <p className="text-gray-600 mt-1">
-                {myServices.length === 0
+                {loading 
+                  ? "Fetching your services..."
+                  : myServices.length === 0
                   ? "Create your first service to get started"
                   : `You have ${myServices.length} active service${myServices.length !== 1 ? "s" : ""}`}
               </p>
             </div>
           </div>
 
-          {myServices.length === 0 ? (
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+            </div>
+          ) : myServices.length === 0 ? (
             <Card className="border-orange-100 shadow-sm hover:shadow-lg transition-all duration-200 bg-white rounded-xl">
               <CardContent className="p-12 text-center">
                 <Code className="w-12 h-12 text-gray-300 mx-auto mb-4" />
@@ -512,7 +834,7 @@ const TalentServices = () => {
           ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
               {myServices.map((service) => {
-                const Icon = service.icon;
+                const Icon = getIconComponent(service.icon);
                 return (
                   <Card
                     key={service.id}
@@ -544,32 +866,34 @@ const TalentServices = () => {
                     <CardContent className="p-6 space-y-4 flex-1 flex flex-col">
                       <div className="flex items-center gap-2 text-xs text-gray-500">
                         <MapPin className="w-3 h-3" />
-                        <span>{service.location}</span>
+                        <span>Remote</span>
                         <span className="mx-2">·</span>
                         <Clock className="w-3 h-3" />
-                        <span>{service.deliveryTime}</span>
+                        <span>{service.delivery_time || 'TBD'}</span>
                       </div>
 
-                      <div className="flex flex-wrap gap-2">
-                        {service.tags.slice(0, 3).map((tag, idx) => (
-                          <span
-                            key={idx}
-                            className="bg-orange-50 text-orange-700 px-2.5 py-1 rounded-md text-xs font-medium border border-orange-100"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                        {service.tags.length > 3 && (
-                          <span className="text-xs text-gray-400 pt-1">
-                            +{service.tags.length - 3} more
-                          </span>
-                        )}
-                      </div>
+                      {service.tags && service.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {service.tags.slice(0, 3).map((tag, idx) => (
+                            <span
+                              key={idx}
+                              className="bg-orange-50 text-orange-700 px-2.5 py-1 rounded-md text-xs font-medium border border-orange-100"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                          {service.tags.length > 3 && (
+                            <span className="text-xs text-gray-400 pt-1">
+                              +{service.tags.length - 3} more
+                            </span>
+                          )}
+                        </div>
+                      )}
 
                       <div className="mt-auto flex items-center justify-between pt-4 border-t border-orange-100">
                         <div>
                           <span className="text-2xl font-bold text-orange-600">
-                            ${service.price}
+                            ${service.starting_price || 0}
                           </span>
                           <span className="text-xs text-gray-500 block">starting at</span>
                         </div>
@@ -578,6 +902,7 @@ const TalentServices = () => {
                             size="sm"
                             variant="outline"
                             className="border-orange-200 text-orange-700 hover:bg-orange-50 px-3"
+                            onClick={() => openEditDialog(service)}
                           >
                             Edit
                           </Button>

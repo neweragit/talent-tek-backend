@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import OwnerLayout from "@/components/layouts/OwnerLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/lib/supabase";
 import { 
   CreditCard, 
   Users, 
@@ -28,8 +29,42 @@ import {
   Package
 } from "lucide-react";
 
+interface Plan {
+  id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  price: number;
+  billing_cycle: string;
+  features: string[];
+  target_user_type: 'employer' | 'talent';
+  is_active: boolean;
+  is_featured: boolean;
+  max_job_posts?: number;
+  max_active_jobs?: number;
+  max_users?: number;
+  max_service_posts?: number;
+  max_active_services?: number;
+  subscribers: number;
+}
+
+interface Subscription {
+  id: string;
+  name: string;
+  email: string;
+  plan: string;
+  price: string;
+  startDate: string;
+  nextBilling: string;
+  status: string;
+  autoRenew: boolean;
+  paymentMethod: string;
+  totalPaid: string;
+}
+
 export default function OwnerSubscriptions() {
   const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [editSubscriptionDialog, setEditSubscriptionDialog] = useState(false);
@@ -37,176 +72,227 @@ export default function OwnerSubscriptions() {
   const [addSubscriptionDialog, setAddSubscriptionDialog] = useState(false);
   const [managePlansDialog, setManagePlansDialog] = useState(false);
   const [editPlanDialog, setEditPlanDialog] = useState(false);
-  const [selectedSubscription, setSelectedSubscription] = useState(null);
-  const [selectedPlan, setSelectedPlan] = useState(null);
+  const [addPlanDialog, setAddPlanDialog] = useState(false);
+  const [deletePlanDialog, setDeletePlanDialog] = useState(false);
+  const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
+  const [planToDelete, setPlanToDelete] = useState<Plan | null>(null);
+  const [selectedPlanType, setSelectedPlanType] = useState<'employer' | 'talent'>('employer');
   const [activeTab, setActiveTab] = useState("subscriptions");
 
-  // Available subscription plans
-  const [employerPlans, setEmployerPlans] = useState([
-    { id: "EP-1", name: "Starter", price: "15,000 DZD", features: ["5 Job Posts", "50 Applications", "Email Support"], subscribers: 1 },
-    { id: "EP-2", name: "Professional", price: "35,000 DZD", features: ["20 Job Posts", "Unlimited Applications", "Priority Support", "Analytics"], subscribers: 3 },
-    { id: "EP-3", name: "Enterprise", price: "75,000 DZD", features: ["Unlimited Posts", "Unlimited Applications", "Dedicated Support", "Advanced Analytics", "API Access"], subscribers: 1 }
-  ]);
+  // Plans and subscriptions state
+  const [employerPlans, setEmployerPlans] = useState<Plan[]>([]);
+  const [talentPlans, setTalentPlans] = useState<Plan[]>([]);
+  const [employerSubscriptions, setEmployerSubscriptions] = useState<Subscription[]>([]);
+  const [talentSubscriptions, setTalentSubscriptions] = useState<Subscription[]>([]);
+  const [stats, setStats] = useState({
+    totalRevenue: "0",
+    monthlyRevenue: "0",
+    activeEmployers: 0,
+    activeTalents: 0,
+    employerSubscriptions: 0,
+    talentSubscriptions: 0,
+  });
 
-  const [talentPlans, setTalentPlans] = useState([
-    { id: "TP-1", name: "Free", price: "0 USD", features: ["Basic Profile", "Apply to Jobs", "Limited Visibility"], subscribers: 2 },
-    { id: "TP-2", name: "Premium", price: "9.99 USD", features: ["Enhanced Profile", "Priority Applications", "Profile Boost", "Resume Download"], subscribers: 2 },
-    { id: "TP-3", name: "Elite", price: "19.99 USD", features: ["All Premium Features", "Direct Employer Contact", "Career Coaching", "Featured Profile"], subscribers: 1 }
-  ]);
+  useEffect(() => {
+    loadData();
+  }, []);
 
-  // Mock subscription data
-  const employerSubscriptions = [
-    {
-      id: "ES-001",
-      companyName: "Tech Innovators Inc",
-      email: "admin@techinnovators.com",
-      plan: "Professional",
-      price: "35,000 DZD",
-      startDate: "2024-11-01",
-      nextBilling: "2025-12-01",
-      status: "active",
-      autoRenew: true,
-      paymentMethod: "CIB Card •••• 4532",
-      totalPaid: "385,000 DZD"
-    },
-    {
-      id: "ES-002",
-      companyName: "Digital Solutions Ltd",
-      email: "billing@digitalsolutions.com",
-      plan: "Enterprise",
-      price: "75,000 DZD",
-      startDate: "2024-08-15",
-      nextBilling: "2025-12-15",
-      status: "active",
-      autoRenew: true,
-      paymentMethod: "BADR Card •••• 7821",
-      totalPaid: "300,000 DZD"
-    },
-    {
-      id: "ES-003",
-      companyName: "StartUp Hub",
-      email: "finance@startuphub.com",
-      plan: "Starter",
-      price: "15,000 DZD",
-      startDate: "2025-10-01",
-      nextBilling: "2025-12-01",
-      status: "active",
-      autoRenew: false,
-      paymentMethod: "CCP Account",
-      totalPaid: "30,000 DZD"
-    },
-    {
-      id: "ES-004",
-      companyName: "Legacy Corp",
-      email: "admin@legacycorp.com",
-      plan: "Professional",
-      price: "35,000 DZD",
-      startDate: "2025-09-01",
-      nextBilling: "-",
-      status: "cancelled",
-      autoRenew: false,
-      paymentMethod: "CIB Card •••• 9234",
-      totalPaid: "70,000 DZD"
-    },
-    {
-      id: "ES-005",
-      companyName: "NextGen Solutions",
-      email: "billing@nextgen.com",
-      plan: "Enterprise",
-      price: "75,000 DZD",
-      startDate: "2025-11-15",
-      nextBilling: "2025-12-05",
-      status: "past_due",
-      autoRenew: true,
-      paymentMethod: "BADR Card •••• 3421",
-      totalPaid: "75,000 DZD"
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      await Promise.all([
+        loadPlans(),
+        loadSubscriptions(),
+        loadStats()
+      ]);
+    } catch (error) {
+      console.error('Error loading data:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load subscription data.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
     }
-  ];
+  }
 
-  const talentSubscriptions = [
-    {
-      id: "TS-001",
-      talentName: "Abderraouf Abla",
-      email: "abderraouf.education@gmail.com",
-      plan: "Premium Freelancer",
-      price: "$29",
-      startDate: "2024-06-01",
-      nextBilling: "2025-12-01",
-      status: "active",
-      autoRenew: true,
-      paymentMethod: "Visa •••• 4532",
-      totalPaid: "$522"
-    },
-    {
-      id: "TS-002",
-      talentName: "Sara Bensalem",
-      email: "sara.bensalem@email.com",
-      plan: "Elite Professional",
-      price: "$99",
-      startDate: "2024-03-15",
-      nextBilling: "2025-12-15",
-      status: "active",
-      autoRenew: true,
-      paymentMethod: "Mastercard •••• 8821",
-      totalPaid: "$1,881"
-    },
-    {
-      id: "TS-003",
-      talentName: "Karim Benali",
-      email: "karim.benali@email.com",
-      plan: "Free",
-      price: "$0",
-      startDate: "2025-11-01",
-      nextBilling: "-",
-      status: "active",
-      autoRenew: false,
-      paymentMethod: "-",
-      totalPaid: "$0"
-    },
-    {
-      id: "TS-004",
-      talentName: "Yasmine Rahmouni",
-      email: "yasmine.r@email.com",
-      plan: "Premium Freelancer",
-      price: "$29",
-      startDate: "2025-10-01",
-      nextBilling: "-",
-      status: "cancelled",
-      autoRenew: false,
-      paymentMethod: "Visa •••• 2341",
-      totalPaid: "$58"
-    },
-    {
-      id: "TS-005",
-      talentName: "Mehdi Touati",
-      email: "mehdi.touati@email.com",
-      plan: "Premium Freelancer",
-      price: "$29",
-      startDate: "2025-11-10",
-      nextBilling: "2025-12-03",
-      status: "past_due",
-      autoRenew: true,
-      paymentMethod: "Visa •••• 7634",
-      totalPaid: "$29"
-    }
-  ];
+  async function loadPlans() {
+    const { data: plansData, error } = await supabase
+      .from('plans')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order');
 
-  const stats = {
-    totalRevenue: "1,437,000 DZD",
-    monthlyRevenue: "265,000 DZD",
-    activeEmployers: 3,
-    activeTalents: 3,
-    employerSubscriptions: 5,
-    talentSubscriptions: 5,
-    pastDueCount: 2
-  };
+    if (error) throw error;
 
-  const handleEditSubscription = (subscription) => {
+    // Count subscribers for each plan
+    const plansWithSubscribers = await Promise.all(
+      plansData.map(async (plan) => {
+        const { count } = await supabase
+          .from('subscriptions')
+          .select('id', { count: 'exact', head: true })
+          .eq('plan_id', plan.id)
+          .eq('status', 'active');
+
+        // Convert features from object to array for display
+        let featuresArray: string[] = [];
+        if (plan.features) {
+          if (Array.isArray(plan.features)) {
+            featuresArray = plan.features;
+          } else if (typeof plan.features === 'object') {
+            // Convert object to descriptive strings
+            featuresArray = Object.entries(plan.features).map(([key, value]) => {
+              const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+              return `${formattedKey}: ${value}`;
+            });
+          }
+        }
+
+        return {
+          id: plan.id,
+          name: plan.name,
+          display_name: plan.display_name,
+          description: plan.description,
+          price: plan.price,
+          billing_cycle: plan.billing_cycle,
+          features: featuresArray,
+          target_user_type: plan.target_user_type,
+          is_active: plan.is_active,
+          is_featured: plan.is_featured,
+          max_job_posts: plan.max_job_posts,
+          max_active_jobs: plan.max_active_jobs,
+          max_users: plan.max_users,
+          max_service_posts: plan.max_service_posts,
+          max_active_services: plan.max_active_services,
+          subscribers: count || 0
+        };
+      })
+    );
+
+    const employers = plansWithSubscribers.filter(p => p.target_user_type === 'employer');
+    const talents = plansWithSubscribers.filter(p => p.target_user_type === 'talent');
+
+    setEmployerPlans(employers);
+    setTalentPlans(talents);
+  }
+
+  async function loadSubscriptions() {
+    // Load employer subscriptions
+    const { data: empSubs, error: empError } = await supabase
+      .from('subscriptions')
+      .select(`
+        id,
+        status,
+        started_at,
+        expires_at,
+        auto_renew,
+        plan_id,
+        plans (name, display_name, price),
+        employers (
+          company_name,
+          users (email)
+        )
+      `)
+      .not('employer_id', 'is', null)
+      .order('created_at', { ascending: false });
+
+    if (empError) throw empError;
+
+    const formattedEmpSubs: Subscription[] = (empSubs || []).map((sub: any) => ({
+      id: sub.id,
+      name: sub.employers?.company_name || 'Unknown',
+      email: sub.employers?.users?.email || 'No email',
+      plan: sub.plans?.display_name || sub.plans?.name || 'Unknown Plan',
+      price: `${sub.plans?.price || 0} DZD`,
+      startDate: new Date(sub.started_at).toISOString().split('T')[0],
+      nextBilling: sub.expires_at ? new Date(sub.expires_at).toISOString().split('T')[0] : '-',
+      status: sub.status,
+      autoRenew: sub.auto_renew,
+      paymentMethod: 'N/A',
+      totalPaid: '0 DZD'
+    }));
+
+    // Load talent subscriptions
+    const { data: talSubs, error: talError } = await supabase
+      .from('subscriptions')
+      .select(`
+        id,
+        status,
+        started_at,
+        expires_at,
+        auto_renew,
+        plan_id,
+        plans (name, display_name, price),
+        talents (
+          full_name,
+          users (email)
+        )
+      `)
+      .not('talent_id', 'is', null)
+      .order('created_at', { ascending: false });
+
+    if (talError) throw talError;
+
+    const formattedTalSubs: Subscription[] = (talSubs || []).map((sub: any) => ({
+      id: sub.id,
+      name: sub.talents?.full_name || 'Unknown',
+      email: sub.talents?.users?.email || 'No email',
+      plan: sub.plans?.display_name || sub.plans?.name || 'Unknown Plan',
+      price: `$${sub.plans?.price || 0}`,
+      startDate: new Date(sub.started_at).toISOString().split('T')[0],
+      nextBilling: sub.expires_at ? new Date(sub.expires_at).toISOString().split('T')[0] : '-',
+      status: sub.status,
+      autoRenew: sub.auto_renew,
+      paymentMethod: 'N/A',
+      totalPaid: '$0'
+    }));
+
+    setEmployerSubscriptions(formattedEmpSubs);
+    setTalentSubscriptions(formattedTalSubs);
+  }
+
+  async function loadStats() {
+    // Count active subscriptions
+    const { count: activeEmpCount } = await supabase
+      .from('subscriptions')
+      .select('id', { count: 'exact', head: true })
+      .not('employer_id', 'is', null)
+      .eq('status', 'active');
+
+    const { count: activeTalCount } = await supabase
+      .from('subscriptions')
+      .select('id', { count: 'exact', head: true })
+      .not('talent_id', 'is', null)
+      .eq('status', 'active');
+
+    const { count: totalEmpSubs } = await supabase
+      .from('subscriptions')
+      .select('id', { count: 'exact', head: true })
+      .not('employer_id', 'is', null);
+
+    const { count: totalTalSubs } = await supabase
+      .from('subscriptions')
+      .select('id', { count: 'exact', head: true })
+      .not('talent_id', 'is', null);
+
+    setStats({
+      totalRevenue: "0", // Would need payments table data
+      monthlyRevenue: "0", // Would need payments table data
+      activeEmployers: activeEmpCount || 0,
+      activeTalents: activeTalCount || 0,
+      employerSubscriptions: totalEmpSubs || 0,
+      talentSubscriptions: totalTalSubs || 0,
+    });
+  }
+
+  const handleEditSubscription = (subscription: Subscription) => {
     setSelectedSubscription(subscription);
     setEditSubscriptionDialog(true);
   };
 
-  const handleCancelSubscription = (subscription) => {
+  const handleCancelSubscription = (subscription: Subscription) => {
     setSelectedSubscription(subscription);
     setCancelSubscriptionDialog(true);
   };
@@ -214,7 +300,7 @@ export default function OwnerSubscriptions() {
   const confirmCancelSubscription = () => {
     toast({
       title: "Subscription Cancelled",
-      description: `${selectedSubscription?.companyName || selectedSubscription?.talentName}'s subscription has been cancelled.`,
+      description: `${selectedSubscription?.name}'s subscription has been cancelled.`,
     });
     setCancelSubscriptionDialog(false);
     setSelectedSubscription(null);
@@ -237,69 +323,290 @@ export default function OwnerSubscriptions() {
     setAddSubscriptionDialog(false);
   };
 
-  const handleExportToExcel = () => {
-    const allSubscriptions = [
-      ...employerSubscriptions.map(sub => ({
-        Type: "Employer",
-        ID: sub.id,
-        Name: sub.companyName,
-        Email: sub.email,
-        Plan: sub.plan,
-        Price: sub.price,
-        "Start Date": sub.startDate,
-        "Next Billing": sub.nextBilling,
-        Status: sub.status,
-        "Auto Renew": sub.autoRenew ? "Yes" : "No",
-        "Payment Method": sub.paymentMethod,
-        "Total Paid": sub.totalPaid
-      })),
-      ...talentSubscriptions.map(sub => ({
-        Type: "Talent",
-        ID: sub.id,
-        Name: sub.talentName,
-        Email: sub.email,
-        Plan: sub.plan,
-        Price: sub.price,
-        "Start Date": sub.startDate,
-        "Next Billing": sub.nextBilling,
-        Status: sub.status,
-        "Auto Renew": sub.autoRenew ? "Yes" : "No",
-        "Payment Method": sub.paymentMethod,
-        "Total Paid": sub.totalPaid
-      }))
-    ];
-
-    // Convert to CSV
-    const headers = Object.keys(allSubscriptions[0]).join(",");
-    const rows = allSubscriptions.map(sub => 
-      Object.values(sub).map(val => `"${val}"`).join(",")
-    ).join("\n");
-    const csv = `${headers}\n${rows}`;
-
-    // Create blob and download
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `subscriptions_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    toast({
-      title: "Export Successful",
-      description: "Subscriptions data exported to CSV file.",
-    });
+  const handleEditPlan = (plan: Plan) => {
+    if (plan.subscribers > 0) {
+      toast({
+        title: "Cannot Edit Plan",
+        description: `This plan has ${plan.subscribers} active subscriber(s). Plans with subscribers cannot be edited.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    setSelectedPlan(plan);
+    setEditPlanDialog(true);
   };
 
-  const getStatusBadge = (status) => {
+  const handleAddPlan = (type: 'employer' | 'talent') => {
+    setSelectedPlanType(type);
+    setSelectedPlan(null);
+    setAddPlanDialog(true);
+  };
+
+  async function handleSavePlan(planData: any) {
+    try {
+      const { error } = await supabase
+        .from('plans')
+        .update({
+          name: planData.name,
+          display_name: planData.displayName,
+          description: planData.description,
+          price: planData.price,
+          billing_cycle: planData.billingCycle || 'monthly',
+          features: planData.features, // Array will be auto-converted to JSONB
+          max_job_posts: planData.maxJobPosts || null,
+          max_active_jobs: planData.maxActiveJobs || null,
+          max_users: planData.maxUsers || null,
+          max_service_posts: planData.maxServicePosts || null,
+          max_active_services: planData.maxActiveServices || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', selectedPlan?.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Plan Updated",
+        description: "The subscription plan has been updated successfully.",
+      });
+      setEditPlanDialog(false);
+      loadPlans();
+    } catch (error) {
+      console.error('Error updating plan:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update plan. Please try again.",
+        variant: "destructive",
+      });
+    }
+  }
+
+  async function handleDeletePlan(plan: Plan) {
+    if (plan.subscribers > 0) {
+      toast({
+        title: "Cannot Delete Plan",
+        description: `This plan has ${plan.subscribers} active subscribers. Please migrate them to another plan first.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setPlanToDelete(plan);
+    setDeletePlanDialog(true);
+  }
+
+  async function confirmDeletePlan() {
+    if (!planToDelete) return;
+
+    try {
+      const { error } = await supabase
+        .from('plans')
+        .delete()
+        .eq('id', planToDelete.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Plan Deleted",
+        description: "The subscription plan has been deleted successfully.",
+      });
+      setDeletePlanDialog(false);
+      setPlanToDelete(null);
+      loadPlans();
+    } catch (error) {
+      console.error('Error deleting plan:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete plan. Please try again.",
+        variant: "destructive",
+      });
+    }
+  }
+
+  async function handleCreatePlan(planData: any) {
+    try {
+      const { error } = await supabase
+        .from('plans')
+        .insert({
+          name: planData.name,
+          display_name: planData.displayName,
+          description: planData.description,
+          target_user_type: selectedPlanType,
+          price: planData.price,
+          billing_cycle: planData.billingCycle || 'monthly',
+          features: planData.features, // Array will be auto-converted to JSONB by Supabase
+          is_active: true,
+          is_featured: false,
+          sort_order: 0,
+          max_job_posts: planData.maxJobPosts || null,
+          max_active_jobs: planData.maxActiveJobs || null,
+          max_users: planData.maxUsers || null,
+          max_service_posts: planData.maxServicePosts || null,
+          max_active_services: planData.maxActiveServices || null,
+        });
+
+      if (error) throw error;
+
+      toast({
+        title: "Plan Created",
+        description: "New subscription plan has been created successfully.",
+      });
+      setAddPlanDialog(false);
+      loadPlans();
+    } catch (error) {
+      console.error('Error creating plan:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create plan. Please try again.",
+        variant: "destructive",
+      });
+    }
+  }
+
+  const handleExportToPDF = async () => {
+    try {
+      // Dynamically import jsPDF and autoTable
+      const { default: jsPDF } = await import('jspdf');
+      const autoTable = (await import('jspdf-autotable')).default;
+      
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      
+      // TalenTek brand colors
+      const primaryColor: [number, number, number] = [255, 87, 34]; // Orange
+      const darkColor: [number, number, number] = [33, 33, 33];
+      const lightGray: [number, number, number] = [240, 240, 240];
+      
+      // Header with logo area
+      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.rect(0, 0, pageWidth, 40, 'F');
+      
+      // Company name
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(24);
+      doc.setFont('helvetica', 'bold');
+      doc.text('TalenTek', 15, 20);
+      
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Subscriptions Report', 15, 30);
+      
+      // Report date
+      doc.setFontSize(9);
+      const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      doc.text(`Generated: ${today}`, pageWidth - 15, 20, { align: 'right' });
+      doc.text('OFFICIAL DOCUMENT', pageWidth - 15, 30, { align: 'right' });
+      
+      // Stats Summary
+      doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Summary', 15, 50);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Active Employers: ${stats.activeEmployers}`, 15, 58);
+      doc.text(`Active Talents: ${stats.activeTalents}`, 15, 64);
+      doc.text(`Total Subscriptions: ${stats.employerSubscriptions + stats.talentSubscriptions}`, 15, 70);
+      
+      // Employer Subscriptions Table
+      if (employerSubscriptions.length > 0) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.text('Employer Subscriptions', 15, 85);
+        
+        autoTable(doc, {
+          startY: 90,
+          head: [['Company', 'Plan', 'Price', 'Status', 'Next Billing']],
+          body: employerSubscriptions.map(sub => [
+            sub.name,
+            sub.plan,
+            sub.price,
+            sub.status.charAt(0).toUpperCase() + sub.status.slice(1),
+            sub.nextBilling
+          ]),
+          theme: 'grid',
+          headStyles: {
+            fillColor: primaryColor,
+            textColor: [255, 255, 255],
+            fontStyle: 'bold'
+          },
+          alternateRowStyles: {
+            fillColor: lightGray
+          },
+          styles: {
+            fontSize: 9,
+            cellPadding: 4
+          }
+        });
+      }
+      
+      // Talent Subscriptions Table
+      if (talentSubscriptions.length > 0) {
+        const finalY = (doc as any).lastAutoTable?.finalY || 90;
+        
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.text('Talent Subscriptions', 15, finalY + 15);
+        
+        autoTable(doc, {
+          startY: finalY + 20,
+          head: [['Talent', 'Plan', 'Price', 'Status', 'Next Billing']],
+          body: talentSubscriptions.map(sub => [
+            sub.name,
+            sub.plan,
+            sub.price,
+            sub.status.charAt(0).toUpperCase() + sub.status.slice(1),
+            sub.nextBilling
+          ]),
+          theme: 'grid',
+          headStyles: {
+            fillColor: primaryColor,
+            textColor: [255, 255, 255],
+            fontStyle: 'bold'
+          },
+          alternateRowStyles: {
+            fillColor: lightGray
+          },
+          styles: {
+            fontSize: 9,
+            cellPadding: 4
+          }
+        });
+      }
+      
+      // Footer
+      const finalY = (doc as any).lastAutoTable?.finalY || pageHeight - 30;
+      doc.setFontSize(8);
+      doc.setTextColor(128, 128, 128);
+      doc.text('This is an official document from TalenTek', pageWidth / 2, pageHeight - 15, { align: 'center' });
+      const year = new Date().getFullYear();
+      doc.text(`Page 1 | (c) ${year} TalenTek. All rights reserved.`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+      
+      // Save PDF
+      const dateStr = new Date().toISOString().split('T')[0];
+      doc.save(`TalenTek_Subscriptions_${dateStr}.pdf`);
+      
+      toast({
+        title: "Export Successful",
+        description: "Subscriptions report exported to PDF.",
+      });
+    } catch (error) {
+      console.error('PDF export error:', error);
+      toast({
+        title: "Export Failed",
+        description: "Failed to generate PDF. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
     const statusConfig = {
       active: { className: "bg-green-100 text-green-700", icon: CheckCircle, label: "Active" },
       cancelled: { className: "bg-gray-100 text-gray-700", icon: XCircle, label: "Cancelled" },
       past_due: { className: "bg-red-100 text-red-700", icon: AlertCircle, label: "Past Due" }
     };
-    const config = statusConfig[status] || statusConfig.active;
+    const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.active;
     const Icon = config.icon;
     return (
       <Badge className={`${config.className} hover:${config.className} flex items-center gap-1 w-fit`}>
@@ -309,11 +616,11 @@ export default function OwnerSubscriptions() {
     );
   };
 
-  const SubscriptionTable = ({ subscriptions, type }) => {
+  const SubscriptionTable = ({ subscriptions, type }: { subscriptions: Subscription[], type: string }) => {
     const filtered = subscriptions.filter(sub => {
       const matchesSearch = type === "employer" 
-        ? sub.companyName.toLowerCase().includes(searchQuery.toLowerCase())
-        : sub.talentName.toLowerCase().includes(searchQuery.toLowerCase());
+        ? sub.name.toLowerCase().includes(searchQuery.toLowerCase())
+        : sub.name.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesStatus = filterStatus === "all" || sub.status === filterStatus;
       return matchesSearch && matchesStatus;
     });
@@ -342,7 +649,7 @@ export default function OwnerSubscriptions() {
                 <td className="px-4 py-4">
                   <div>
                     <p className="text-sm font-semibold text-gray-900">
-                      {type === "employer" ? sub.companyName : sub.talentName}
+                      {sub.name}
                     </p>
                     <p className="text-xs text-gray-500">{sub.email}</p>
                   </div>
@@ -353,14 +660,14 @@ export default function OwnerSubscriptions() {
                   </Badge>
                 </td>
                 <td className="px-4 py-4 text-sm font-semibold text-gray-900">{sub.price}</td>
-                <td className="px-4 py-4 text-sm text-gray-600">
+                <td className="px-4 py-4 text-sm text-gray-600 whitespace-nowrap">
                   {sub.nextBilling === "-" ? (
                     <span className="text-gray-400">-</span>
                   ) : (
-                    <div className="flex items-center gap-1">
-                      <Calendar className="w-3 h-3" />
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-3 h-3 flex-shrink-0" />
                       {sub.nextBilling}
-                    </div>
+                    </span>
                   )}
                 </td>
                 <td className="px-4 py-4">{getStatusBadge(sub.status)}</td>
@@ -500,21 +807,6 @@ export default function OwnerSubscriptions() {
               </div>
             </CardContent>
           </Card>
-
-          <Card className="border-orange-200 shadow-md hover:shadow-lg transition-shadow">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-red-50 rounded-lg flex items-center justify-center">
-                  <AlertCircle className="w-6 h-6 text-red-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Past Due</p>
-                  <p className="text-xl font-bold text-red-600">{stats.pastDueCount}</p>
-                  <p className="text-xs text-gray-500 mt-1">Need attention</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         </div>
 
         {/* Main Tabs - Plans vs Subscriptions */}
@@ -560,10 +852,10 @@ export default function OwnerSubscriptions() {
                   <Button 
                     variant="outline" 
                     className="border-orange-300 text-primary hover:bg-orange-50"
-                    onClick={handleExportToExcel}
+                    onClick={handleExportToPDF}
                   >
                     <Download className="w-4 h-4 mr-2" />
-                    Export to Excel
+                    Export to PDF
                   </Button>
                 </div>
               </CardContent>
@@ -627,37 +919,139 @@ export default function OwnerSubscriptions() {
               </TabsList>
 
               <TabsContent value="employer-plans">
+                <div className="mb-4 flex justify-end">
+                  <Button
+                    onClick={() => handleAddPlan('employer')}
+                    className="bg-gradient-primary text-white"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Employer Plan
+                  </Button>
+                </div>
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {employerPlans.map((plan) => (
                     <Card key={plan.id} className="border-orange-200 shadow-md hover:shadow-lg transition-shadow">
                       <CardHeader className="bg-gradient-to-r from-orange-50 to-white border-b">
-                        <div className="flex items-center justify-between">
-                          <CardTitle className="text-xl">{plan.name}</CardTitle>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setSelectedPlan(plan);
-                              setEditPlanDialog(true);
-                            }}
-                          >
-                            <Edit className="w-4 h-4" />
-                          </Button>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <CardTitle className="text-xl">{plan.display_name || plan.name}</CardTitle>
+                            {plan.is_featured && (
+                              <Badge className="bg-yellow-500">Featured</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleEditPlan(plan)}
+                              disabled={plan.subscribers > 0}
+                              title={plan.subscribers > 0 ? "Cannot edit plan with active subscribers" : "Edit plan"}
+                              className={plan.subscribers > 0 ? "opacity-50 cursor-not-allowed" : ""}
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleDeletePlan(plan)}
+                              disabled={plan.subscribers > 0}
+                              title={plan.subscribers > 0 ? "Cannot delete plan with active subscribers" : "Delete plan"}
+                              className={plan.subscribers > 0 ? "opacity-50 cursor-not-allowed" : "border-red-300 text-red-600 hover:bg-red-50"}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </div>
-                        <div className="text-2xl font-bold text-primary mt-2">{plan.price}/month</div>
+                        {plan.description && (
+                          <p className="text-sm text-gray-600 mb-2">{plan.description}</p>
+                        )}
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-3xl font-bold text-primary">{plan.price.toLocaleString()}</span>
+                          <span className="text-sm text-gray-600">DZD</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant="outline" className="text-xs">
+                            {plan.billing_cycle || 'monthly'}
+                          </Badge>
+                          <Badge className={plan.is_active ? "bg-green-600" : "bg-gray-400"}>
+                            {plan.is_active ? 'Active' : 'Inactive'}
+                          </Badge>
+                        </div>
                       </CardHeader>
-                      <CardContent className="pt-6 space-y-4">
+                      <CardContent className="pt-4 space-y-4">
                         <div className="flex items-center justify-between pb-3 border-b">
                           <span className="text-sm text-gray-600">Active Subscribers</span>
-                          <Badge className="bg-primary">{plan.subscribers}</Badge>
+                          <Badge className="bg-primary text-white">{plan.subscribers}</Badge>
                         </div>
+                        
+                        {/* Limits Section */}
+                        <div className="space-y-3">
+                          <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide flex items-center gap-2">
+                            <Settings className="w-3.5 h-3.5 text-primary" />
+                            Plan Limits
+                          </p>
+                          <div className="space-y-2">
+                            {plan.max_job_posts && (
+                              <div className="flex items-center justify-between bg-orange-50 rounded-lg px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  <Briefcase className="w-4 h-4 text-primary" />
+                                  <span className="text-xs text-gray-700">Job Posts</span>
+                                </div>
+                                <span className="text-sm font-bold text-primary">{plan.max_job_posts}</span>
+                              </div>
+                            )}
+                            {plan.max_active_jobs && (
+                              <div className="flex items-center justify-between bg-blue-50 rounded-lg px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  <TrendingUp className="w-4 h-4 text-blue-600" />
+                                  <span className="text-xs text-gray-700">Active Jobs</span>
+                                </div>
+                                <span className="text-sm font-bold text-blue-600">{plan.max_active_jobs}</span>
+                              </div>
+                            )}
+                            {plan.max_service_posts && (
+                              <div className="flex items-center justify-between bg-purple-50 rounded-lg px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  <Package className="w-4 h-4 text-purple-600" />
+                                  <span className="text-xs text-gray-700">Service Posts</span>
+                                </div>
+                                <span className="text-sm font-bold text-purple-600">{plan.max_service_posts}</span>
+                              </div>
+                            )}
+                            {plan.max_active_services && (
+                              <div className="flex items-center justify-between bg-indigo-50 rounded-lg px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  <CheckCircle className="w-4 h-4 text-indigo-600" />
+                                  <span className="text-xs text-gray-700">Active Services</span>
+                                </div>
+                                <span className="text-sm font-bold text-indigo-600">{plan.max_active_services}</span>
+                              </div>
+                            )}
+                            {plan.max_users && (
+                              <div className="flex items-center justify-between bg-green-50 rounded-lg px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  <Users className="w-4 h-4 text-green-600" />
+                                  <span className="text-xs text-gray-700">Team Members</span>
+                                </div>
+                                <span className="text-sm font-bold text-green-600">{plan.max_users}</span>
+                              </div>
+                            )}
+                            {!plan.max_job_posts && !plan.max_active_jobs && !plan.max_service_posts && !plan.max_active_services && !plan.max_users && (
+                              <div className="bg-gray-50 rounded-lg px-3 py-2 text-center">
+                                <p className="text-xs text-gray-500 italic">No limits - Unlimited access</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Features Section */}
                         <div className="space-y-2">
-                          <p className="text-sm font-semibold text-gray-700">Features:</p>
-                          <ul className="space-y-1">
+                          <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Features:</p>
+                          <ul className="space-y-1.5 max-h-48 overflow-y-auto">
                             {plan.features.map((feature, idx) => (
-                              <li key={idx} className="text-sm text-gray-600 flex items-start gap-2">
-                                <CheckCircle className="w-4 h-4 text-green-600 mt-0.5" />
-                                {feature}
+                              <li key={idx} className="text-xs text-gray-600 flex items-start gap-2">
+                                <CheckCircle className="w-3.5 h-3.5 text-green-600 mt-0.5 flex-shrink-0" />
+                                <span>{feature}</span>
                               </li>
                             ))}
                           </ul>
@@ -669,37 +1063,139 @@ export default function OwnerSubscriptions() {
               </TabsContent>
 
               <TabsContent value="talent-plans">
+                <div className="mb-4 flex justify-end">
+                  <Button
+                    onClick={() => handleAddPlan('talent')}
+                    className="bg-gradient-primary text-white"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Talent Plan
+                  </Button>
+                </div>
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {talentPlans.map((plan) => (
                     <Card key={plan.id} className="border-orange-200 shadow-md hover:shadow-lg transition-shadow">
                       <CardHeader className="bg-gradient-to-r from-orange-50 to-white border-b">
-                        <div className="flex items-center justify-between">
-                          <CardTitle className="text-xl">{plan.name}</CardTitle>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setSelectedPlan(plan);
-                              setEditPlanDialog(true);
-                            }}
-                          >
-                            <Edit className="w-4 h-4" />
-                          </Button>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <CardTitle className="text-xl">{plan.display_name || plan.name}</CardTitle>
+                            {plan.is_featured && (
+                              <Badge className="bg-yellow-500">Featured</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleEditPlan(plan)}
+                              disabled={plan.subscribers > 0}
+                              title={plan.subscribers > 0 ? "Cannot edit plan with active subscribers" : "Edit plan"}
+                              className={plan.subscribers > 0 ? "opacity-50 cursor-not-allowed" : ""}
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleDeletePlan(plan)}
+                              disabled={plan.subscribers > 0}
+                              title={plan.subscribers > 0 ? "Cannot delete plan with active subscribers" : "Delete plan"}
+                              className={plan.subscribers > 0 ? "opacity-50 cursor-not-allowed" : "border-red-300 text-red-600 hover:bg-red-50"}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </div>
-                        <div className="text-2xl font-bold text-primary mt-2">{plan.price}/month</div>
+                        {plan.description && (
+                          <p className="text-sm text-gray-600 mb-2">{plan.description}</p>
+                        )}
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-3xl font-bold text-primary">${plan.price.toLocaleString()}</span>
+                          <span className="text-sm text-gray-600">USD</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant="outline" className="text-xs">
+                            {plan.billing_cycle || 'monthly'}
+                          </Badge>
+                          <Badge className={plan.is_active ? "bg-green-600" : "bg-gray-400"}>
+                            {plan.is_active ? 'Active' : 'Inactive'}
+                          </Badge>
+                        </div>
                       </CardHeader>
-                      <CardContent className="pt-6 space-y-4">
+                      <CardContent className="pt-4 space-y-4">
                         <div className="flex items-center justify-between pb-3 border-b">
                           <span className="text-sm text-gray-600">Active Subscribers</span>
-                          <Badge className="bg-primary">{plan.subscribers}</Badge>
+                          <Badge className="bg-primary text-white">{plan.subscribers}</Badge>
                         </div>
+                        
+                        {/* Limits Section */}
+                        <div className="space-y-3">
+                          <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide flex items-center gap-2">
+                            <Settings className="w-3.5 h-3.5 text-primary" />
+                            Plan Limits
+                          </p>
+                          <div className="space-y-2">
+                            {plan.max_job_posts && (
+                              <div className="flex items-center justify-between bg-orange-50 rounded-lg px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  <Briefcase className="w-4 h-4 text-primary" />
+                                  <span className="text-xs text-gray-700">Job Posts</span>
+                                </div>
+                                <span className="text-sm font-bold text-primary">{plan.max_job_posts}</span>
+                              </div>
+                            )}
+                            {plan.max_active_jobs && (
+                              <div className="flex items-center justify-between bg-blue-50 rounded-lg px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  <TrendingUp className="w-4 h-4 text-blue-600" />
+                                  <span className="text-xs text-gray-700">Active Jobs</span>
+                                </div>
+                                <span className="text-sm font-bold text-blue-600">{plan.max_active_jobs}</span>
+                              </div>
+                            )}
+                            {plan.max_service_posts && (
+                              <div className="flex items-center justify-between bg-purple-50 rounded-lg px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  <Package className="w-4 h-4 text-purple-600" />
+                                  <span className="text-xs text-gray-700">Service Posts</span>
+                                </div>
+                                <span className="text-sm font-bold text-purple-600">{plan.max_service_posts}</span>
+                              </div>
+                            )}
+                            {plan.max_active_services && (
+                              <div className="flex items-center justify-between bg-indigo-50 rounded-lg px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  <CheckCircle className="w-4 h-4 text-indigo-600" />
+                                  <span className="text-xs text-gray-700">Active Services</span>
+                                </div>
+                                <span className="text-sm font-bold text-indigo-600">{plan.max_active_services}</span>
+                              </div>
+                            )}
+                            {plan.max_users && (
+                              <div className="flex items-center justify-between bg-green-50 rounded-lg px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  <Users className="w-4 h-4 text-green-600" />
+                                  <span className="text-xs text-gray-700">Team Members</span>
+                                </div>
+                                <span className="text-sm font-bold text-green-600">{plan.max_users}</span>
+                              </div>
+                            )}
+                            {!plan.max_job_posts && !plan.max_active_jobs && !plan.max_service_posts && !plan.max_active_services && !plan.max_users && (
+                              <div className="bg-gray-50 rounded-lg px-3 py-2 text-center">
+                                <p className="text-xs text-gray-500 italic">No limits - Unlimited access</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Features Section */}
                         <div className="space-y-2">
-                          <p className="text-sm font-semibold text-gray-700">Features:</p>
-                          <ul className="space-y-1">
+                          <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Features:</p>
+                          <ul className="space-y-1.5 max-h-48 overflow-y-auto">
                             {plan.features.map((feature, idx) => (
-                              <li key={idx} className="text-sm text-gray-600 flex items-start gap-2">
-                                <CheckCircle className="w-4 h-4 text-green-600 mt-0.5" />
-                                {feature}
+                              <li key={idx} className="text-xs text-gray-600 flex items-start gap-2">
+                                <CheckCircle className="w-3.5 h-3.5 text-green-600 mt-0.5 flex-shrink-0" />
+                                <span>{feature}</span>
                               </li>
                             ))}
                           </ul>
@@ -719,7 +1215,7 @@ export default function OwnerSubscriptions() {
             <DialogHeader>
               <DialogTitle>Edit Subscription</DialogTitle>
               <DialogDescription>
-                Update subscription details for {selectedSubscription?.companyName || selectedSubscription?.talentName}
+                Update subscription details for {selectedSubscription?.name}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
@@ -780,7 +1276,7 @@ export default function OwnerSubscriptions() {
             <DialogHeader>
               <DialogTitle>Cancel Subscription</DialogTitle>
               <DialogDescription>
-                Are you sure you want to cancel the subscription for {selectedSubscription?.companyName || selectedSubscription?.talentName}?
+                Are you sure you want to cancel the subscription for {selectedSubscription?.name}?
               </DialogDescription>
             </DialogHeader>
             <div className="py-4">
@@ -871,44 +1367,264 @@ export default function OwnerSubscriptions() {
             <DialogHeader>
               <DialogTitle>Edit Plan</DialogTitle>
               <DialogDescription>
-                Update plan details for {selectedPlan?.name}
+                Update plan details for {selectedPlan?.display_name}
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">Plan Name</label>
-                <Input defaultValue={selectedPlan?.name} placeholder="e.g., Professional" />
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              const features = (formData.get('features') as string).split('\n').filter(f => f.trim());
+              handleSavePlan({
+                name: formData.get('name'),
+                displayName: formData.get('displayName'),
+                description: formData.get('description'),
+                price: parseFloat(formData.get('price') as string),
+                billingCycle: formData.get('billingCycle'),
+                maxJobPosts: formData.get('maxJobPosts') ? parseInt(formData.get('maxJobPosts') as string) : null,
+                maxActiveJobs: formData.get('maxActiveJobs') ? parseInt(formData.get('maxActiveJobs') as string) : null,
+                maxUsers: formData.get('maxUsers') ? parseInt(formData.get('maxUsers') as string) : null,
+                maxServicePosts: formData.get('maxServicePosts') ? parseInt(formData.get('maxServicePosts') as string) : null,
+                maxActiveServices: formData.get('maxActiveServices') ? parseInt(formData.get('maxActiveServices') as string) : null,
+                features
+              });
+            }}>
+              <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Plan Name (Internal)*</label>
+                    <Input name="name" required defaultValue={selectedPlan?.name} placeholder="e.g., professional" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Display Name*</label>
+                    <Input name="displayName" required defaultValue={selectedPlan?.display_name} placeholder="e.g., Professional" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">Description</label>
+                  <Input name="description" defaultValue={selectedPlan?.description || ''} placeholder="Brief plan description" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Price*</label>
+                    <Input name="price" type="number" step="0.01" required defaultValue={selectedPlan?.price} placeholder="e.g., 35000" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Billing Cycle*</label>
+                    <select 
+                      name="billingCycle" 
+                      required
+                      defaultValue={selectedPlan?.billing_cycle || 'monthly'}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                    >
+                      <option value="monthly">Monthly</option>
+                      <option value="quarterly">Quarterly</option>
+                      <option value="annually">Annually</option>
+                      <option value="one-time">One-Time</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Max Job Posts</label>
+                    <Input name="maxJobPosts" type="number" defaultValue={selectedPlan?.max_job_posts || ''} placeholder="empty = unlimited" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Max Active Jobs</label>
+                    <Input name="maxActiveJobs" type="number" defaultValue={selectedPlan?.max_active_jobs || ''} placeholder="e.g., 5" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Max Service Posts</label>
+                    <Input name="maxServicePosts" type="number" defaultValue={selectedPlan?.max_service_posts || ''} placeholder="e.g., 10" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Max Active Services</label>
+                    <Input name="maxActiveServices" type="number" defaultValue={selectedPlan?.max_active_services || ''} placeholder="e.g., 3" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">Max Users</label>
+                  <Input name="maxUsers" type="number" defaultValue={selectedPlan?.max_users || ''} placeholder="e.g., 10 team members" />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">Features (one per line)*</label>
+                  <textarea 
+                    name="features"
+                    required
+                    className="w-full min-h-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                    defaultValue={Array.isArray(selectedPlan?.features) ? selectedPlan.features.join('\n') : ''}
+                    placeholder="Enter features, one per line"
+                  />
+                </div>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <p className="text-sm text-blue-800">
+                    <strong>{selectedPlan?.subscribers}</strong> subscribers are currently on this plan
+                  </p>
+                </div>
               </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">Price</label>
-                <Input defaultValue={selectedPlan?.price} placeholder="e.g., 35,000 DZD" />
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setEditPlanDialog(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" className="bg-gradient-primary text-white">
+                  Save Changes
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Add Plan Dialog */}
+        <Dialog open={addPlanDialog} onOpenChange={setAddPlanDialog}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Create New {selectedPlanType === 'employer' ? 'Employer' : 'Talent'} Plan</DialogTitle>
+              <DialogDescription>
+                Add a new subscription plan for {selectedPlanType}s
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              const features = (formData.get('features') as string).split('\n').filter(f => f.trim());
+              handleCreatePlan({
+                name: formData.get('name'),
+                displayName: formData.get('displayName'),
+                description: formData.get('description'),
+                price: parseFloat(formData.get('price') as string),
+                billingCycle: formData.get('billingCycle'),
+                maxJobPosts: formData.get('maxJobPosts') ? parseInt(formData.get('maxJobPosts') as string) : null,
+                maxActiveJobs: formData.get('maxActiveJobs') ? parseInt(formData.get('maxActiveJobs') as string) : null,
+                maxUsers: formData.get('maxUsers') ? parseInt(formData.get('maxUsers') as string) : null,
+                maxServicePosts: formData.get('maxServicePosts') ? parseInt(formData.get('maxServicePosts') as string) : null,
+                maxActiveServices: formData.get('maxActiveServices') ? parseInt(formData.get('maxActiveServices') as string) : null,
+                features
+              });
+            }}>
+              <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Plan Name (Internal)*</label>
+                    <Input name="name" required placeholder="e.g., professional" />
+                    <p className="text-xs text-gray-500 mt-1">Lowercase, no spaces</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Display Name*</label>
+                    <Input name="displayName" required placeholder="e.g., Professional" />
+                    <p className="text-xs text-gray-500 mt-1">Shown to users</p>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">Description</label>
+                  <Input name="description" placeholder="Brief plan description" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">
+                      Price* ({selectedPlanType === 'employer' ? 'DZD' : 'USD'})
+                    </label>
+                    <Input name="price" type="number" step="0.01" required placeholder="e.g., 35000" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Billing Cycle*</label>
+                    <select 
+                      name="billingCycle" 
+                      required
+                      defaultValue="monthly"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                    >
+                      <option value="monthly">Monthly</option>
+                      <option value="quarterly">Quarterly</option>
+                      <option value="annually">Annually</option>
+                      <option value="one-time">One-Time</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Max Job Posts</label>
+                    <Input name="maxJobPosts" type="number" placeholder="e.g., 20 (empty = unlimited)" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Max Active Jobs</label>
+                    <Input name="maxActiveJobs" type="number" placeholder="e.g., 5" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Max Service Posts</label>
+                    <Input name="maxServicePosts" type="number" placeholder="e.g., 10" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Max Active Services</label>
+                    <Input name="maxActiveServices" type="number" placeholder="e.g., 3" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">Max Users</label>
+                  <Input name="maxUsers" type="number" placeholder="e.g., 10 team members" />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">Features (one per line)*</label>
+                  <textarea 
+                    name="features"
+                    required
+                    className="w-full min-h-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="20 Job Posts&#10;Unlimited Applications&#10;Priority Support&#10;Analytics"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">Features (one per line)</label>
-                <textarea 
-                  className="w-full min-h-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
-                  defaultValue={selectedPlan?.features.join('\n')}
-                  placeholder="Enter features, one per line"
-                />
-              </div>
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm text-blue-800">
-                  <strong>{selectedPlan?.subscribers}</strong> subscribers are currently on this plan
-                </p>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setEditPlanDialog(false)}>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setAddPlanDialog(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" className="bg-gradient-primary text-white">
+                  Create Plan
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Plan Confirmation Dialog */}
+        <Dialog open={deletePlanDialog} onOpenChange={setDeletePlanDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-red-600">
+                <AlertCircle className="w-5 h-5" />
+                Delete Plan
+              </DialogTitle>
+              <DialogDescription className="pt-4">
+                Are you sure you want to delete the <strong>"{planToDelete?.display_name}"</strong> plan?
+                <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-sm text-red-800 font-semibold">
+                    ⚠️ This action cannot be undone.
+                  </p>
+                  <p className="text-xs text-red-700 mt-1">
+                    The plan will be permanently removed from the system.
+                  </p>
+                </div>
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => {
+                  setDeletePlanDialog(false);
+                  setPlanToDelete(null);
+                }}
+              >
                 Cancel
               </Button>
-              <Button className="bg-gradient-primary text-white" onClick={() => {
-                toast({
-                  title: "Plan Updated",
-                  description: "The subscription plan has been updated successfully.",
-                });
-                setEditPlanDialog(false);
-              }}>
-                Save Changes
+              <Button 
+                type="button" 
+                className="bg-red-600 hover:bg-red-700 text-white"
+                onClick={confirmDeletePlan}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete Plan
               </Button>
             </DialogFooter>
           </DialogContent>

@@ -1,10 +1,12 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import TalentLayout from "@/components/layouts/TalentLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
 import {
   Calendar,
   Clock,
@@ -34,43 +36,154 @@ interface Interview {
   status: "upcoming" | "completed" | "cancelled";
   topics?: string[];
   feedback?: string;
+  applicationId: number;
+  scheduledDate: string;
 }
 
 const ITInterviews = () => {
   const { toast } = useToast();
-  const [interviews] = useState<Interview[]>([
-    {
-      id: 1,
-      company: "Hi Talents",
-      companyLogo: "HT",
-      jobTitle: "Content & Social Media Manager",
-      interviewerName: "Alex Rivera",
-      interviewerRole: "Hiring Manager",
-      date: "22/11/2025",
-      time: "03:00 PM",
-      duration: "60 mins",
-      type: "video",
-      meetingLink: "https://zoom.us/meeting/654321",
-      status: "upcoming",
-      topics: ["Leadership style", "Team management", "Project experience"],
-    },
-    {
-      id: 2,
-      company: "Tech Innovations Inc",
-      companyLogo: "TI",
-      jobTitle: "Senior React Developer",
-      interviewerName: "Emma Thompson",
-      interviewerRole: "Engineering Lead",
-      date: "15/11/2025",
-      time: "11:00 AM",
-      duration: "60 mins",
-      type: "video",
-      meetingLink: "https://meet.google.com/xyz-uvw-rst",
-      status: "completed",
-      topics: ["System design", "Code review", "Mentoring approach"],
-  
-    },
-  ]);
+  const { user, loading: authLoading } = useAuth();
+  const [interviews, setInterviews] = useState<Interview[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentTalent, setCurrentTalent] = useState(null);
+
+  // Load talent profile and interviews
+  useEffect(() => {
+    const loadInterviews = async () => {
+      if (!user?.id) return;
+      
+      setLoading(true);
+      try {
+        // Get current talent data
+        const { data: talentData, error: talentError } = await supabase
+          .from('talents')
+          .select('id, full_name')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (talentError) {
+          console.error('Error loading talent:', talentError);
+          throw talentError;
+        }
+
+        if (!talentData) {
+          toast({
+            title: "Profile Not Found",
+            description: "Please complete your talent profile first.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        setCurrentTalent(talentData);
+
+        // Load technical interviews for this talent
+        const { data: interviewData, error: interviewError } = await supabase
+          .from('interviews')
+          .select(`
+            id,
+            interview_type,
+            status,
+            scheduled_date,
+            duration_minutes,
+            meet_link,
+            created_at,
+            application_id,
+            applications!inner (
+              id,
+              talent_id,
+              jobs!inner (
+                id,
+                title,
+                employers!inner (
+                  id,
+                  company_name,
+                  logo_url
+                )
+              )
+            ),
+            interviewers (
+              id,
+              full_name,
+              role
+            )
+          `)
+          .eq('applications.talent_id', talentData.id)
+          .eq('interview_type', 'technical')
+          .order('scheduled_date', { ascending: false });
+
+        if (interviewError) {
+          console.error('Error loading interviews:', interviewError);
+          throw interviewError;
+        }
+
+        console.log('🎯 Technical interviews loaded:', interviewData);
+
+        // Transform interviews to match component format
+        const transformedInterviews: Interview[] = (interviewData || []).map(interview => {
+          const application = Array.isArray(interview.applications) 
+            ? interview.applications[0] 
+            : interview.applications;
+          const job = Array.isArray(application?.jobs) 
+            ? application.jobs[0] 
+            : application?.jobs;
+          const employer = Array.isArray(job?.employers) 
+            ? job.employers[0] 
+            : job?.employers;
+          const interviewer = Array.isArray(interview.interviewers) 
+            ? interview.interviewers[0] 
+            : interview.interviewers;
+
+          const scheduledDate = new Date(interview.scheduled_date);
+          const now = new Date();
+          
+          // Determine status based on scheduled date and current status
+          let displayStatus = interview.status;
+          if (interview.status === 'scheduled' || interview.status === 'confirmed') {
+            displayStatus = scheduledDate > now ? 'upcoming' : 'completed';
+          }
+
+          return {
+            id: interview.id,
+            applicationId: application?.id || 0,
+            company: employer?.company_name || 'Unknown Company',
+            companyLogo: employer?.company_name?.substring(0, 2).toUpperCase() || 'UK',
+            jobTitle: job?.title || 'Unknown Position',
+            interviewerName: interviewer?.full_name || 'You (Employer)',
+            interviewerRole: interviewer?.role || 'Hiring Manager',
+            date: scheduledDate.toLocaleDateString('en-GB'),
+            time: scheduledDate.toLocaleTimeString('en-US', {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+            }),
+            duration: `${interview.duration_minutes || 60} mins`,
+            type: 'video' as const,
+            meetingLink: interview.meet_link || undefined,
+            status: displayStatus as 'upcoming' | 'completed' | 'cancelled',
+            scheduledDate: interview.scheduled_date,
+            topics: ['System design', 'Code review', 'Technical skills', 'Problem solving']
+          };
+        });
+
+        setInterviews(transformedInterviews);
+        
+      } catch (error) {
+        console.error('Error loading interviews:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load interviews. Please refresh the page.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (!authLoading) {
+      loadInterviews();
+    }
+  }, [user, authLoading, toast]);
 
   const handleJoinMeeting = (link?: string) => {
     if (link) {
@@ -135,6 +248,29 @@ const ITInterviews = () => {
 
   const upcomingInterviews = interviews.filter((i) => i.status === "upcoming");
   const completedInterviews = interviews.filter((i) => i.status === "completed");
+
+  if (loading || authLoading) {
+    return (
+      <TalentLayout>
+        <div className="flex justify-center items-center h-64">
+          <div className="text-gray-600">Loading interviews...</div>
+        </div>
+      </TalentLayout>
+    );
+  }
+
+  if (!currentTalent) {
+    return (
+      <TalentLayout>
+        <div className="flex justify-center items-center h-64">
+          <div className="text-center text-gray-600">
+            <p>Talent profile not found</p>
+            <p className="text-sm">Please complete your profile setup</p>
+          </div>
+        </div>
+      </TalentLayout>
+    );
+  }
 
   const InterviewCard = ({ interview }: { interview: Interview }) => (
     <div
@@ -245,13 +381,10 @@ const ITInterviews = () => {
               <Button
                 onClick={() => handleJoinMeeting(interview.meetingLink)}
                 className="flex-1 gap-2 bg-purple-600 hover:bg-purple-700"
+                disabled={!interview.meetingLink}
               >
                 <Play className="w-4 h-4" />
-                Join Meeting
-              </Button>
-              <Button variant="outline" className="gap-2">
-                <Download className="w-4 h-4" />
-                Prep Guide
+                {interview.meetingLink ? 'Join Meeting' : 'Meeting Link Pending'}
               </Button>
             </>
           )}
@@ -281,10 +414,10 @@ const ITInterviews = () => {
         {/* Header */}
         <div className="space-y-2">
           <h1 className="text-4xl font-bold text-slate-900 dark:text-white">
-            Technical Interview
+            Technical Interviews
           </h1>
           <p className="text-slate-600 dark:text-slate-400">
-             interviews with hiring manager
+            Your technical interviews with engineering teams
           </p>
         </div>
 

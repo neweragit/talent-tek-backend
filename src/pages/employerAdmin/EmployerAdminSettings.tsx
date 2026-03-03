@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import EmployerAdminLayout from "@/components/layouts/EmployerAdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,38 +7,117 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Lock, Mail, User, Save, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
+import bcrypt from "bcryptjs";
 
 export default function EmployerAdminSettings() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const [formData, setFormData] = useState({
-    firstName: "John",
-    lastName: "Smith",
-    email: "john@company.com",
+    firstName: "",
+    lastName: "",
+    email: "",
     currentPassword: "",
     newPassword: "",
     confirmPassword: "",
   });
+
+  // Load user data on mount
+  useEffect(() => {
+    loadUserData();
+  }, [user]);
+
+  const loadUserData = async () => {
+    if (!user) return;
+
+    try {
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('email')
+        .eq('id', user.id)
+        .single();
+
+      if (userError) throw userError;
+
+      const { data: employerData, error: employerError } = await supabase
+        .from('employers')
+        .select('rep_first_name, rep_last_name')
+        .eq('user_id', user.id)
+        .single();
+
+      if (employerError) throw employerError;
+
+      setFormData(prev => ({
+        ...prev,
+        firstName: employerData.rep_first_name || "",
+        lastName: employerData.rep_last_name || "",
+        email: userData.email || "",
+      }));
+    } catch (error) {
+      console.error('Error loading user data:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load user data.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleSaveProfile = async () => {
+    if (!user) return;
+
     setLoading(true);
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      // Update employer data
+      const { error: employerError } = await supabase
+        .from('employers')
+        .update({
+          rep_first_name: formData.firstName,
+          rep_last_name: formData.lastName,
+        })
+        .eq('user_id', user.id);
+
+      if (employerError) throw employerError;
+
+      // Update user email if changed
+      if (formData.email !== user.email) {
+        const { error: emailError } = await supabase
+          .from('users')
+          .update({ email: formData.email })
+          .eq('id', user.id);
+
+        if (emailError) throw emailError;
+      }
+
+      await loadUserData();
+      
       toast({
         title: "Success",
         description: "Profile updated successfully.",
       });
+    } catch (error) {
+      console.error('Save error:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update profile.",
+        variant: "destructive",
+      });
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   const handleChangePassword = async () => {
+    if (!user) return;
+
     if (formData.newPassword !== formData.confirmPassword) {
       toast({
         title: "Error",
@@ -58,20 +137,59 @@ export default function EmployerAdminSettings() {
     }
 
     setLoading(true);
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      // Verify current password
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('password_hash')
+        .eq('id', user.id)
+        .single();
+
+      if (userError) throw userError;
+
+      const passwordMatch = await bcrypt.compare(formData.currentPassword, userData.password_hash);
+      if (!passwordMatch) {
+        toast({
+          title: "Error",
+          description: "Current password is incorrect.",
+          variant: "destructive",
+        });
+        setLoading(false);
+        return;
+      }
+
+      // Hash new password
+      const newPasswordHash = await bcrypt.hash(formData.newPassword, 10);
+
+      // Update password
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ password_hash: newPasswordHash })
+        .eq('id', user.id);
+
+      if (updateError) throw updateError;
+
       toast({
         title: "Success",
         description: "Password changed successfully.",
       });
+
       setFormData((prev) => ({
         ...prev,
         currentPassword: "",
         newPassword: "",
         confirmPassword: "",
       }));
+    } catch (error) {
+      console.error('Password change error:', error);
+      toast({
+        title: "Error",
+        description: "Failed to change password.",
+        variant: "destructive",
+      });
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   return (

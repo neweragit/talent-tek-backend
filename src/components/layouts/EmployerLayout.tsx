@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import DashboardNavbar from "./DashboardNavbar";
-import { BarChart3, Briefcase, Users, Calendar, Ticket, Settings as SettingsIcon } from "lucide-react";
+import { BarChart3, Briefcase, Users, Calendar, Ticket, Settings as SettingsIcon, MessageSquare } from "lucide-react";
 
 interface EmployerLayoutProps {
   children: React.ReactNode;
@@ -14,6 +14,7 @@ const EmployerLayout = ({ children }: EmployerLayoutProps) => {
     { label: "Jobs", icon: Briefcase, path: "/employer/jobs" },
     { label: "Interviewers", icon: Users, path: "/employer/interviewers" },
     { label: "Pipeline", icon: Calendar, path: "/employer/pipeline" },
+    { label: "My Interviews", icon: MessageSquare, path: "/employer/talent-acquisition-interviews" },
     { label: "Tickets", icon: Ticket, path: "/employer/tickets" },
     { label: "Settings", icon: SettingsIcon, path: "/employer/settings" },
   ];

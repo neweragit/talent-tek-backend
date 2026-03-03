@@ -1,15 +1,54 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Home, ClipboardList, User, Settings, LogOut, Code } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
+import { Home, ClipboardList, User, LogOut, Code } from "lucide-react";
 
 const TechnicalInterviewLayout = ({ children }: { children: React.ReactNode }) => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const [interviewerData, setInterviewerData] = useState<{
+    full_name: string;
+    company_name: string;
+  } | null>(null);
   
-  // TODO: Replace with actual interviewer name from auth context
-  const interviewerName = "John Smith";
+  // Load interviewer data from database
+  useEffect(() => {
+    const loadInterviewerData = async () => {
+      if (user?.id) {
+        try {
+          const { data: interviewer, error } = await supabase
+            .from('interviewers')
+            .select(`
+              full_name,
+              employers (
+                company_name
+              )
+            `)
+            .eq('user_id', user.id)
+            .eq('interview_type', 'technical')
+            .single();
+
+          if (!error && interviewer) {
+            setInterviewerData({
+              full_name: interviewer.full_name || "John Smith",
+              company_name: interviewer.employers?.company_name || "TalenTek"
+            });
+          }
+        } catch (error) {
+          console.error('Error loading interviewer data:', error);
+        }
+      }
+    };
+
+    loadInterviewerData();
+  }, [user]);
+
+  const interviewerName = interviewerData?.full_name || "John Smith";
+  const companyName = interviewerData?.company_name || "TalenTek";
 
   const handleLogout = () => {
     navigate("/technical-interviewer/login");
@@ -19,7 +58,6 @@ const TechnicalInterviewLayout = ({ children }: { children: React.ReactNode }) =
     { path: "/technical-interviewer/overview", icon: Home, label: "Overview" },
     { path: "/technical-interviewer/interviews", icon: ClipboardList, label: "Technical Interviews" },
     { path: "/technical-interviewer/profile", icon: User, label: "Profile" },
-    { path: "/technical-interviewer/settings", icon: Settings, label: "Settings" },
   ];
 
   return (
@@ -79,7 +117,7 @@ const TechnicalInterviewLayout = ({ children }: { children: React.ReactNode }) =
                 <span className="text-[10px] opacity-75">Technical Interviewer</span>
               </div>
             </Badge>
-            <span className="text-sm text-muted-foreground">TalenTek</span>
+            <span className="text-sm text-muted-foreground">{companyName}</span>
           </div>
         </div>
         <main className="flex-1 p-6 bg-background overflow-auto">

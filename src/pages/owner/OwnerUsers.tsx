@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import OwnerLayout from "@/components/layouts/OwnerLayout";
 import { Button } from "@/components/ui/button";
@@ -8,62 +8,197 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Search, Filter, UserPlus, Eye, Trash2, AlertTriangle, Building2, Briefcase, UserCog, Ban, CheckCircle } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { supabase } from "@/lib/supabase";
+import { useToast } from "@/hooks/use-toast";
 
-const mockUsers = [
-  { id: 1, name: "John Doe", email: "john@example.com", role: "Talent", status: "Active", joinDate: "2024-01-15" },
-  { id: 2, name: "TechCorp Inc", email: "hr@techcorp.com", role: "Employer", status: "Active", joinDate: "2024-02-20" },
-  { id: 3, name: "Jane Smith", email: "jane@example.com", role: "Interviewer", status: "Active", joinDate: "2024-03-10" },
-  { id: 4, name: "Mike Johnson", email: "mike@example.com", role: "Talent", status: "Inactive", joinDate: "2024-01-05" },
-  { id: 5, name: "StartupX", email: "team@startupx.com", role: "Employer", status: "Active", joinDate: "2024-02-28" },
-];
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  status: string;
+  joinDate: string;
+}
 
 export default function OwnerUsers() {
   const navigate = useNavigate();
-  const [users, setUsers] = useState(mockUsers);
+  const { toast } = useToast();
+  const [users, setUsers] = useState<User[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterRole, setFilterRole] = useState("All");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deactivateDialogOpen, setDeactivateDialogOpen] = useState(false);
-  const [userToDelete, setUserToDelete] = useState<number | null>(null);
-  const [userToDeactivate, setUserToDeactivate] = useState<number | null>(null);
+  const [userToDelete, setUserToDelete] = useState<string | null>(null);
+  const [userToDeactivate, setUserToDeactivate] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("all");
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  async function loadUsers() {
+    try {
+      setIsLoading(true);
+      
+      // Fetch all users with their profile data
+      const { data: usersData, error: usersError } = await supabase
+        .from('users')
+        .select('id, email, user_role, created_at, is_active')
+        .order('created_at', { ascending: false });
+
+      if (usersError) throw usersError;
+
+      // Fetch all profile tables in parallel
+      const [talentsRes, employersRes, ownersRes] = await Promise.all([
+        supabase.from('talents').select('user_id, full_name'),
+        supabase.from('employers').select('user_id, company_name'),
+        supabase.from('owners').select('user_id, full_name'),
+      ]);
+
+      // Create lookup maps
+      const talentsMap = new Map(talentsRes.data?.map(t => [t.user_id, t.full_name]) || []);
+      const employersMap = new Map(employersRes.data?.map(e => [e.user_id, e.company_name]) || []);
+      const ownersMap = new Map(ownersRes.data?.map(o => [o.user_id, o.full_name]) || []);
+
+      // Map users with their names
+      const formattedUsers: User[] = usersData.map(user => {
+        let name = user.email.split('@')[0]; // fallback
+        let role = user.user_role.charAt(0).toUpperCase() + user.user_role.slice(1);
+
+        if (user.user_role === 'talent') {
+          name = talentsMap.get(user.id) || name;
+          role = 'Talent';
+        } else if (user.user_role === 'superadmin') {
+          name = employersMap.get(user.id) || name;
+          role = 'Superadmin';
+        } else if (user.user_role === 'owner') {
+          name = ownersMap.get(user.id) || name;
+          role = 'Owner';
+        }
+
+        return {
+          id: user.id,
+          name,
+          email: user.email,
+          role,
+          status: user.is_active ? 'Active' : 'Inactive',
+          joinDate: new Date(user.created_at).toISOString().split('T')[0],
+        };
+      });
+
+      // Sort users: Owner first, then Superadmins, and Talents
+      formattedUsers.sort((a, b) => {
+        const roleOrder = { 'Owner': 0, 'Superadmin': 1, 'Talent': 2 };
+        return (roleOrder[a.role as keyof typeof roleOrder] || 99) - (roleOrder[b.role as keyof typeof roleOrder] || 99);
+      });
+
+      setUsers(formattedUsers);
+    } catch (error) {
+      console.error('Error loading users:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load users. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   const filteredUsers = users.filter(user => {
     const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                          user.email.toLowerCase().includes(searchTerm.toLowerCase());
+    // Only allow Owner, Superadmin, Talent
+    if (user.role === "Employer") return false;
     const matchesRole = filterRole === "All" || user.role === filterRole;
     const matchesTab = activeTab === "all" || 
+                       (activeTab === "superadmins" && user.role === "Superadmin") ||
                        (activeTab === "talents" && user.role === "Talent") ||
-                       (activeTab === "employers" && user.role === "Employer") ||
-                       (activeTab === "interviewers" && user.role === "Interviewer");
+                       (activeTab === "owner" && user.role === "Owner");
     return matchesSearch && matchesRole && matchesTab;
   });
 
-  function handleDeleteUser(id: number) {
+  function handleDeleteUser(id: string) {
     setUserToDelete(id);
     setDeleteDialogOpen(true);
   }
 
-  function confirmDelete() {
-    if (userToDelete) {
+  async function confirmDelete() {
+    if (!userToDelete) return;
+    
+    try {
+      // Delete user from database
+      const { error } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', userToDelete);
+
+      if (error) throw error;
+
+      // Update local state
       setUsers(users.filter(user => user.id !== userToDelete));
+      
+      toast({
+        title: "User deleted",
+        description: "User has been permanently removed.",
+      });
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete user. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
       setDeleteDialogOpen(false);
       setUserToDelete(null);
     }
   }
 
-  function handleDeactivateUser(id: number) {
+  function handleDeactivateUser(id: string) {
     setUserToDeactivate(id);
     setDeactivateDialogOpen(true);
   }
 
-  function confirmDeactivate() {
-    if (userToDeactivate) {
-      setUsers(users.map(user => 
-        user.id === userToDeactivate 
-          ? { ...user, status: user.status === "Active" ? "Inactive" : "Active" }
-          : user
+  async function confirmDeactivate() {
+    if (!userToDeactivate) return;
+    
+    const user = users.find(u => u.id === userToDeactivate);
+    if (!user) return;
+
+    const newStatus = user.status === "Active" ? false : true;
+    
+    try {
+      // Update user status in database
+      const { error } = await supabase
+        .from('users')
+        .update({ is_active: newStatus })
+        .eq('id', userToDeactivate);
+
+      if (error) throw error;
+
+      // Update local state
+      setUsers(users.map(u => 
+        u.id === userToDeactivate 
+          ? { ...u, status: newStatus ? "Active" : "Inactive" }
+          : u
       ));
+      
+      toast({
+        title: newStatus ? "User activated" : "User deactivated",
+        description: newStatus 
+          ? "User can now access the platform." 
+          : "User access has been disabled.",
+      });
+    } catch (error) {
+      console.error('Error updating user status:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update user status. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
       setDeactivateDialogOpen(false);
       setUserToDeactivate(null);
     }
@@ -71,18 +206,18 @@ export default function OwnerUsers() {
 
   const getRoleIcon = (role: string) => {
     switch(role) {
-      case "Employer": return <Building2 className="w-4 h-4" />;
+      case "Owner": return <UserCog className="w-4 h-4" />;
+      case "Superadmin": return <Building2 className="w-4 h-4" />;
       case "Talent": return <Briefcase className="w-4 h-4" />;
-      case "Interviewer": return <UserCog className="w-4 h-4" />;
       default: return null;
     }
   };
 
   const getRoleColor = (role: string) => {
     switch(role) {
-      case "Employer": return "bg-blue-100 text-blue-700 border-blue-200";
-      case "Talent": return "bg-purple-100 text-purple-700 border-purple-200";
-      case "Interviewer": return "bg-green-100 text-green-700 border-green-200";
+      case "Owner": return "bg-purple-100 text-purple-700 border-purple-200";
+      case "Superadmin": return "bg-orange-100 text-orange-700 border-orange-200";
+      case "Talent": return "bg-green-100 text-green-700 border-green-200";
       default: return "bg-gray-100 text-gray-700 border-gray-200";
     }
   };
@@ -91,18 +226,9 @@ export default function OwnerUsers() {
     <OwnerLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-4xl font-bold text-gray-900">User Management</h1>
-            <p className="text-gray-600 mt-2">Manage all platform users from one place</p>
-          </div>
-          <Button 
-            onClick={() => navigate('/owner/users/add-employer')}
-            className="bg-gradient-primary text-white flex items-center gap-2"
-          >
-            <UserPlus className="w-5 h-5" />
-            Add Employer
-          </Button>
+        <div>
+          <h1 className="text-4xl font-bold text-gray-900">User Management</h1>
+          <p className="text-gray-600 mt-2">Manage all platform users from one place</p>
         </div>
 
         {/* Search and Filters */}
@@ -114,9 +240,10 @@ export default function OwnerUsers() {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10"
+              disabled={isLoading}
             />
           </div>
-          <Select value={filterRole} onValueChange={setFilterRole}>
+          <Select value={filterRole} onValueChange={setFilterRole} disabled={isLoading}>
             <SelectTrigger className="w-[200px]">
               <div className="flex items-center gap-2">
                 <Filter className="w-4 h-4" />
@@ -125,9 +252,9 @@ export default function OwnerUsers() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="All">All Roles</SelectItem>
+              <SelectItem value="Owner">Owner</SelectItem>
+              <SelectItem value="Superadmin">Superadmins</SelectItem>
               <SelectItem value="Talent">Talents</SelectItem>
-              <SelectItem value="Employer">Employers</SelectItem>
-              <SelectItem value="Interviewer">Interviewers</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -142,22 +269,22 @@ export default function OwnerUsers() {
               All Users <span className="ml-2 text-gray-500">{users.length}</span>
             </TabsTrigger>
             <TabsTrigger
-              value="talents"
+              value="owner"
               className="data-[state=active]:border-b-2 data-[state=active]:border-purple-500 data-[state=active]:text-purple-600 rounded-none px-6 py-3"
             >
-              Talents <span className="ml-2 text-gray-500">{users.filter(u => u.role === "Talent").length}</span>
+              Owner <span className="ml-2 text-gray-500">{users.filter(u => u.role === "Owner").length}</span>
             </TabsTrigger>
             <TabsTrigger
-              value="employers"
-              className="data-[state=active]:border-b-2 data-[state=active]:border-blue-500 data-[state=active]:text-blue-600 rounded-none px-6 py-3"
+              value="superadmins"
+              className="data-[state=active]:border-b-2 data-[state=active]:border-orange-500 data-[state=active]:text-orange-600 rounded-none px-6 py-3"
             >
-              Employers <span className="ml-2 text-gray-500">{users.filter(u => u.role === "Employer").length}</span>
+              Superadmins <span className="ml-2 text-gray-500">{users.filter(u => u.role === "Superadmin").length}</span>
             </TabsTrigger>
             <TabsTrigger
-              value="interviewers"
+              value="talents"
               className="data-[state=active]:border-b-2 data-[state=active]:border-green-500 data-[state=active]:text-green-600 rounded-none px-6 py-3"
             >
-              Interviewers <span className="ml-2 text-gray-500">{users.filter(u => u.role === "Interviewer").length}</span>
+              Talents <span className="ml-2 text-gray-500">{users.filter(u => u.role === "Talent").length}</span>
             </TabsTrigger>
           </TabsList>
 
@@ -175,7 +302,20 @@ export default function OwnerUsers() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {filteredUsers.map((user) => (
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                        Loading users...
+                      </td>
+                    </tr>
+                  ) : filteredUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                        No users found
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredUsers.map((user) => (
                     <tr key={user.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4">
                         <div className="font-semibold text-gray-900">{user.name}</div>
@@ -228,7 +368,8 @@ export default function OwnerUsers() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

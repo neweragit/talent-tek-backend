@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Home, ClipboardList, User, Settings, LogOut, Users } from "lucide-react";
+import { Home, ClipboardList, User, LogOut, Users } from "lucide-react";
 
 const LeadershipInterviewLayout = ({ children }: { children: React.ReactNode }) => {
   const location = useLocation();
@@ -19,7 +19,6 @@ const LeadershipInterviewLayout = ({ children }: { children: React.ReactNode }) 
     { path: "/leadership-interviewer/overview", icon: Home, label: "Overview" },
     { path: "/leadership-interviewer/interviews", icon: ClipboardList, label: "Leadership Interviews" },
     { path: "/leadership-interviewer/profile", icon: User, label: "Profile" },
-    { path: "/leadership-interviewer/settings", icon: Settings, label: "Settings" },
   ];
 
   return (

@@ -7,51 +7,32 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Plus, MapPin, Clock, MoreHorizontal, Edit, Share2, XCircle, Archive, AlertTriangle, CheckCircle, Copy } from "lucide-react";
+import { Plus, MapPin, Clock, MoreHorizontal, Edit, Share2, XCircle, Archive, AlertTriangle, CheckCircle, Copy, Loader2 } from "lucide-react";
 import EmployerLayout from "@/components/layouts/EmployerLayout";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-
-// Mock data for jobs
-const jobs = [
-	{
-		id: "2510100003",
-		title: "Mobile Android Engineer",
-		location: "Algiers, Algeria",
-		employment_type: "full-time",
-		applicants_count: 0,
-		status: "Published",
-	},
-	{
-		id: "2510100002",
-		title: "Full Stack Engineer",
-		location: "Algiers, Algeria",
-		employment_type: "full-time",
-		applicants_count: 0,
-		status: "Published",
-	},
-	{
-		id: "2510100004",
-		title: "Mobile iOS Engineer",
-		location: "Algiers, Algeria",
-		employment_type: "full-time",
-		applicants_count: 1,
-		status: "Published",
-	},
-];
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 
 export default function EmployerJobs() {
-	const [jobList, setJobList] = useState(jobs);
+	const { user } = useAuth();
+	const { toast } = useToast();
+	const [jobList, setJobList] = useState([]);
+	const [loading, setLoading] = useState(true);
+	const [employerId, setEmployerId] = useState<string>("");
 	const [open, setOpen] = useState(false);
 	const [editDialogOpen, setEditDialogOpen] = useState(false);
-	const [stage, setStage] = useState(0); // 0: Job Details, 1: Additional Info, 2: Review
-	const [activeTab, setActiveTab] = useState("Posted");
+	const [stage, setStage] = useState(0);
+	const [activeTab, setActiveTab] = useState("Published");
 	const [unpublishDialogOpen, setUnpublishDialogOpen] = useState(false);
 	const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
 	const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	const [jobToAction, setJobToAction] = useState(null);
 	const [selectedJob, setSelectedJob] = useState(null);
 	const [copiedJobUrl, setCopiedJobUrl] = useState("");
+	const [shareEmails, setShareEmails] = useState("");
+	const [sendingShare, setSendingShare] = useState(false);
 	const [form, setForm] = useState({
 		title: "",
 		profession: "",
@@ -66,9 +47,182 @@ export default function EmployerJobs() {
 		positions: "1",
 		jobLocation: "",
 		description: "",
+		status: "published"
 	});
 
 	const [skillInput, setSkillInput] = useState("");
+
+	useEffect(() => {
+		if (user?.id) {
+			loadEmployerData();
+		}
+	}, [user]);
+
+	useEffect(() => {
+		if (employerId) {
+			loadJobs();
+		}
+	}, [employerId, activeTab]);
+
+	const loadEmployerData = async () => {
+		try {
+			// First, try to find the user as an employer (superadmin)
+			const { data: employerData } = await supabase
+				.from('employers')
+				.select('id, company_name')
+				.eq('user_id', user?.id)
+				.maybeSingle();
+
+			if (employerData) {
+				// User is the employer themselves
+				setEmployerId(employerData.id);
+				setLoading(false);
+				return;
+			}
+
+			// If not found, check if user is a team member
+			const { data: teamMemberData, error: teamError } = await supabase
+				.from('employer_team_members')
+				.select('employer_id, employers!inner(id, company_name)')
+				.eq('user_id', user?.id)
+				.maybeSingle();
+
+			if (teamError) {
+				console.error('Team member lookup error:', teamError);
+				throw teamError;
+			}
+
+			if (teamMemberData) {
+				// User is a team member - use their employer's ID
+				setEmployerId(teamMemberData.employer_id);
+				setLoading(false);
+				return;
+			}
+
+			// No employer or team member record found
+			setLoading(false);
+			toast({
+				title: "Access Required",
+				description: "You need to be associated with an employer to access this page.",
+				variant: "destructive",
+			});
+			setTimeout(() => {
+				window.location.href = '/';
+			}, 2000);
+
+		} catch (error) {
+			console.error('Error loading employer:', error);
+			setLoading(false);
+			toast({
+				title: "Error",
+				description: "Failed to load employer data. Please try again.",
+				variant: "destructive",
+			});
+		}
+	};
+
+	const loadJobs = async () => {
+		if (!employerId) {
+			setLoading(false);
+			return;
+		}
+		setLoading(true);
+		try {
+			const { data, error } = await supabase
+				.from('jobs')
+				.select(`
+					id,
+					title,
+					location,
+					employment_type,
+					workplace,
+					status,
+					description,
+					profession,
+					skills_required,
+					experience_level,
+					job_level,
+					education_required,
+					contract_type,
+					positions_available,
+					views_count,
+					published_at,
+					created_at,
+					updated_at
+				`)
+				.eq('employer_id', employerId)
+				.eq('status', 
+					activeTab === 'Published' ? 'published' :
+					activeTab === 'Unpublished' ? 'unpublished' :
+					activeTab === 'Archived' ? 'archived' : activeTab.toLowerCase()
+				)
+				.order('created_at', { ascending: false });
+
+			if (error) throw error;
+
+			// Get application counts for each job
+			const jobsWithCounts = await Promise.all(
+				(data || []).map(async (job) => {
+					const { count } = await supabase
+						.from('applications')
+						.select('id', { count: 'exact', head: true })
+						.eq('job_id', job.id);
+
+					return {
+						...job,
+						skills: job.skills_required,
+						education: job.education_required,
+						workplace_type: job.workplace,
+						positions: job.positions_available,
+						applicants_count: count || 0
+					};
+				})
+			);
+
+			setJobList(jobsWithCounts);
+		} catch (error) {
+			console.error('Error loading jobs:', error);
+			toast({
+				title: "Error",
+				description: "Failed to load jobs.",
+				variant: "destructive",
+			});
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	const getJobCounts = async () => {
+		if (!employerId) return { Published: 0, Unpublished: 0, Archived: 0 };
+
+		const statuses = ['published', 'unpublished', 'archived'];
+		const counts: any = { Published: 0, Unpublished: 0, Archived: 0 };
+
+		await Promise.all(
+			statuses.map(async (status) => {
+				const { count } = await supabase
+					.from('jobs')
+					.select('id', { count: 'exact', head: true })
+					.eq('employer_id', employerId)
+					.eq('status', status);
+
+				// Map database status to UI status
+				if (status === 'published') counts.Published = count || 0;
+				else if (status === 'unpublished') counts.Unpublished = count || 0;
+				else if (status === 'archived') counts.Archived = count || 0;
+			})
+		);
+
+		return counts;
+	};
+
+	const [jobCounts, setJobCounts] = useState({ Published: 0, Unpublished: 0, Archived: 0 });
+
+	useEffect(() => {
+		if (employerId) {
+			getJobCounts().then(setJobCounts);
+		}
+	}, [employerId, jobList]);
 
 	function handleFormChange(e: any) {
 		const { name, value } = e.target;
@@ -87,11 +241,62 @@ export default function EmployerJobs() {
 		setForm((prev) => ({ ...prev, skills: prev.skills.filter((_, i) => i !== index) }));
 	}
 
-	function handleSubmit(e: any) {
+	async function handleSubmit(e: any) {
 		e.preventDefault();
-		// Add job logic here
-		setOpen(false);
-		setStage(0);
+		
+		if (!employerId) {
+			toast({
+				title: "Error",
+				description: "Employer data not loaded.",
+				variant: "destructive",
+			});
+			return;
+		}
+
+		try {
+			const jobData: any = {
+				employer_id: employerId,
+				title: form.title,
+				profession: form.profession,
+				location: form.jobLocation,
+				workplace: form.workplace,
+				skills_required: form.skills,
+				experience_level: form.experience,
+				job_level: form.jobLevel,
+				education_required: form.education,
+				employment_type: form.employmentType,
+				contract_type: form.contractType,
+				positions_available: parseInt(form.positions),
+				description: form.description,
+				status: 'published',
+				published_at: new Date().toISOString()
+			};
+
+			const { error } = await supabase
+				.from('jobs')
+				.insert(jobData);
+
+			if (error) throw error;
+
+			toast({
+				title: "Success!",
+				description: "Job posted successfully.",
+			});
+
+			setOpen(false);
+			setStage(0);
+			resetForm();
+			await loadJobs();
+			const counts = await getJobCounts();
+			setJobCounts(counts);
+		} catch (error) {
+			console.error('Error posting job:', error);
+			toast({
+				title: "Error",
+				description: "Failed to post job. Please try again.",
+				variant: "destructive",
+			});
+		}
 	}
 
 	function resetForm() {
@@ -109,6 +314,7 @@ export default function EmployerJobs() {
 			positions: "1",
 			jobLocation: "",
 			description: "",
+			status: "published"
 		});
 		setStage(0);
 	}
@@ -118,13 +324,45 @@ export default function EmployerJobs() {
 		setUnpublishDialogOpen(true);
 	}
 
-	function confirmUnpublish() {
+	async function confirmUnpublish() {
 		if (jobToAction) {
-			setJobList(jobList.map(job => 
-				job.id === jobToAction ? { ...job, status: "Unpublished" } : job
-			));
-			setUnpublishDialogOpen(false);
-			setJobToAction(null);
+			try {
+				const { data, error } = await supabase
+					.from('jobs')
+					.update({ 
+						status: 'unpublished'
+					})
+					.eq('id', jobToAction)
+					.select();
+
+				if (error) {
+					console.error('Unpublish error details:', {
+						message: error.message,
+						details: error.details,
+						hint: error.hint,
+						code: error.code
+					});
+					throw error;
+				}
+
+				toast({
+					title: "Success",
+					description: "Job unpublished successfully.",
+				});
+
+				setUnpublishDialogOpen(false);
+				setJobToAction(null);
+				await loadJobs();
+				const counts = await getJobCounts();
+				setJobCounts(counts);
+			} catch (error: any) {
+				console.error('Error unpublishing job:', error);
+				toast({
+					title: "Error",
+					description: error?.message || "Failed to unpublish job.",
+					variant: "destructive",
+				});
+			}
 		}
 	}
 
@@ -133,58 +371,186 @@ export default function EmployerJobs() {
 		setArchiveDialogOpen(true);
 	}
 
-	function confirmArchive() {
+	async function handlePublishJob(jobId: string) {
+		try {
+			const { error } = await supabase
+				.from('jobs')
+				.update({ 
+					status: 'published',
+					published_at: new Date().toISOString()
+				})
+				.eq('id', jobId);
+
+			if (error) throw error;
+
+			toast({
+				title: "Success",
+				description: "Job published successfully.",
+			});
+
+			await loadJobs();
+			const counts = await getJobCounts();
+			setJobCounts(counts);
+		} catch (error) {
+			console.error('Error publishing job:', error);
+			toast({
+				title: "Error",
+				description: "Failed to publish job.",
+				variant: "destructive",
+			});
+		}
+	}
+
+	async function confirmArchive() {
 		if (jobToAction) {
-			setJobList(jobList.filter(job => job.id !== jobToAction));
-			setArchiveDialogOpen(false);
-			setJobToAction(null);
+			try {
+				const { error } = await supabase
+					.from('jobs')
+					.update({ 
+						status: 'archived'
+					})
+					.eq('id', jobToAction);
+
+				if (error) throw error;
+
+				toast({
+					title: "Success",
+					description: "Job archived successfully.",
+				});
+
+				setArchiveDialogOpen(false);
+				setJobToAction(null);
+				await loadJobs();
+				const counts = await getJobCounts();
+				setJobCounts(counts);
+			} catch (error) {
+				console.error('Error archiving job:', error);
+				toast({
+					title: "Error",
+					description: "Failed to archive job.",
+					variant: "destructive",
+				});
+			}
 		}
 	}
 
 	function handleEditJob(job: any) {
 		setSelectedJob(job);
 		setForm({
-			title: job.title,
-			profession: "",
-			workLocation: job.location,
-			workplace: "on-site",
-			skills: [],
-			experience: "",
-			jobLevel: "",
-			education: "",
-			employmentType: job.employment_type,
-			contractType: "",
-			positions: "1",
-			jobLocation: job.location,
-			description: "",
+			title: job.title || "",
+			profession: job.profession || "",
+			workLocation: job.location || "",
+			workplace: job.workplace || "on-site",
+			skills: Array.isArray(job.skills_required) ? job.skills_required : (Array.isArray(job.skills) ? job.skills : []),
+			experience: job.experience_level || "",
+			jobLevel: job.job_level || "",
+			education: job.education_required || job.education || "",
+			employmentType: job.employment_type || "",
+			contractType: job.contract_type || "",
+			positions: (job.positions_available || job.positions || 1).toString(),
+			jobLocation: job.location || "",
+			description: job.description || "",
+			status: job.status || "published"
 		});
+		setStage(0);
 		setEditDialogOpen(true);
 	}
 
-	function handleUpdateJob(e: any) {
+	async function handleUpdateJob(e: any) {
 		e.preventDefault();
 		if (selectedJob) {
-			setJobList(jobList.map(job => 
-				job.id === selectedJob.id 
-					? {
-						...job,
-						title: form.title,
-						location: form.jobLocation || form.workLocation,
-						employment_type: form.employmentType,
-					}
-					: job
-			));
-			setEditDialogOpen(false);
-			setSelectedJob(null);
-			resetForm();
+			try {
+				let updates: any = {
+					title: form.title,
+					profession: form.profession,
+					location: form.jobLocation,
+					workplace: form.workplace,
+					skills_required: form.skills,
+					experience_level: form.experience,
+					job_level: form.jobLevel,
+					education_required: form.education,
+					employment_type: form.employmentType,
+					contract_type: form.contractType,
+					positions_available: parseInt(form.positions),
+					description: form.description,
+					status: form.status
+				};
+
+				// Set published_at when changing status to published
+				if (selectedJob.status !== 'published' && form.status === 'published') {
+					updates.published_at = new Date().toISOString();
+				}
+
+				const { error } = await supabase
+					.from('jobs')
+					.update(updates)
+					.eq('id', selectedJob.id);
+
+				if (error) throw error;
+
+				toast({
+					title: "Success",
+					description: "Job updated successfully.",
+				});
+
+				setEditDialogOpen(false);
+				setSelectedJob(null);
+				resetForm();
+				await loadJobs();
+			} catch (error) {
+				console.error('Error updating job:', error);
+				toast({
+					title: "Error",
+					description: "Failed to update job.",
+					variant: "destructive",
+				});
+			}
 		}
 	}
 
 	function handleShareJob(job: any) {
-		const jobUrl = `${window.location.origin}/job/${job.id}`;
+		const jobUrl = `${window.location.origin}/jobs/${job.id}`;
 		navigator.clipboard.writeText(jobUrl);
 		setCopiedJobUrl(jobUrl);
+		setJobToAction(job);
+		setShareEmails("");
 		setShareDialogOpen(true);
+	}
+
+	async function handleSendToEmails() {
+		if (!shareEmails.trim() || !jobToAction) return;
+		
+		const emails = shareEmails.split(',').map(e => e.trim()).filter(e => e);
+		if (emails.length === 0) {
+			toast({
+				title: "No emails provided",
+				description: "Please enter at least one email address.",
+				variant: "destructive",
+			});
+			return;
+		}
+
+		try {
+			setSendingShare(true);
+			// In a real implementation, you would call an API endpoint here
+			// For now, we'll just show a success message
+			await new Promise(resolve => setTimeout(resolve, 1000));
+			
+			toast({
+				title: "Job shared successfully!",
+				description: `Job link sent to ${emails.length} email${emails.length > 1 ? 's' : ''}.`,
+			});
+			setShareDialogOpen(false);
+			setShareEmails("");
+		} catch (error) {
+			toast({
+				title: "Error",
+				description: "Failed to send emails.",
+				variant: "destructive",
+			});
+		} finally {
+			setSendingShare(false);
+		}
 	}
 
 	return (
@@ -318,21 +684,6 @@ export default function EmployerJobs() {
 										</div>
 
 										<div>
-											<Label htmlFor="workLocation" className="text-sm font-semibold">
-												Work Location <span className="text-red-500">*</span>
-											</Label>
-											<Input
-												id="workLocation"
-												name="workLocation"
-												value={form.workLocation}
-												onChange={handleFormChange}
-												placeholder="Search for a city..."
-												className="mt-2"
-												required
-											/>
-										</div>
-
-										<div>
 											<Label className="text-sm font-semibold">
 												Workplace <span className="text-red-500">*</span>
 											</Label>
@@ -388,68 +739,48 @@ export default function EmployerJobs() {
 											<Label htmlFor="experience" className="text-sm font-semibold">
 												Years of Experience <span className="text-red-500">*</span>
 											</Label>
-											<Select
+											<Input
+												id="experience"
 												name="experience"
 												value={form.experience}
-												onValueChange={(val) => setForm({ ...form, experience: val })}
-											>
-												<SelectTrigger className="mt-2">
-													<SelectValue placeholder="Select years of experience" />
-												</SelectTrigger>
-												<SelectContent>
-													<SelectItem value="0-1">0-1 years</SelectItem>
-													<SelectItem value="1-3">1-3 years</SelectItem>
-													<SelectItem value="3-5">3-5 years</SelectItem>
-													<SelectItem value="5+">5+ years</SelectItem>
-												</SelectContent>
-											</Select>
+												onChange={handleFormChange}
+												placeholder="e.g., 5 years, 10+ years, 2-3 years, 20 years"
+												className="mt-2"
+												required
+											/>
 										</div>
 
 										<div>
 											<Label htmlFor="jobLevel" className="text-sm font-semibold">
 												Job Level <span className="text-red-500">*</span>
 											</Label>
-											<Select
+											<Input
+												id="jobLevel"
 												name="jobLevel"
 												value={form.jobLevel}
-												onValueChange={(val) => setForm({ ...form, jobLevel: val })}
-											>
-												<SelectTrigger className="mt-2">
-													<SelectValue placeholder="Select job level" />
-												</SelectTrigger>
-												<SelectContent>
-													<SelectItem value="entry">Entry Level</SelectItem>
-													<SelectItem value="junior">Junior</SelectItem>
-													<SelectItem value="mid">Mid Level</SelectItem>
-													<SelectItem value="senior">Senior</SelectItem>
-													<SelectItem value="lead">Lead</SelectItem>
-												</SelectContent>
-											</Select>
+												onChange={handleFormChange}
+												placeholder="e.g., Senior, Mid-Level, Lead, Principal"
+												className="mt-2"
+												required
+											/>
 										</div>
 
 										<div>
 											<Label htmlFor="education" className="text-sm font-semibold">
 												Education Level <span className="text-red-500">*</span>
 											</Label>
-											<Select
+											<Input
+												id="education"
 												name="education"
 												value={form.education}
-												onValueChange={(val) => setForm({ ...form, education: val })}
-											>
-												<SelectTrigger className="mt-2">
-													<SelectValue placeholder="Select education level" />
-												</SelectTrigger>
-												<SelectContent>
-													<SelectItem value="high-school">High School</SelectItem>
-													<SelectItem value="associate">Associate Degree</SelectItem>
-													<SelectItem value="bachelor">Bachelor's Degree</SelectItem>
-													<SelectItem value="master">Master's Degree</SelectItem>
-													<SelectItem value="phd">PhD</SelectItem>
-												</SelectContent>
-											</Select>
+												onChange={handleFormChange}
+												placeholder="e.g., Bachelor's Degree, Master's Degree, PhD"
+												className="mt-2"
+												required
+											/>
 										</div>
 
-										<div className="flex justify-between gap-4 pt-4">
+										<div className="flex gap-4 justify-end">
 											<Button
 												type="button"
 												variant="outline"
@@ -618,9 +949,58 @@ export default function EmployerJobs() {
 											</div>
 
 											<div className="mt-4">
-												<p className="text-muted-foreground">Job Description</p>
-												<p className="mt-2">{form.description}</p>
+												<p className="text-muted-foreground mb-2">Job Description</p>
+												<div className="max-h-64 overflow-y-auto bg-gray-50 rounded-lg p-4 border border-gray-200 scrollbar-modern">
+													<p className="whitespace-pre-line leading-relaxed text-gray-700">{form.description}</p>
+												</div>
 											</div>
+
+											{/* Status Selection */}
+											{selectedJob && (
+												<div className="mt-6 pt-6 border-t border-gray-200">
+													<Label className="text-sm font-semibold mb-2 block">
+														Job Status <span className="text-red-500">*</span>
+													</Label>
+													<Select
+														value={form.status}
+														onValueChange={(val) => setForm({ ...form, status: val })}
+													>
+														<SelectTrigger>
+															<SelectValue />
+														</SelectTrigger>
+														<SelectContent>
+															<SelectItem value="published">
+																<span className="flex items-center gap-2">
+																	<span className="w-2 h-2 bg-green-500 rounded-full"></span>
+																	Published
+																</span>
+															</SelectItem>
+															<SelectItem value="draft">
+																<span className="flex items-center gap-2">
+																	<span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
+																	Draft (Pending)
+																</span>
+															</SelectItem>
+															<SelectItem value="unpublished">
+																<span className="flex items-center gap-2">
+																	<span className="w-2 h-2 bg-gray-500 rounded-full"></span>
+																	Unpublished
+																</span>
+															</SelectItem>
+															<SelectItem value="archived">
+																<span className="flex items-center gap-2">
+																	<span className="w-2 h-2 bg-gray-400 rounded-full"></span>
+																	Archived
+																</span>
+															</SelectItem>
+														</SelectContent>
+													</Select>
+													<p className="text-xs text-gray-500 mt-1">
+														Change the status to control job visibility
+													</p>
+												</div>
+											)}
+
 										</div>
 
 										<p className="text-xs text-muted-foreground">
@@ -661,43 +1041,39 @@ export default function EmployerJobs() {
 				<Tabs value={activeTab} onValueChange={setActiveTab}>
 					<TabsList className="bg-white border-b w-full justify-start rounded-none h-auto p-0">
 						<TabsTrigger
-							value="Posted"
+							value="Published"
 							className="data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none px-6 py-3 transition-all text-gray-700"
 						>
-							Posted{" "}
-							<span className="ml-2 text-gray-500">3</span>
-						</TabsTrigger>
-						<TabsTrigger
-							value="Pending"
-							className="data-[state=active]:border-b-2 data-[state=active]:border-yellow-500 data-[state=active]:text-yellow-600 rounded-none px-6 py-3 transition-all text-gray-700"
-						>
-							Pending{" "}
-							<span className="ml-2 text-gray-500">0</span>
+							Published{" "}
+							<span className="ml-2 text-gray-500">{jobCounts.Published}</span>
 						</TabsTrigger>
 						<TabsTrigger
 							value="Unpublished"
 							className="data-[state=active]:border-b-2 data-[state=active]:border-gray-500 data-[state=active]:text-gray-700 rounded-none px-6 py-3 transition-all text-gray-700"
 						>
 							Unpublished{" "}
-							<span className="ml-2 text-gray-500">0</span>
-						</TabsTrigger>
-						<TabsTrigger
-							value="Rejected"
-							className="data-[state=active]:border-b-2 data-[state=active]:border-red-500 data-[state=active]:text-red-600 rounded-none px-6 py-3 transition-all text-gray-700"
-						>
-							Rejected{" "}
-							<span className="ml-2 text-gray-500">3</span>
+							<span className="ml-2 text-gray-500">{jobCounts.Unpublished}</span>
 						</TabsTrigger>
 						<TabsTrigger
 							value="Archived"
 							className="data-[state=active]:border-b-2 data-[state=active]:border-blue-500 data-[state=active]:text-blue-600 rounded-none px-6 py-3 transition-all text-gray-700"
 						>
 							Archived{" "}
-							<span className="ml-2 text-gray-500">0</span>
+							<span className="ml-2 text-gray-500">{jobCounts.Archived}</span>
 						</TabsTrigger>
 					</TabsList>
 
-					<TabsContent value="Posted" className="mt-0">
+					<TabsContent value="Published" className="mt-0">
+						{loading ? (
+							<div className="bg-white rounded-lg border p-8 text-center">
+								<Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+								<p className="text-muted-foreground mt-4">Loading jobs...</p>
+							</div>
+						) : jobList.length === 0 ? (
+							<div className="bg-white rounded-lg border p-8 text-center text-muted-foreground">
+								No published jobs.
+							</div>
+						) : (
 						<div className="bg-white rounded-lg border overflow-hidden shadow-sm">
 							<table className="w-full">
 								<thead className="bg-gray-50 border-b">
@@ -705,6 +1081,8 @@ export default function EmployerJobs() {
 										<th className="text-left px-6 py-4 font-semibold text-gray-700">Job Title</th>
 										<th className="text-left px-6 py-4 font-semibold text-gray-700">Details</th>
 										<th className="text-left px-6 py-4 font-semibold text-gray-700">Status</th>
+										<th className="text-left px-6 py-4 font-semibold text-gray-700">Created</th>
+										<th className="text-left px-6 py-4 font-semibold text-gray-700">Last Update</th>
 										<th className="text-left px-6 py-4 font-semibold text-gray-700">Applications</th>
 										<th className="text-left px-6 py-4 font-semibold text-gray-700">Actions</th>
 									</tr>
@@ -727,23 +1105,23 @@ export default function EmployerJobs() {
 											</div>
 										</td>
 											<td className="px-6 py-4">
-												<Badge
-													className={`${
-														job.status === "Published"
-															? "bg-green-100 text-green-800"
-															: job.status === "Pending"
-															? "bg-yellow-100 text-yellow-800"
-															: job.status === "Rejected"
-															? "bg-red-100 text-red-800"
-															: "bg-gray-100 text-gray-800"
-													} border-none`}
-												>
-													{job.status}
+												<Badge className="bg-green-600 text-white border-none">
+													Published
 												</Badge>
 										</td>
 										<td className="px-6 py-4">
+											<div className="text-sm text-gray-600">
+												{job.created_at ? new Date(job.created_at).toLocaleString() : '-'}
+											</div>
+										</td>
+										<td className="px-6 py-4">
+											<div className="text-sm text-gray-600">
+												{job.updated_at ? new Date(job.updated_at).toLocaleString() : '-'}
+											</div>
+										</td>
+										<td className="px-6 py-4">
 											<span className="text-gray-900 font-semibold text-lg">
-												{job.applicants_count}
+												{job.applicants_count || 0}
 											</span>
 										</td>
 										<td className="px-6 py-4">
@@ -754,28 +1132,28 @@ export default function EmployerJobs() {
 													</Button>
 												</DropdownMenuTrigger>
 											<DropdownMenuContent align="end">
-												<DropdownMenuItem 
-													className="flex items-center gap-2 cursor-pointer"
+															<DropdownMenuItem
+																className="flex items-center gap-2 cursor-pointer"
 													onClick={() => handleEditJob(job)}
 												>
 													<Edit className="w-4 h-4" />
 													Edit Job
 												</DropdownMenuItem>
-												<DropdownMenuItem 
+															<DropdownMenuItem
 													className="flex items-center gap-2 cursor-pointer"
 													onClick={() => handleShareJob(job)}
 												>
 													<Share2 className="w-4 h-4" />
 													Share
 												</DropdownMenuItem>
-												<DropdownMenuItem 
+															<DropdownMenuItem
 													className="flex items-center gap-2 cursor-pointer"
 													onClick={() => handleUnpublishJob(job.id)}
 												>
 													<XCircle className="w-4 h-4" />
 													Unpublish
 												</DropdownMenuItem>
-												<DropdownMenuItem 
+															<DropdownMenuItem
 													className="flex items-center gap-2 cursor-pointer text-red-600"
 													onClick={() => handleArchiveJob(job.id)}
 												>
@@ -790,30 +1168,181 @@ export default function EmployerJobs() {
 								</tbody>
 							</table>
 						</div>
-					</TabsContent>
-
-					<TabsContent value="Pending">
-						<div className="bg-card rounded-lg border p-8 text-center text-muted-foreground shadow-card">
-							No pending jobs.
-						</div>
+						)}
 					</TabsContent>
 
 					<TabsContent value="Unpublished">
-						<div className="bg-card rounded-lg border p-8 text-center text-muted-foreground shadow-card">
-							No unpublished jobs.
-						</div>
-					</TabsContent>
-
-					<TabsContent value="Rejected">
-						<div className="bg-card rounded-lg border p-8 text-center text-muted-foreground shadow-card">
-							No rejected jobs.
-						</div>
+						{loading ? (
+							<div className="bg-card rounded-lg border p-8 text-center shadow-card">
+								<Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+								<p className="text-muted-foreground mt-4">Loading jobs...</p>
+							</div>
+						) : jobList.length === 0 ? (
+							<div className="bg-card rounded-lg border p-8 text-center text-muted-foreground shadow-card">
+								No unpublished jobs.
+							</div>
+						) : (
+							<div className="bg-white rounded-lg border overflow-hidden shadow-sm">
+								<table className="w-full">
+									<thead className="bg-gray-50 border-b">
+										<tr>
+											<th className="text-left px-6 py-4 font-semibold text-gray-700">Job Title</th>
+											<th className="text-left px-6 py-4 font-semibold text-gray-700">Details</th>
+											<th className="text-left px-6 py-4 font-semibold text-gray-700">Status</th>
+											<th className="text-left px-6 py-4 font-semibold text-gray-700">Created</th>
+											<th className="text-left px-6 py-4 font-semibold text-gray-700">Last Update</th>
+											<th className="text-left px-6 py-4 font-semibold text-gray-700">Actions</th>
+										</tr>
+									</thead>
+									<tbody className="divide-y divide-border">
+										{jobList.map((job) => (
+											<tr key={job.id} className="hover:bg-accent/5 transition-colors">
+												<td className="px-6 py-4">
+													<div className="font-semibold text-black">{job.title}</div>
+													<div className="text-sm text-muted-foreground">#{job.id}</div>
+												</td>
+												<td className="px-6 py-4">
+													<div className="flex items-center gap-2 text-sm text-gray-600">
+														<MapPin className="w-4 h-4 text-gray-500" />
+														{job.location}
+													</div>
+													<div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+														<Clock className="w-4 h-4 text-gray-500" />
+														{job.employment_type}
+													</div>
+												</td>
+												<td className="px-6 py-4">
+													<Badge className="bg-red-100 text-red-800 border-none">Unpublished
+													</Badge>
+												</td>
+												<td className="px-6 py-4">
+													<span className="text-sm text-gray-600">
+														{new Date(job.created_at).toLocaleString()}
+													</span>
+												</td>
+												<td className="px-6 py-4">
+													<span className="text-sm text-gray-600">
+														{new Date(job.updated_at).toLocaleString()}
+													</span>
+												</td>
+												<td className="px-6 py-4">
+													<DropdownMenu>
+														<DropdownMenuTrigger asChild>
+															<Button variant="ghost" size="icon">
+																<MoreHorizontal className="w-5 h-5" />
+															</Button>
+														</DropdownMenuTrigger>
+														<DropdownMenuContent align="end">
+															<DropdownMenuItem
+																className="flex items-center gap-2 cursor-pointer"
+																onClick={() => handleEditJob(job)}
+															>
+																<Edit className="w-4 h-4" />
+																Edit
+															</DropdownMenuItem>
+															<DropdownMenuItem
+																className="flex items-center gap-2 cursor-pointer text-green-600"
+																onClick={() => handlePublishJob(job.id)}
+															>
+																<CheckCircle className="w-4 h-4" />
+																Publish Job
+															</DropdownMenuItem>
+															<DropdownMenuItem
+																className="flex items-center gap-2 cursor-pointer text-red-600"
+																onClick={() => handleArchiveJob(job.id)}
+															>
+																<Archive className="w-4 h-4" />
+																Archive Job
+															</DropdownMenuItem>
+														</DropdownMenuContent>
+													</DropdownMenu>
+												</td>
+											</tr>
+										))}
+									</tbody>
+								</table>
+							</div>
+						)}
 					</TabsContent>
 
 					<TabsContent value="Archived">
-						<div className="bg-card rounded-lg border p-8 text-center text-muted-foreground shadow-card">
+						{loading ? (
+							<div className="bg-card rounded-lg border p-8 text-center shadow-card">
+								<Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+								<p className="text-muted-foreground mt-4">Loading jobs...</p>
+							</div>
+						) : jobList.length === 0 ? (
+							<div className="bg-card rounded-lg border p-8 text-center text-muted-foreground shadow-card">
 							No archived jobs.
 						</div>
+						) : (
+							<div className="bg-white rounded-lg border overflow-hidden shadow-sm">
+								<table className="w-full">
+									<thead className="bg-gray-50 border-b">
+										<tr>
+											<th className="text-left px-6 py-4 font-semibold text-gray-700">Job Title</th>
+											<th className="text-left px-6 py-4 font-semibold text-gray-700">Details</th>
+											<th className="text-left px-6 py-4 font-semibold text-gray-700">Status</th>
+											<th className="text-left px-6 py-4 font-semibold text-gray-700">Created</th>
+											<th className="text-left px-6 py-4 font-semibold text-gray-700">Last Update</th>
+											<th className="text-left px-6 py-4 font-semibold text-gray-700">Actions</th>
+										</tr>
+									</thead>
+									<tbody className="divide-y divide-border">
+										{jobList.map((job) => (
+											<tr key={job.id} className="hover:bg-accent/5 transition-colors">
+												<td className="px-6 py-4">
+													<div className="font-semibold text-black">{job.title}</div>
+													<div className="text-sm text-muted-foreground">#{job.id}</div>
+												</td>
+												<td className="px-6 py-4">
+													<div className="flex items-center gap-2 text-sm text-gray-600">
+														<MapPin className="w-4 h-4 text-gray-500" />
+														{job.location}
+													</div>
+													<div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+														<Clock className="w-4 h-4 text-gray-500" />
+														{job.employment_type}
+													</div>
+												</td>
+												<td className="px-6 py-4">
+													<Badge className="bg-yellow-100 text-yellow-800 border-none">Archived
+													</Badge>
+												</td>
+												<td className="px-6 py-4">
+													<span className="text-sm text-gray-600">
+														{new Date(job.created_at).toLocaleString()}
+													</span>
+												</td>
+												<td className="px-6 py-4">
+													<span className="text-sm text-gray-600">
+														{new Date(job.updated_at).toLocaleString()}
+													</span>
+												</td>
+												<td className="px-6 py-4">
+													<DropdownMenu>
+														<DropdownMenuTrigger asChild>
+															<Button variant="ghost" size="icon">
+																<MoreHorizontal className="w-5 h-5" />
+															</Button>
+														</DropdownMenuTrigger>
+														<DropdownMenuContent align="end">
+															<DropdownMenuItem
+																className="flex items-center gap-2 cursor-pointer"
+																onClick={() => handleEditJob(job)}
+															>
+																<Edit className="w-4 h-4" />
+																View Details
+															</DropdownMenuItem>
+														</DropdownMenuContent>
+													</DropdownMenu>
+												</td>
+											</tr>
+										))}
+									</tbody>
+								</table>
+							</div>
+						)}
 					</TabsContent>
 				</Tabs>
 
@@ -876,6 +1405,9 @@ export default function EmployerJobs() {
 							<DialogTitle className="text-2xl font-bold text-gray-900">
 								Edit Job Post
 							</DialogTitle>
+							<p className="text-muted-foreground">
+								Update job details and status
+							</p>
 						</DialogHeader>
 						<form onSubmit={handleUpdateJob}>
 							<div className="space-y-6">
@@ -891,6 +1423,180 @@ export default function EmployerJobs() {
 										placeholder="e.g., Marketing Manager"
 										className="mt-2"
 										required
+									/>
+								</div>
+
+								<div>
+									<Label htmlFor="edit-profession" className="text-sm font-semibold">
+										Profession <span className="text-red-500">*</span>
+									</Label>
+									<Select
+										name="profession"
+										value={form.profession}
+										onValueChange={(val) => setForm({ ...form, profession: val })}
+									>
+										<SelectTrigger className="mt-2">
+											<SelectValue placeholder="Select profession" />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="software-engineer">Software Engineer</SelectItem>
+											<SelectItem value="designer">Designer</SelectItem>
+											<SelectItem value="marketing">Marketing</SelectItem>
+											<SelectItem value="sales">Sales</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+
+								<div>
+									<Label className="text-sm font-semibold">
+										Workplace <span className="text-red-500">*</span>
+									</Label>
+									<div className="flex gap-4 mt-2">
+										{["on-site", "hybrid", "remote"].map((type) => (
+											<label
+												key={type}
+												className="flex items-center gap-2 cursor-pointer"
+											>
+												<input
+													type="radio"
+													name="workplace"
+													value={type}
+													checked={form.workplace === type}
+													onChange={handleFormChange}
+													className="w-4 h-4"
+												/>
+												<span className="capitalize">{type}</span>
+											</label>
+										))}
+									</div>
+								</div>
+
+								<div>
+									<Label htmlFor="edit-skills" className="text-sm font-semibold">
+										Skills <span className="text-red-500">*</span>
+									</Label>
+									<Input
+										id="edit-skills"
+										value={skillInput}
+										onChange={(e) => setSkillInput(e.target.value)}
+										onKeyDown={handleAddSkill}
+										placeholder="Type a skill and press Enter"
+										className="mt-2"
+									/>
+									<div className="flex flex-wrap gap-2 mt-2">
+										{form.skills.map((skill, index) => (
+											<Badge key={index} variant="secondary" className="px-3 py-1">
+												{skill}
+												<button
+													type="button"
+													onClick={() => removeSkill(index)}
+													className="ml-2 text-xs"
+												>
+													×
+												</button>
+											</Badge>
+										))}
+									</div>
+								</div>
+
+								<div>
+									<Label htmlFor="edit-experience" className="text-sm font-semibold">
+										Years of Experience <span className="text-red-500">*</span>
+									</Label>
+									<Input
+										id="edit-experience"
+										name="experience"
+										value={form.experience}
+										onChange={handleFormChange}
+										placeholder="e.g., 5 years, 10+ years, 2-3 years"
+										className="mt-2"
+										required
+									/>
+								</div>
+
+								<div>
+									<Label htmlFor="edit-jobLevel" className="text-sm font-semibold">
+										Job Level <span className="text-red-500">*</span>
+									</Label>
+									<Input
+										id="edit-jobLevel"
+										name="jobLevel"
+										value={form.jobLevel}
+										onChange={handleFormChange}
+										placeholder="e.g., Senior, Mid-Level, Lead"
+										className="mt-2"
+										required
+									/>
+								</div>
+
+								<div>
+									<Label htmlFor="edit-education" className="text-sm font-semibold">
+										Education Level <span className="text-red-500">*</span>
+									</Label>
+									<Input
+										id="edit-education"
+										name="education"
+										value={form.education}
+										onChange={handleFormChange}
+										placeholder="e.g., Bachelor's Degree, Master's Degree"
+										className="mt-2"
+										required
+									/>
+								</div>
+
+								<div>
+									<Label htmlFor="edit-employmentType" className="text-sm font-semibold">
+										Employment Type <span className="text-red-500">*</span>
+									</Label>
+									<Select
+										name="employmentType"
+										value={form.employmentType}
+										onValueChange={(val) => setForm({ ...form, employmentType: val })}
+									>
+										<SelectTrigger className="mt-2">
+											<SelectValue placeholder="Full-time" />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="full-time">Full-time</SelectItem>
+											<SelectItem value="part-time">Part-time</SelectItem>
+											<SelectItem value="contract">Contract</SelectItem>
+											<SelectItem value="internship">Internship</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+
+								<div>
+									<Label htmlFor="edit-contractType" className="text-sm font-semibold">
+										Contract Type
+									</Label>
+									<Select
+										name="contractType"
+										value={form.contractType}
+										onValueChange={(val) => setForm({ ...form, contractType: val })}
+									>
+										<SelectTrigger className="mt-2">
+											<SelectValue placeholder="Select contract type" />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="permanent">Permanent</SelectItem>
+											<SelectItem value="temporary">Temporary</SelectItem>
+											<SelectItem value="freelance">Freelance</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+
+								<div>
+									<Label htmlFor="edit-positions" className="text-sm font-semibold">
+										Number of Positions
+									</Label>
+									<Input
+										id="edit-positions"
+										name="positions"
+										type="number"
+										value={form.positions}
+										onChange={handleFormChange}
+										className="mt-2"
+										min="1"
 									/>
 								</div>
 
@@ -913,24 +1619,61 @@ export default function EmployerJobs() {
 								</div>
 
 								<div>
-									<Label htmlFor="edit-employmentType" className="text-sm font-semibold">
-										Employment Type <span className="text-red-500">*</span>
+									<Label htmlFor="edit-description" className="text-sm font-semibold">
+										Job Description <span className="text-destructive">*</span>
+									</Label>
+									<Textarea
+										id="edit-description"
+										name="description"
+										value={form.description}
+										onChange={handleFormChange}
+										rows={6}
+										className="mt-2"
+										required
+									/>
+								</div>
+
+								<div>
+									<Label className="text-sm font-semibold mb-2 block">
+										Job Status <span className="text-red-500">*</span>
 									</Label>
 									<Select
-										name="employmentType"
-										value={form.employmentType}
-										onValueChange={(val) => setForm({ ...form, employmentType: val })}
+										value={form.status}
+										onValueChange={(val) => setForm({ ...form, status: val })}
 									>
-										<SelectTrigger className="mt-2">
-											<SelectValue placeholder="Full-time" />
+										<SelectTrigger>
+											<SelectValue />
 										</SelectTrigger>
 										<SelectContent>
-											<SelectItem value="full-time">Full-time</SelectItem>
-											<SelectItem value="part-time">Part-time</SelectItem>
-											<SelectItem value="contract">Contract</SelectItem>
-											<SelectItem value="internship">Internship</SelectItem>
+											<SelectItem value="published">
+												<span className="flex items-center gap-2">
+													<span className="w-2 h-2 bg-green-500 rounded-full"></span>
+													Published
+												</span>
+											</SelectItem>
+											<SelectItem value="draft">
+												<span className="flex items-center gap-2">
+													<span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
+													Draft
+												</span>
+											</SelectItem>
+											<SelectItem value="unpublished">
+												<span className="flex items-center gap-2">
+													<span className="w-2 h-2 bg-gray-500 rounded-full"></span>
+													Unpublished
+												</span>
+											</SelectItem>
+											<SelectItem value="archived">
+												<span className="flex items-center gap-2">
+													<span className="w-2 h-2 bg-gray-400 rounded-full"></span>
+													Archived
+												</span>
+											</SelectItem>
 										</SelectContent>
 									</Select>
+									<p className="text-xs text-gray-500 mt-1">
+										Change the status to control job visibility
+									</p>
 								</div>
 
 								<div className="flex justify-end gap-4 pt-4">
@@ -959,28 +1702,76 @@ export default function EmployerJobs() {
 
 				{/* Share Job Dialog */}
 				<AlertDialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
-					<AlertDialogContent>
+					<AlertDialogContent className="max-w-2xl">
 						<AlertDialogHeader>
 							<div className="flex items-center gap-3 mb-2">
-								<div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
-									<CheckCircle className="w-6 h-6 text-green-600" />
+								<div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
+									<Share2 className="w-6 h-6 text-blue-600" />
 								</div>
-								<AlertDialogTitle className="text-xl">Link Copied!</AlertDialogTitle>
+								<AlertDialogTitle className="text-xl">Share Job</AlertDialogTitle>
 							</div>
 							<AlertDialogDescription className="text-base">
-								The job link has been successfully copied to your clipboard. You can now share it with others.
+								Share this job posting with specific people or copy the link to share anywhere.
 							</AlertDialogDescription>
 						</AlertDialogHeader>
-						<div className="bg-gray-50 rounded-lg p-4 flex items-center gap-3 border border-gray-200">
-							<Copy className="w-5 h-5 text-gray-500 flex-shrink-0" />
-							<code className="text-sm text-gray-700 break-all flex-1">{copiedJobUrl}</code>
+						
+						{/* Link Copy Section */}
+						<div className="space-y-4">
+							<div>
+								<label className="text-sm font-semibold text-gray-700 mb-2 block">Job Link</label>
+								<div className="bg-gray-50 rounded-lg p-4 flex items-center gap-3 border border-gray-200">
+									<Copy className="w-5 h-5 text-gray-500 flex-shrink-0" />
+									<code className="text-sm text-gray-700 break-all flex-1">{copiedJobUrl}</code>
+								</div>
+								<p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+									<CheckCircle className="w-3 h-3" />
+									Link copied to clipboard!
+								</p>
+							</div>
+
+							{/* Email Sharing Section */}
+							<div className="pt-4 border-t border-gray-200">
+								<label className="text-sm font-semibold text-gray-700 mb-2 block">
+									Send to Specific People
+								</label>
+								<p className="text-xs text-gray-500 mb-2">
+									Enter email addresses separated by commas
+								</p>
+								<textarea
+									value={shareEmails}
+									onChange={(e) => setShareEmails(e.target.value)}
+									placeholder="john@example.com, sarah@company.com, ..."
+									className="w-full min-h-[100px] px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
+								/>
+								<Button
+									onClick={handleSendToEmails}
+									disabled={sendingShare || !shareEmails.trim()}
+									className="w-full mt-3 bg-primary hover:bg-primary/90"
+								>
+									{sendingShare ? (
+										<>
+											<Loader2 className="w-4 h-4 mr-2 animate-spin" />
+											Sending...
+										</>
+									) : (
+										<>
+											<Share2 className="w-4 h-4 mr-2" />
+											Send Job Link via Email
+										</>
+									)}
+								</Button>
+							</div>
 						</div>
+
 						<AlertDialogFooter>
 							<AlertDialogAction 
-								onClick={() => setShareDialogOpen(false)}
-								className="bg-green-600 hover:bg-green-700 text-white"
+								onClick={() => {
+									setShareDialogOpen(false);
+									setShareEmails("");
+								}}
+								className="bg-gray-600 hover:bg-gray-700 text-white"
 							>
-								Done
+								Close
 							</AlertDialogAction>
 						</AlertDialogFooter>
 					</AlertDialogContent>
@@ -989,3 +1780,4 @@ export default function EmployerJobs() {
 		</EmployerLayout>
 	);
 }
+

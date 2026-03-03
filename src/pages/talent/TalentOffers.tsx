@@ -1,133 +1,267 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import TalentLayout from "@/components/layouts/TalentLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, XCircle, Clock, DollarSign, Calendar, MapPin, Briefcase } from "lucide-react";
+import { CheckCircle, XCircle, Clock, Calendar, MapPin, Briefcase } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
 
 interface Offer {
-  id: number;
+  id: string; // Changed to string for UUID
+  applicationId: string | null;
   company: string;
-  companyLogo: string;
+  companyLogoInitial: string;
+  companyLogoUrl?: string | null;
   jobTitle: string;
   salary: string;
-  salaryRange: {
-    min: number;
-    max: number;
-    currency: string;
-  };
   location: string;
   jobType: string;
   startDate: string;
   benefits: string[];
-  status: "pending" | "accepted" | "rejected";
+  status: "pending" | "accepted" | "refused"; // Changed rejected to refused
   offerDate: string;
-  expiryDate: string;
+  expiryDate: string; // This might be calculated or null
 }
 
 const TalentOffers = () => {
   const { toast } = useToast();
-  const [offers, setOffers] = useState<Offer[]>([
-    {
-      id: 1,
-      company: "Hi Talents",
-      companyLogo: "HT",
-      jobTitle: "Content & Social Media Manager",
-      salary: "$3,500 - $4,500/month",
-      salaryRange: {
-        min: 3500,
-        max: 4500,
-        currency: "USD",
-      },
-      location: "Remote",
-      jobType: "Full-time",
-      startDate: "01/12/2025",
-      benefits: [
-        "Health Insurance",
-        "Flexible Working Hours",
-        "Professional Development",
-        "Remote Work",
-        "Performance Bonus",
-      ],
-      status: "pending",
-      offerDate: "17/11/2025",
-      expiryDate: "24/11/2025",
-    },
-    {
-      id: 2,
-      company: "Tech Innovations Inc",
-      companyLogo: "TI",
-      jobTitle: "Senior React Developer",
-      salary: "$5,000 - $6,500/month",
-      salaryRange: {
-        min: 5000,
-        max: 6500,
-        currency: "USD",
-      },
-      location: "Hybrid",
-      jobType: "Full-time",
-      startDate: "15/12/2025",
-      benefits: [
-        "Health Insurance",
-        "Stock Options",
-        "Gym Membership",
-        "Learning Budget",
-        "Home Office Setup",
-      ],
-      status: "accepted",
-      offerDate: "15/11/2025",
-      expiryDate: "22/11/2025",
-    },
-    {
-      id: 3,
-      company: "Creative Agency Pro",
-      companyLogo: "CA",
-      jobTitle: "UI/UX Designer",
-      salary: "$2,800 - $3,800/month",
-      salaryRange: {
-        min: 2800,
-        max: 3800,
-        currency: "USD",
-      },
-      location: "On-site",
-      jobType: "Full-time",
-      startDate: "01/01/2026",
-      benefits: [
-        "Health Insurance",
-        "Creative Workspace",
-        "Team Outings",
-        "Professional Tools",
-      ],
-      status: "rejected",
-      offerDate: "10/11/2025",
-      expiryDate: "17/11/2025",
-    },
-  ]);
+  const { user, loading: authLoading } = useAuth();
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleAcceptOffer = (id: number) => {
-    setOffers((prevOffers) =>
-      prevOffers.map((offer) =>
-        offer.id === id ? { ...offer, status: "accepted" } : offer
+  useEffect(() => {
+    const fetchOffers = async () => {
+      if (!user) return;
+
+      setLoading(true);
+      try {
+        // Step 1: Get the talent ID for the current user
+        const { data: talentData, error: talentError } = await supabase
+          .from('talents')
+          .select('id')
+          .eq('user_id', user.id)
+          .single();
+
+        if (talentError || !talentData) {
+          throw talentError || new Error("Talent profile not found.");
+        }
+        const talentId = talentData.id;
+
+        // Step 2: Fetch all applications for this talent
+        const { data: applicationsData, error: applicationsError } = await supabase
+          .from('applications')
+          .select('id')
+          .eq('talent_id', talentId);
+
+        if (applicationsError) throw applicationsError;
+        const applicationIds = applicationsData.map(app => app.id);
+
+        if (applicationIds.length === 0) {
+          setOffers([]);
+          setLoading(false);
+          return;
+        }
+
+        // Step 3: Fetch offers linked to those applications, along with job and employer details
+        const { data: offerData, error: offerError } = await supabase
+          .from('offers')
+          .select(`
+            id,
+            application_id,
+            status,
+            position,
+            salary,
+            start_date,
+            work_location,
+            benefits_perks,
+            created_at,
+            applications (
+              id,
+              jobs (
+                title,
+                employment_type,
+                employers (
+                  company_name,
+                  logo_url
+                )
+              )
+            )
+          `)
+          .in('application_id', applicationIds);
+
+        if (offerError) throw offerError;
+
+        // Step 4: Transform the data into the format the component expects
+        const transformedOffers = (offerData ?? []).map((offer: any) => {
+          // Supabase returns related records as arrays by default even for one-to-one
+          const application = Array.isArray(offer.applications) ? offer.applications[0] : offer.applications;
+          const job = application && (Array.isArray(application.jobs) ? application.jobs[0] : application.jobs);
+          const employer = job && (Array.isArray(job.employers) ? job.employers[0] : job.employers);
+          const applicationId = application?.id || offer.application_id || null;
+
+          const companyLogoUrl = employer?.logo_url || null;
+          const companyLogoInitial = employer?.company_name?.charAt(0)?.toUpperCase() || '?';
+
+          // Safely format dates
+          const offerDate = offer.created_at ? new Date(offer.created_at).toLocaleDateString() : 'N/A';
+          const startDate = offer.start_date ? new Date(offer.start_date).toLocaleDateString() : 'N/A';
+
+          // Calculate expiry date (e.g., 7 days from offer date)
+          const expiryDate = offer.created_at
+            ? new Date(new Date(offer.created_at).getTime() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString()
+            : 'N/A';
+
+          const benefits = typeof offer.benefits_perks === 'string'
+            ? offer.benefits_perks.split(',').map((b: string) => b.trim()).filter(Boolean)
+            : Array.isArray(offer.benefits_perks)
+              ? offer.benefits_perks
+              : [];
+
+          const rawSalary = typeof offer.salary === 'string' ? offer.salary.trim() : offer.salary;
+          let formattedSalary = 'Not specified';
+
+          if (typeof rawSalary === 'number' && !Number.isNaN(rawSalary)) {
+            const formattedNumber = new Intl.NumberFormat('fr-DZ').format(rawSalary);
+            formattedSalary = `${formattedNumber} DZD`;
+          } else if (typeof rawSalary === 'string' && rawSalary.length > 0) {
+            const numberMatch = rawSalary.match(/[\d]+([\s,.][\d]+)*/);
+            if (numberMatch) {
+              const numericPart = numberMatch[0];
+              const compact = numericPart.replace(/\s/g, '');
+              const lastComma = compact.lastIndexOf(',');
+              const lastDot = compact.lastIndexOf('.');
+              const lastSeparatorIndex = Math.max(lastComma, lastDot);
+              let parsed = Number.NaN;
+
+              if (lastSeparatorIndex === -1) {
+                parsed = Number(compact);
+              } else {
+                const integerPart = compact.slice(0, lastSeparatorIndex).replace(/[.,]/g, '');
+                const fractionalPart = compact.slice(lastSeparatorIndex + 1);
+
+                if (fractionalPart.length > 0 && fractionalPart.length <= 2) {
+                  parsed = Number(`${integerPart}.${fractionalPart}`);
+                } else {
+                  parsed = Number(`${integerPart}${fractionalPart}`);
+                }
+
+                if (Number.isNaN(parsed)) {
+                  parsed = Number(compact.replace(/[.,]/g, ''));
+                }
+              }
+
+              if (!Number.isNaN(parsed)) {
+                const formattedNumber = new Intl.NumberFormat('fr-DZ').format(parsed);
+                const prefix = rawSalary.slice(0, numberMatch.index ?? 0).trim();
+                const suffixRaw = rawSalary.slice((numberMatch.index ?? 0) + numericPart.length).trim();
+                const suffix = suffixRaw.replace(/^(DZD|DA)\b/i, '').trim();
+                const parts = [prefix, `${formattedNumber} DZD`, suffix]
+                  .filter(Boolean)
+                  .join(' ')
+                  .replace(/\s{2,}/g, ' ')
+                  .trim();
+                formattedSalary = parts.length > 0 ? parts : `${formattedNumber} DZD`;
+              } else {
+                formattedSalary = rawSalary;
+              }
+            } else {
+              formattedSalary = rawSalary;
+            }
+          }
+
+          return {
+            id: offer.id,
+            applicationId,
+            company: employer?.company_name || 'Unknown Company',
+            companyLogoInitial,
+            companyLogoUrl,
+            jobTitle: offer.position || job?.title || 'Unknown Position',
+            salary: formattedSalary,
+            location: offer.work_location || 'Not specified',
+            jobType: job?.employment_type || 'Not specified',
+            startDate,
+            benefits,
+            status: offer.status as "pending" | "accepted" | "refused",
+            offerDate,
+            expiryDate,
+          } as Offer;
+        });
+
+        setOffers(transformedOffers);
+
+      } catch (error) {
+        console.error("Error fetching offers:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load your job offers. Please try again later.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (!authLoading) {
+      fetchOffers();
+    }
+  }, [user, authLoading, toast]);
+
+  const handleUpdateOfferStatus = async (id: string, newStatus: "accepted" | "refused") => {
+    // Optimistically update the UI
+    const originalOffers = [...offers];
+    const targetOffer = offers.find(offer => offer.id === id);
+    const applicationId = targetOffer?.applicationId || null;
+    setOffers(prevOffers =>
+      prevOffers.map(offer =>
+        offer.id === id ? { ...offer, status: newStatus } : offer
       )
     );
-    toast({
-      title: "Offer Accepted!",
-      description: "You have successfully accepted the job offer.",
-    });
-  };
 
-  const handleRejectOffer = (id: number) => {
-    setOffers((prevOffers) =>
-      prevOffers.map((offer) =>
-        offer.id === id ? { ...offer, status: "rejected" } : offer
-      )
-    );
-    toast({
-      title: "Offer Rejected",
-      description: "You have Rejected the job offer.",
-    });
+    try {
+      const { error } = await supabase
+        .from('offers')
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      if (applicationId) {
+        const now = new Date().toISOString();
+        const applicationUpdates: Record<string, string> = { updated_at: now };
+
+        if (newStatus === 'accepted') {
+          applicationUpdates.stage = 'hired';
+          applicationUpdates.status = 'hired';
+        } else if (newStatus === 'refused') {
+          applicationUpdates.stage = 'rejected-offer';
+          applicationUpdates.status = 'rejected';
+        }
+
+        const { error: applicationError } = await supabase
+          .from('applications')
+          .update(applicationUpdates)
+          .eq('id', applicationId);
+
+        if (applicationError) throw applicationError;
+      }
+
+      toast({
+        title: `Offer ${newStatus === 'accepted' ? 'Accepted' : 'Rejected'}!`,
+        description: `You have successfully ${newStatus === 'accepted' ? 'accepted' : 'rejected'} the job offer.`,
+      });
+    } catch (error) {
+      // Revert UI on error
+      setOffers(originalOffers);
+      console.error(`Error updating offer status:`, error);
+      toast({
+        title: "Error",
+        description: "Could not update the offer status. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const getStatusIcon = (status: string) => {
@@ -136,7 +270,7 @@ const TalentOffers = () => {
         return <Clock className="w-5 h-5 text-yellow-600" />;
       case "accepted":
         return <CheckCircle className="w-5 h-5 text-green-600" />;
-      case "rejected":
+      case "refused":
         return <XCircle className="w-5 h-5 text-red-600" />;
       default:
         return null;
@@ -149,7 +283,7 @@ const TalentOffers = () => {
         return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200";
       case "accepted":
         return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200";
-      case "rejected":
+      case "refused":
         return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200";
       default:
         return "bg-gray-100 text-gray-800";
@@ -162,7 +296,7 @@ const TalentOffers = () => {
         return "Pending";
       case "accepted":
         return "Accepted";
-      case "rejected":
+      case "refused":
         return "Rejected";
       default:
         return status;
@@ -171,7 +305,7 @@ const TalentOffers = () => {
 
   const pendingOffers = offers.filter((o) => o.status === "pending");
   const acceptedOffers = offers.filter((o) => o.status === "accepted");
-  const rejectedOffers = offers.filter((o) => o.status === "rejected");
+  const rejectedOffers = offers.filter((o) => o.status === "refused");
 
   const OfferCard = ({ offer }: { offer: Offer }) => (
     <Card className="hover:shadow-lg transition-shadow">
@@ -180,8 +314,19 @@ const TalentOffers = () => {
           {/* Header */}
           <div className="flex items-start justify-between">
             <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-full bg-gradient-primary flex items-center justify-center text-white font-semibold">
-                {offer.companyLogo}
+              <div
+                className={`w-12 h-12 rounded-full overflow-hidden flex items-center justify-center ${offer.companyLogoUrl ? '' : 'bg-gradient-primary text-white font-semibold'}`}
+              >
+                {offer.companyLogoUrl ? (
+                  <img
+                    src={offer.companyLogoUrl}
+                    alt={`${offer.company} logo`}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  offer.companyLogoInitial
+                )}
               </div>
               <div>
                 <h3 className="font-semibold text-slate-900 dark:text-white text-lg">
@@ -203,7 +348,6 @@ const TalentOffers = () => {
           {/* Salary */}
           <div className="bg-primary/5 dark:bg-primary/10 rounded-lg p-4 border border-primary/10">
             <div className="flex items-center gap-2 mb-2">
-              <DollarSign className="w-5 h-5 text-primary" />
               <span className="font-semibold text-primary text-lg">
                 {offer.salary}
               </span>
@@ -255,7 +399,7 @@ const TalentOffers = () => {
           {offer.status === "pending" && (
             <div className="flex gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
               <Button
-                onClick={() => handleRejectOffer(offer.id)}
+                onClick={() => handleUpdateOfferStatus(offer.id, 'refused')}
                 variant="outline"
                 className="flex-1 gap-2"
               >
@@ -263,7 +407,7 @@ const TalentOffers = () => {
                 Reject Offer
               </Button>
               <Button
-                onClick={() => handleAcceptOffer(offer.id)}
+                onClick={() => handleUpdateOfferStatus(offer.id, 'accepted')}
                 className="flex-1 gap-2 bg-gradient-primary hover:opacity-90"
               >
                 <CheckCircle className="w-4 h-4" />
@@ -278,15 +422,25 @@ const TalentOffers = () => {
             </div>
           )}
 
-          {offer.status === "rejected" && (
+          {offer.status === "refused" && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-800 dark:text-red-200">
-              ✗ You have Rejected this offer.
+              ✗ You have rejected this offer.
             </div>
           )}
         </div>
       </CardContent>
     </Card>
   );
+
+  if (loading || authLoading) {
+    return (
+      <TalentLayout>
+        <div className="flex justify-center items-center h-64">
+          <div className="text-gray-600">Loading your offers...</div>
+        </div>
+      </TalentLayout>
+    );
+  }
 
   return (
     <TalentLayout>

@@ -20,7 +20,8 @@ const DashboardNavbar = ({ title }: DashboardNavbarProps) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  const getInitials = (name: string) => {
+  const getInitials = (name: string | undefined) => {
+    if (!name) return '??';
     return name
       .split(' ')
       .map(n => n[0])
@@ -29,9 +30,44 @@ const DashboardNavbar = ({ title }: DashboardNavbarProps) => {
       .slice(0, 2);
   };
 
+  const getUserName = () => {
+    if (!user?.profile) return user?.email || 'User';
+    
+    if ('full_name' in user.profile) {
+      return user.profile.full_name;
+    } else if ('company_name' in user.profile) {
+      return user.profile.company_name;
+    }
+    return user.email;
+  };
+
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const handleProfileClick = () => {
+    const role = user?.user_role;
+    
+    switch (role) {
+      case 'talent':
+        navigate('/talent/profile');
+        break;
+      case 'employer':
+        navigate('/employer/settings');
+        break;
+      case 'admin':
+        navigate('/employer-admin/settings');
+        break;
+      case 'owner':
+        navigate('/owner/settings');
+        break;
+      case 'interviewer':
+        navigate('/technical-interviewer/settings');
+        break;
+      default:
+        navigate('/settings');
+    }
   };
 
   return (
@@ -44,7 +80,7 @@ const DashboardNavbar = ({ title }: DashboardNavbarProps) => {
             <Button variant="ghost" className="relative h-10 w-10 rounded-full">
               <Avatar>
                 <AvatarFallback className="bg-gradient-primary text-white">
-                  {user && getInitials(user.name)}
+                  {getInitials(getUserName())}
                 </AvatarFallback>
               </Avatar>
             </Button>
@@ -52,12 +88,12 @@ const DashboardNavbar = ({ title }: DashboardNavbarProps) => {
           <DropdownMenuContent className="w-56" align="end">
             <DropdownMenuLabel>
               <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium">{user?.name}</p>
+                <p className="text-sm font-medium">{getUserName()}</p>
                 <p className="text-xs text-muted-foreground">{user?.email}</p>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={handleProfileClick}>
               <User className="mr-2 h-4 w-4" />
               <span>Profile</span>
             </DropdownMenuItem>

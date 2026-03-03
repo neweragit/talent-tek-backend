@@ -32,7 +32,6 @@ const TalentOnboarding = () => {
     educationLevel: "",
     jobTypes: [] as string[],
     workLocation: [] as string[],
-    availabilityStatus: "",
     shortBio: "",
     linkedinUrl: "",
     githubUrl: "",
@@ -410,21 +409,6 @@ const TalentOnboarding = () => {
                       </label>
                     ))}
                   </div>
-                </div>
-
-                <div className="space-y-3">
-                  <Label>Availability Status</Label>
-                  <Select onValueChange={(value) => handleChange('availabilityStatus', value)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select availability" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="actively-looking">Actively looking for a job</SelectItem>
-                      <SelectItem value="open-to-opportunities">Open to opportunities</SelectItem>
-                      <SelectItem value="passively-considering">Passively considering offers</SelectItem>
-                      <SelectItem value="not-looking">Not looking (but stay in database)</SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>
 
                 <div className="space-y-2">

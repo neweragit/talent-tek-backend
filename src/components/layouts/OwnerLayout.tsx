@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import DashboardNavbar from "./DashboardNavbar";
-import { LayoutDashboard, Users, Building2, Briefcase, UserCog, Settings, BarChart3, CreditCard } from "lucide-react";
+import { LayoutDashboard, Users, Building2, Briefcase, UserCog, Settings, BarChart3, CreditCard, Ticket } from "lucide-react";
 
 interface OwnerLayoutProps {
   children: React.ReactNode;
@@ -12,9 +12,8 @@ const OwnerLayout = ({ children }: OwnerLayoutProps) => {
   const menuItems = [
     { label: "Dashboard", icon: LayoutDashboard, path: "/owner/dashboard" },
     { label: "All Users", icon: Users, path: "/owner/users" },
-    { label: "Employers", icon: Building2, path: "/owner/employers" },
-    { label: "Talents", icon: Briefcase, path: "/owner/talents" },
-    { label: "Interviewers", icon: UserCog, path: "/owner/interviewers" },
+    { label: "Company Admins", icon: Building2, path: "/owner/users", highlight: true },
+    { label: "Support Tickets", icon: Ticket, path: "/owner/tickets" },
     { label: "Subscriptions", icon: CreditCard, path: "/owner/subscriptions" },
     { label: "Statistics", icon: BarChart3, path: "/owner/statistics" },
     { label: "Settings", icon: Settings, path: "/owner/settings" },
@@ -35,12 +34,12 @@ const OwnerLayout = ({ children }: OwnerLayoutProps) => {
           </div>
         </div>
         <nav className="p-4 space-y-2">
-          {menuItems.map((item) => {
+          {menuItems.map((item, index) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
             return (
               <Link
-                key={item.path}
+                key={`${item.path}-${index}`}
                 to={item.path}
                 className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
                   isActive

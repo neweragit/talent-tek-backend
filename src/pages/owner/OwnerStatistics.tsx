@@ -3,28 +3,244 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area } from "recharts";
 import { TrendingUp, Users, Building2, Briefcase, DollarSign, Calendar } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
+import { useToast } from "@/hooks/use-toast";
 
-const monthlyData = [
-  { month: "Jan", talents: 65, employers: 12, interviewers: 8, revenue: 15000 },
-  { month: "Feb", talents: 85, employers: 18, interviewers: 12, revenue: 21000 },
-  { month: "Mar", talents: 110, employers: 25, interviewers: 15, revenue: 28000 },
-  { month: "Apr", talents: 145, employers: 32, interviewers: 20, revenue: 35000 },
-  { month: "May", talents: 180, employers: 40, interviewers: 28, revenue: 44000 },
-  { month: "Jun", talents: 220, employers: 53, interviewers: 35, revenue: 56000 },
-];
+interface MonthlyData {
+  month: string;
+  talents: number;
+  employers: number;
+  interviewers: number;
+  revenue: number;
+}
 
-const revenueData = [
-  { month: "Jan", subscriptions: 12000, services: 3000 },
-  { month: "Feb", subscriptions: 16000, services: 5000 },
-  { month: "Mar", subscriptions: 20000, services: 8000 },
-  { month: "Apr", subscriptions: 25000, services: 10000 },
-  { month: "May", subscriptions: 32000, services: 12000 },
-  { month: "Jun", subscriptions: 40000, services: 16000 },
-];
+interface RevenueData {
+  month: string;
+  subscriptions: number;
+  services: number;
+}
 
 export default function OwnerStatistics() {
+  const { toast } = useToast();
   const [timeRange, setTimeRange] = useState("6months");
+  const [isLoading, setIsLoading] = useState(true);
+  const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([]);
+  const [revenueData, setRevenueData] = useState<RevenueData[]>([]);
+  const [stats, setStats] = useState({
+    totalGrowth: 0,
+    employerGrowth: 0,
+    jobMatches: 0,
+    totalRevenue: 0,
+  });
+
+  useEffect(() => {
+    loadStatistics();
+  }, [timeRange]);
+
+  async function loadStatistics() {
+    try {
+      setIsLoading(true);
+      await Promise.all([
+        loadMonthlyGrowth(),
+        loadRevenueData(),
+        loadKeyMetrics(),
+      ]);
+    } catch (error) {
+      console.error('Error loading statistics:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load statistics.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function loadMonthlyGrowth() {
+    const months = getMonthsRange();
+    const monthlyStats: MonthlyData[] = [];
+
+    for (const month of months) {
+      const startDate = new Date(month.year, month.monthIndex, 1);
+      const endDate = new Date(month.year, month.monthIndex + 1, 0, 23, 59, 59);
+
+      // Count users by role
+      const { data: talents } = await supabase
+        .from('users')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_role', 'talent')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString());
+
+      const { data: employers } = await supabase
+        .from('users')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_role', 'employer')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString());
+
+      const { data: interviewers } = await supabase
+        .from('users')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_role', 'interviewer')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString());
+
+      // Get revenue for the month
+      const { data: payments } = await supabase
+        .from('payments')
+        .select('amount')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .eq('status', 'completed');
+
+      const revenue = payments?.reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0) || 0;
+
+      monthlyStats.push({
+        month: month.label,
+        talents: talents?.length || 0,
+        employers: employers?.length || 0,
+        interviewers: interviewers?.length || 0,
+        revenue: revenue,
+      });
+    }
+
+    setMonthlyData(monthlyStats);
+  }
+
+  async function loadRevenueData() {
+    const months = getMonthsRange();
+    const revenueStats: RevenueData[] = [];
+
+    for (const month of months) {
+      const startDate = new Date(month.year, month.monthIndex, 1);
+      const endDate = new Date(month.year, month.monthIndex + 1, 0, 23, 59, 59);
+
+      // Subscription revenue
+      const { data: subscriptionPayments } = await supabase
+        .from('payments')
+        .select('amount, subscription_id')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .eq('status', 'completed')
+        .not('subscription_id', 'is', null);
+
+      // Service/other revenue
+      const { data: servicePayments } = await supabase
+        .from('payments')
+        .select('amount')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .eq('status', 'completed')
+        .is('subscription_id', null);
+
+      const subscriptions = subscriptionPayments?.reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0) || 0;
+      const services = servicePayments?.reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0) || 0;
+
+      revenueStats.push({
+        month: month.label,
+        subscriptions: subscriptions,
+        services: services,
+      });
+    }
+
+    setRevenueData(revenueStats);
+  }
+
+  async function loadKeyMetrics() {
+    const months = getMonthsRange();
+    const firstMonth = new Date(months[0].year, months[0].monthIndex, 1);
+    const lastMonth = new Date(months[months.length - 1].year, months[months.length - 1].monthIndex + 1, 0);
+
+    // Calculate growth percentages
+    const { count: currentUsers } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .lte('created_at', lastMonth.toISOString());
+
+    const { count: previousUsers } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .lt('created_at', firstMonth.toISOString());
+
+    const totalGrowth = previousUsers > 0 
+      ? Math.round(((currentUsers - previousUsers) / previousUsers) * 100)
+      : 0;
+
+    // Employer growth
+    const { count: currentEmployers } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_role', 'employer')
+      .lte('created_at', lastMonth.toISOString());
+
+    const { count: previousEmployers } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_role', 'employer')
+      .lt('created_at', firstMonth.toISOString());
+
+    const employerGrowth = previousEmployers > 0
+      ? Math.round(((currentEmployers - previousEmployers) / previousEmployers) * 100)
+      : 0;
+
+    // Total revenue in current period
+    const { data: payments } = await supabase
+      .from('payments')
+      .select('amount')
+      .gte('created_at', firstMonth.toISOString())
+      .lte('created_at', lastMonth.toISOString())
+      .eq('status', 'completed');
+
+    const totalRevenue = payments?.reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0) || 0;
+
+    // Job matches (you may need to adjust based on your schema)
+    const { count: jobMatches } = await supabase
+      .from('job_applications')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'accepted')
+      .gte('created_at', firstMonth.toISOString())
+      .lte('created_at', lastMonth.toISOString());
+
+    setStats({
+      totalGrowth,
+      employerGrowth,
+      jobMatches: jobMatches || 0,
+      totalRevenue,
+    });
+  }
+
+  function getMonthsRange() {
+    const months: { label: string; year: number; monthIndex: number }[] = [];
+    const monthCount = timeRange === '1month' ? 1 : timeRange === '3months' ? 3 : timeRange === '6months' ? 6 : 12;
+    
+    const now = new Date();
+    for (let i = monthCount - 1; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({
+        label: date.toLocaleDateString('en-US', { month: 'short' }),
+        year: date.getFullYear(),
+        monthIndex: date.getMonth(),
+      });
+    }
+    
+    return months;
+  }
+
+  if (isLoading) {
+    return (
+      <OwnerLayout>
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+            <p className="mt-4 text-gray-600">Loading statistics...</p>
+          </div>
+        </div>
+      </OwnerLayout>
+    );
+  }
 
   return (
     <OwnerLayout>
@@ -62,7 +278,7 @@ export default function OwnerStatistics() {
                 <TrendingUp className="w-5 h-5 text-green-600" />
               </div>
               <p className="text-sm text-gray-600 font-medium">Total Growth</p>
-              <p className="text-3xl font-bold text-gray-900 mt-1">+238%</p>
+              <p className="text-3xl font-bold text-gray-900 mt-1">+{stats.totalGrowth}%</p>
               <p className="text-sm text-gray-500 mt-2">User base expansion</p>
             </CardContent>
           </Card>
@@ -76,7 +292,7 @@ export default function OwnerStatistics() {
                 <TrendingUp className="w-5 h-5 text-green-600" />
               </div>
               <p className="text-sm text-gray-600 font-medium">Employer Growth</p>
-              <p className="text-3xl font-bold text-gray-900 mt-1">+342%</p>
+              <p className="text-3xl font-bold text-gray-900 mt-1">+{stats.employerGrowth}%</p>
               <p className="text-sm text-gray-500 mt-2">Companies joined</p>
             </CardContent>
           </Card>
@@ -90,7 +306,7 @@ export default function OwnerStatistics() {
                 <TrendingUp className="w-5 h-5 text-green-600" />
               </div>
               <p className="text-sm text-gray-600 font-medium">Job Matches</p>
-              <p className="text-3xl font-bold text-gray-900 mt-1">1,245</p>
+              <p className="text-3xl font-bold text-gray-900 mt-1">{stats.jobMatches.toLocaleString()}</p>
               <p className="text-sm text-gray-500 mt-2">Successful placements</p>
             </CardContent>
           </Card>
@@ -104,8 +320,8 @@ export default function OwnerStatistics() {
                 <TrendingUp className="w-5 h-5 text-green-600" />
               </div>
               <p className="text-sm text-gray-600 font-medium">Total Revenue</p>
-              <p className="text-3xl font-bold text-gray-900 mt-1">$56K</p>
-              <p className="text-sm text-gray-500 mt-2">This month</p>
+              <p className="text-3xl font-bold text-gray-900 mt-1">{stats.totalRevenue.toLocaleString('en-US', { style: 'currency', currency: 'DZD', maximumFractionDigits: 0 })}</p>
+              <p className="text-sm text-gray-500 mt-2">Selected period</p>
             </CardContent>
           </Card>
         </div>

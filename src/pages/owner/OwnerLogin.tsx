@@ -2,18 +2,49 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Shield, Lock, Mail } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 
 export default function OwnerLogin() {
   const navigate = useNavigate();
+  const { login } = useAuth();
+  const { toast } = useToast();
   const [form, setForm] = useState({ email: "", password: "" });
+  const [isLoading, setIsLoading] = useState(false);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // Add authentication logic here
-    navigate("/owner/dashboard");
+    setIsLoading(true);
+    
+    try {
+      const success = await login({ email: form.email, password: form.password });
+      
+      if (success) {
+        toast({
+          title: "Logged in successfully",
+          description: "Welcome to Owner Portal",
+        });
+        navigate("/owner/dashboard");
+      } else {
+        toast({
+          title: "Login failed",
+          description: "Invalid email or password",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "An error occurred during login",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (
@@ -45,6 +76,7 @@ export default function OwnerLogin() {
                 placeholder="owner@talentek.com"
                 className="mt-2"
                 required
+                disabled={isLoading}
               />
             </div>
             <div>
@@ -52,21 +84,22 @@ export default function OwnerLogin() {
                 <Lock className="w-4 h-4 text-orange-500" />
                 Password
               </Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
                 placeholder="Enter your password"
                 className="mt-2"
                 required
+                disabled={isLoading}
               />
             </div>
             <Button
               type="submit"
               className="w-full bg-gradient-primary hover:opacity-90 text-white py-6 text-lg font-semibold shadow-glow"
+              disabled={isLoading}
             >
-              Sign In
+              {isLoading ? "Signing in..." : "Sign In"}
             </Button>
           </form>
           <div className="mt-6 text-center text-xs text-gray-500">

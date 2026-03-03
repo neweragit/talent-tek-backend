@@ -20,6 +20,7 @@ const TalentLayout = ({ children }: TalentLayoutProps) => {
       subItems: [
         { label: "TA Interviews", path: "/talent/interviews/ta" },
         { label: "Technical  Interviews", path: "/talent/interviews/it" },
+        { label: "Leadership Interviews", path: "/talent/interviews/leadership" },
       ],
     },
     { label: "Applications", icon: FileText, path: "/talent/applications" },

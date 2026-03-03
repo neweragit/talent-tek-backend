@@ -1,23 +1,21 @@
 import EmployerLayout from "@/components/layouts/EmployerLayout";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/lib/supabase";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import { BarChart3, Filter, ChevronDown, User, Mail, MapPin, CheckCircle, AlertCircle, XCircle, Archive, Phone, Briefcase, Download, Linkedin, Github, Globe, Star, Calendar, Clock, Video, Code, Palette, PenTool, TrendingUp, FileText, Languages, Music, Smartphone, Camera, Megaphone, DollarSign } from "lucide-react";
-import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
-import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+// Removed drag drop - using buttons for safety
 
-// Mock interviewers data
-const interviewers = [
-  { id: 1, name: "Sarah Johnson", role: "Technical Lead", email: "sarah.j@company.com" },
-  { id: 2, name: "Michael Chen", role: "Senior Developer", email: "michael.c@company.com" },
-  { id: 3, name: "Emily Davis", role: "HR Manager", email: "emily.d@company.com" },
-  { id: 4, name: "David Martinez", role: "CTO", email: "david.m@company.com" },
-];
 
 // Mock scheduled interviews storage (in real app, this would be in database)
 const scheduledInterviews = [];
@@ -170,11 +168,37 @@ const BigTitle = ({ children }: { children: React.ReactNode }) => (
   </span>
 );
 
+// Custom scrollbar styles
+const scrollbarStyles = `
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #555;
+  }
+`;
+
 export default function EmployerInterviews() {
+  const { user, loading: authLoading } = useAuth();
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(true);
+  const [currentEmployer, setCurrentEmployer] = useState(null);
+  const [currentTeamMember, setCurrentTeamMember] = useState(null);
+  const [interviewers, setInterviewers] = useState([]);
+  const [jobs, setJobs] = useState([]);
   const [activeTab, setActiveTab] = useState("all");
   const [viewMode, setViewMode] = useState("pipeline"); // "pipeline" or "table"
-  const [selectedJob, setSelectedJob] = useState(jobs[2]); // Start with Full Stack Engineer
-  const [jobsData, setJobsData] = useState(allJobsData);
+  const [selectedJob, setSelectedJob] = useState(null);
+  const [jobsData, setJobsData] = useState({});
   const [selectedCandidate, setSelectedCandidate] = useState(null);
   const [screeningDialogOpen, setScreeningDialogOpen] = useState(false);
   const [viewingCandidate, setViewingCandidate] = useState(null); // For detailed view
@@ -206,14 +230,534 @@ export default function EmployerInterviews() {
     startDate: "",
     benefits: "",
     workLocation: "",
-    contractType: "Full-time"
   });
   const [offerGenerated, setOfferGenerated] = useState(false);
+  const [offerJobMeta, setOfferJobMeta] = useState({ employmentType: "", workplace: "" });
   const [servicesDialogOpen, setServicesDialogOpen] = useState(false);
   const [selectedCandidateServices, setSelectedCandidateServices] = useState(null);
+  const [selectedDuration, setSelectedDuration] = useState(60); // Default 60 minutes
+  const [isSchedulingInterview, setIsSchedulingInterview] = useState(false);
+  const [isMovingCandidate, setIsMovingCandidate] = useState(false);
 
-  const currentJobData = jobsData[selectedJob.id];
+  // Close viewing candidate panel when switching tabs
+  useEffect(() => {
+    setViewingCandidate(null);
+  }, [activeTab]);
+
+  // Load employer and jobs data
+  useEffect(() => {
+    const loadEmployerAndJobs = async () => {
+      if (!user?.id) return;
+      
+      setLoading(true);
+      try {
+        // Get current employer data via team membership
+        const { data: teamMember, error: teamError } = await supabase
+          .from('employer_team_members')
+          .select(`
+            id,
+            employer_id,
+            role,
+            first_name,
+            last_name,
+            employers (
+              id,
+              company_name,
+              industry,
+              logo_url
+            )
+          `)
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (teamError) {
+          console.error('Error loading team membership:', teamError);
+          throw teamError;
+        }
+
+        if (!teamMember) {
+          toast({
+            title: "Access Denied",
+            description: "You are not associated with any employer account.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const employer = Array.isArray(teamMember.employers) 
+          ? teamMember.employers[0] 
+          : teamMember.employers;
+        
+        console.log('🏢 Current Employer:', employer);
+        console.log('👤 User ID:', user.id);
+        console.log('🔑 Employer ID for jobs filter:', employer.id);
+        console.log('👥 Current Team Member:', teamMember);
+        
+        setCurrentEmployer(employer);
+        setCurrentTeamMember({
+          id: teamMember.id,
+          name: `${teamMember.first_name || ''} ${teamMember.last_name || ''}`.trim() || 'Team Member',
+          role: teamMember.role,
+          firstName: teamMember.first_name,
+          lastName: teamMember.last_name
+        });
+
+        // Load interviewers for this employer
+        const { data: interviewersData, error: interviewersError } = await supabase
+          .from('interviewers')
+          .select('id, full_name, email, role, expertise, interview_type, status')
+          .eq('employer_id', employer.id)
+          .eq('status', 'active')
+          .order('full_name', { ascending: true });
+
+        if (interviewersError) {
+          console.error('Error loading interviewers:', interviewersError);
+        } else {
+          console.log('👥 Interviewers loaded:', interviewersData);
+          // Transform to match expected format
+          const transformedInterviewers = (interviewersData || []).map(interviewer => ({
+            id: interviewer.id, // UUID from database
+            name: interviewer.full_name,
+            role: interviewer.role,
+            email: interviewer.email,
+            expertise: interviewer.expertise,
+            interviewType: interviewer.interview_type
+          }));
+          console.log('🔄 Transformed interviewers:', transformedInterviewers);
+          setInterviewers(transformedInterviewers);
+        }
+
+        // Load jobs for this employer (include unpublished, exclude only archived)
+        const { data: jobPostings, error: jobsError } = await supabase
+          .from('jobs')
+          .select(`
+            id,
+            title,
+            status,
+            description,
+            location,
+            employment_type,
+            workplace,
+            experience_level,
+            skills_required,
+            created_at,
+            updated_at
+          `)
+          .eq('employer_id', employer.id)
+          .in('status', ['draft', 'published', 'unpublished'])
+          .order('created_at', { ascending: false });
+
+        if (jobsError) {
+          console.error('Error loading jobs:', jobsError);
+          throw jobsError;
+        }
+
+        console.log('📋 Jobs loaded:', jobPostings);
+        console.log('📊 Number of jobs:', jobPostings?.length || 0);
+
+        if (!jobPostings || jobPostings.length === 0) {
+          setJobs([]);
+          setJobsData({});
+          setSelectedJob(null);
+          toast({
+            title: "No Jobs Found",
+            description: "Create your first job posting to start receiving applications.",
+          });
+          return;
+        }
+
+        // Load applications for each job
+        const jobsWithApplications = await Promise.all(
+          jobPostings.map(async (job) => {
+            const { data: applications, error: appsError } = await supabase
+              .from('applications')
+              .select(`
+                id,
+                talent_id,
+                status,
+                stage,
+                match_score,
+                cover_letter,
+                resume_url,
+                applied_at,
+                talents (
+                  id,
+                  user_id,
+                  full_name,
+                  phone_number,
+                  city,
+                  skills,
+                  years_of_experience,
+                  portfolio_url
+                ),
+                interviews(
+                  id,
+                  status,
+                  scheduled_date,
+                  interview_type,
+                  interviewer_id,
+                  team_member_id,
+                  interviewers(full_name, role),
+                  employer_team_members(id, first_name, last_name, role),
+                  interview_reviews(rating, review_text, created_at)
+                ),
+                offers (
+                  id,
+                  position,
+                  salary,
+                  start_date,
+                  work_location,
+                  status,
+                  created_at
+                )
+              `)
+              .eq('job_id', job.id)
+              .order('applied_at', { ascending: false });
+
+            if (appsError) {
+              console.error('Error loading applications for job:', job.id, appsError);
+              return {
+                ...job,
+                applicationsCount: 0,
+                applications: []
+              };
+            }
+
+            console.log('📧 Applications for job', job.title, ':', applications?.length || 0);
+
+            // Transform applications to match the expected format
+            const transformedApps = await Promise.all((applications || []).map(async (app) => {
+              const talent = Array.isArray(app.talents) ? app.talents[0] : app.talents;
+              
+              // Get user email from users table
+              let userEmail = '';
+              if (talent?.user_id) {
+                const { data: userData } = await supabase
+                  .from('users')
+                  .select('email')
+                  .eq('id', talent.user_id)
+                  .single();
+                userEmail = userData?.email || '';
+              }
+
+              // Extract interview reviews data from interviews
+              let talentAcquisitionReview = null;
+              let talentAcquisitionRating = null;
+              let talentAcquisitionReviewedAt = null;
+              let technicalReview = null;
+              let technicalRating = null;
+              let technicalReviewedAt = null;
+              let leadershipReview = null;
+              let leadershipRating = null;
+              let leadershipReviewedAt = null;
+              let interview_reviews = null;
+
+              // Find the most recent offer, if any
+              const offer = app.offers && app.offers.length > 0 ? app.offers[0] : null;
+
+              let applicationStage = app.stage;
+              let applicationStatus = app.status;
+
+              if (offer) {
+                if (offer.status === 'accepted') {
+                  applicationStage = 'hired';
+                  applicationStatus = 'hired';
+                } else if (offer.status === 'refused') {
+                  applicationStage = 'rejected-offer';
+                  applicationStatus = 'rejected';
+                }
+              }
+
+              const statusDisplay = applicationStatus
+                ? applicationStatus === 'pending'
+                  ? 'Pending Review'
+                  : (applicationStatus.charAt(0).toUpperCase() + applicationStatus.slice(1))
+                      .replace(/-(.)/g, (_, char) => ` ${char.toUpperCase()}`)
+                : 'Unknown';
+
+
+              if (app.interviews && Array.isArray(app.interviews)) {
+                // Find talent acquisition interview and its review
+                const taInterview = app.interviews.find(interview => 
+                  interview.interview_type === 'talent-acquisition' && 
+                  interview.interview_reviews && 
+                  (Array.isArray(interview.interview_reviews) ? interview.interview_reviews.length > 0 : 
+                   (typeof interview.interview_reviews === 'object' && (interview.interview_reviews as any).rating))
+                );
+                if (taInterview?.interview_reviews) {
+                  const taReview = Array.isArray(taInterview.interview_reviews) ? 
+                    taInterview.interview_reviews[0] : taInterview.interview_reviews;
+                  if (taReview && typeof taReview === 'object' && 'rating' in taReview && 'review_text' in taReview) {
+                    const review = taReview as any;
+                    talentAcquisitionReview = review.review_text;
+                    talentAcquisitionRating = review.rating;
+                    talentAcquisitionReviewedAt = new Date(review.created_at).toLocaleDateString();
+                  }
+                }
+
+                // Find technical interview and its review
+                const techInterview = app.interviews.find(interview => 
+                  interview.interview_type === 'technical' && 
+                  interview.interview_reviews && 
+                  (Array.isArray(interview.interview_reviews) ? interview.interview_reviews.length > 0 : 
+                   (typeof interview.interview_reviews === 'object' && (interview.interview_reviews as any).rating))
+                );
+                if (techInterview?.interview_reviews) {
+                  const techReview = Array.isArray(techInterview.interview_reviews) ? 
+                    techInterview.interview_reviews[0] : techInterview.interview_reviews;
+                  if (techReview && typeof techReview === 'object' && 'rating' in techReview && 'review_text' in techReview) {
+                    const review = techReview as any;
+                    technicalReview = review.review_text;
+                    technicalRating = review.rating;
+                    technicalReviewedAt = new Date(review.created_at).toLocaleDateString();
+                  }
+                }
+
+                // Find leadership interview and its review
+                const leadershipInterview = app.interviews.find(interview => 
+                  interview.interview_type === 'leadership' && 
+                  interview.interview_reviews && 
+                  (Array.isArray(interview.interview_reviews) ? interview.interview_reviews.length > 0 : 
+                   (typeof interview.interview_reviews === 'object' && (interview.interview_reviews as any).rating))
+                );
+                if (leadershipInterview?.interview_reviews) {
+                  const leaderReview = Array.isArray(leadershipInterview.interview_reviews) ? 
+                    leadershipInterview.interview_reviews[0] : leadershipInterview.interview_reviews;
+                  if (leaderReview && typeof leaderReview === 'object' && 'rating' in leaderReview && 'review_text' in leaderReview) {
+                    const review = leaderReview as any;
+                    leadershipReview = review.review_text;
+                    leadershipRating = review.rating;
+                    leadershipReviewedAt = new Date(review.created_at).toLocaleDateString();
+                  }
+                }
+
+                // Set the most recent interview_reviews for backward compatibility
+                if (taInterview?.interview_reviews) {
+                  interview_reviews = taInterview.interview_reviews;
+                } else if (techInterview?.interview_reviews) {
+                  interview_reviews = techInterview.interview_reviews;
+                } else if (leadershipInterview?.interview_reviews) {
+                  interview_reviews = leadershipInterview.interview_reviews;
+                }
+              }
+
+              return {
+                id: app.id,
+                name: talent?.full_name || 'Unknown',
+                email: userEmail,
+                phone: talent?.phone_number || '',
+                location: talent?.city || '',
+                company: talent?.years_of_experience ? `${talent.years_of_experience} years experience` : 'N/A',
+                appliedDate: new Date(app.applied_at).toLocaleDateString(),
+                matchScore: app.match_score || Math.floor(Math.random() * 40) + 60,
+                status: applicationStatus, // Keep original lowercase status for routing
+                statusDisplay,
+                stage: applicationStage,
+                coverLetter: app.cover_letter,
+                resumeUrl: app.resume_url,
+                skills: talent?.skills || [],
+                portfolioUrl: talent?.portfolio_url,
+                services: [],
+                // Interview review data
+                talentAcquisitionReview,
+                talentAcquisitionRating,
+                talentAcquisitionReviewedAt,
+                technicalReview,
+                technicalRating,
+                technicalReviewedAt,
+                leadershipReview,
+                leadershipRating,
+                leadershipReviewedAt,
+                interview_reviews, // For backward compatibility
+                offer: offer ? {
+                  id: offer.id,
+                  position: offer.position,
+                  salary: offer.salary,
+                  status: offer.status,
+                  workLocation: offer.work_location,
+                  work_location: offer.work_location,
+                  sentAt: offer.created_at
+                } : null
+              };
+            }));
+
+            // Count only pending applications
+            const activeApplicationsCount = transformedApps.filter(app => 
+              app.status === 'pending'
+            ).length;
+
+            return {
+              id: job.id.toString(),
+              title: job.title,
+              status: job.status === 'published' ? 'Published' : job.status === 'unpublished' ? 'Unpublished' : job.status === 'draft' ? 'Draft' : 'Archived',
+              employment_type: job.employment_type,
+              workplace: job.workplace,
+              applicationsCount: activeApplicationsCount,
+              applications: transformedApps
+            };
+          })
+        );
+
+        // Transform jobs data into the format expected by the component
+        const transformedJobsData = {};
+        jobsWithApplications.forEach(job => {
+          // Organize applications by their stage
+          const pipeline = {
+            toContact: [],
+            talentAcquisition: [],
+            technical: [],
+            leadership: [],
+            offer: [],
+            rejectedOffers: [],
+            hired: [],
+          };
+          
+          const pendingApps = [];
+          
+          const maybeApps = [];
+          const rejectedApps = [];
+          const archivedApps = [];
+          
+          job.applications.forEach(app => {
+            // Map database stage names to component stage names (only for hiring pipeline)
+            const stageMap = {
+              'to-contact': 'toContact',
+              'talent-acquisition': 'talentAcquisition',
+              'technical': 'technical',
+              'leadership': 'leadership',
+              'offer': 'offer',
+              'rejected-offer': 'rejectedOffers',
+              'hired': 'hired'
+            };
+            
+            // Route based on STAGE first (pipeline takes priority)
+            // Once in pipeline (has a stage), ALWAYS stays in pipeline
+            if (app.stage && stageMap[app.stage]) {
+              // In "Hiring Pipeline" tab with a valid stage
+              // Stages: to-contact, talent-acquisition, technical, leadership, offer, rejected-offer, hired
+              const mappedStage = stageMap[app.stage];
+              pipeline[mappedStage].push({ ...app, stage: mappedStage });
+            } else if (app.status === 'maybe') {
+              // In "Maybe" tab - stage should be NULL
+              maybeApps.push({ ...app, stage: 'maybe' });
+            } else if (app.status === 'rejected') {
+              // In "Rejected" tab - stage should be NULL
+              rejectedApps.push({ ...app, stage: 'rejected' });
+            } else if (app.status === 'archived') {
+              // In "Archived" tab - stage should be NULL
+              archivedApps.push({ ...app, stage: 'archived' });
+            } else {
+              // status === 'pending' and stage === NULL = "All Applications" tab
+              // This is the initial state before screening
+              pendingApps.push(app);
+            }
+          });
+          
+          transformedJobsData[job.id] = {
+            all: pendingApps,
+            pipeline,
+            maybe: maybeApps,
+            Rejected: rejectedApps,
+            archived: archivedApps
+          };
+        });
+
+        setJobs(jobsWithApplications);
+        setJobsData(transformedJobsData);
+        
+        // Select first job by default
+        if (jobsWithApplications.length > 0) {
+          setSelectedJob(jobsWithApplications[0]);
+        }
+
+      } catch (error) {
+        console.error('Error loading employer data:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load job applications. Please refresh the page.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (!authLoading) {
+      loadEmployerAndJobs();
+    }
+  }, [user, authLoading, toast]);
+
+  // Keep offer dialog job metadata in sync with database
+  useEffect(() => {
+    let isCancelled = false;
+
+    const fetchOfferJobMeta = async () => {
+      if (!offerCandidate?.id) {
+        if (!isCancelled) {
+          setOfferJobMeta({ employmentType: "", workplace: "" });
+          setOfferDetails(prev => ({ ...prev, workLocation: "" }));
+        }
+        return;
+      }
+
+      if (!isCancelled) {
+        setOfferJobMeta({ employmentType: "", workplace: "" });
+        setOfferDetails(prev => ({ ...prev, workLocation: "" }));
+      }
+
+      const { data, error } = await supabase
+        .from('applications')
+        .select(`
+          jobs (
+            title,
+            employment_type,
+            workplace
+          )
+        `)
+        .eq('id', offerCandidate.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error loading job metadata for offer:', error);
+        if (!isCancelled) {
+          setOfferJobMeta({ employmentType: "", workplace: "" });
+        }
+        return;
+      }
+
+      const jobRecord = Array.isArray(data?.jobs) ? data?.jobs[0] : data?.jobs;
+
+      if (!isCancelled) {
+        setOfferJobMeta({
+          employmentType: jobRecord?.employment_type || "",
+          workplace: jobRecord?.workplace || "",
+        });
+        setOfferDetails(prev => ({
+          ...prev,
+          position: jobRecord?.title || prev.position,
+          workLocation: jobRecord?.workplace || "",
+        }));
+      }
+    };
+
+    fetchOfferJobMeta();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [offerCandidate?.id]);
+
+  const currentJobData = selectedJob && jobsData[selectedJob.id] ? jobsData[selectedJob.id] : { all: [], pipeline: { toContact: [], talentAcquisition: [], technical: [], leadership: [], offer: [], rejectedOffers: [], hired: [] }, maybe: [], Rejected: [] };
   const candidates = currentJobData.pipeline;
+
+  const formatOfferSentAt = (isoString?: string | null) => {
+    if (!isoString) return "";
+    const parsed = new Date(isoString);
+    if (Number.isNaN(parsed.getTime())) {
+      return isoString;
+    }
+    return parsed.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  };
 
   // Sync pipeline stages with jobsData
   const pipelineStages = [
@@ -226,74 +770,179 @@ export default function EmployerInterviews() {
     { id: "hired", label: "Hired", candidates: candidates.hired, color: "bg-green-50 border-green-200", textColor: "text-green-700" },
   ];
 
-  const handleScreenCandidate = (candidate, decision) => {
+  const handleScreenCandidate = async (candidate, decision) => {
+    setIsMovingCandidate(true);
     const updatedJobsData = { ...jobsData };
     const currentJob = updatedJobsData[selectedJob.id];
 
-    // Add to appropriate pipeline stage
-    if (decision === 'toContact') {
-      currentJob.pipeline.toContact.push({ ...candidate, stage: 'toContact' });
-    } else if (decision === 'talentAcquisition') {
-      currentJob.pipeline.talentAcquisition.push({ ...candidate, stage: 'talentAcquisition' });
-    } else if (decision === 'technical') {
-      currentJob.pipeline.technical.push({ ...candidate, stage: 'technical' });
-    } else if (decision === 'leadership') {
-      currentJob.pipeline.leadership.push({ ...candidate, stage: 'leadership' });
-    } else if (decision === 'offer') {
-      currentJob.pipeline.offer.push({ ...candidate, stage: 'offer' });
-    } else if (decision === 'hired') {
-      currentJob.pipeline.hired.push({ ...candidate, stage: 'hired' });
-    } else if (decision === 'maybe') {
-      if (!currentJob.maybe) currentJob.maybe = [];
-      currentJob.maybe.push({ ...candidate, stage: 'maybe' });
-    } else if (decision === 'rejected') {
-      currentJob.Rejected.push({ ...candidate, stage: 'rejected' });
-    } else if (decision === 'archive') {
-      // Add to archive list
-      if (!currentJob.archived) currentJob.archived = [];
-      currentJob.archived.push({ ...candidate, stage: 'archived' });
-    }
+    // Map UI decision to database stage and status
+    // stage is ONLY for hiring pipeline, NULL for other tabs
+    const stageMapping = {
+      'toContact': 'to-contact',
+      'talentAcquisition': 'talent-acquisition',
+      'technical': 'technical',
+      'leadership': 'leadership',
+      'offer': 'offer',
+      'hired': 'hired',
+      'maybe': null,          // NULL - not in pipeline
+      'rejected': null,       // NULL - not in pipeline
+      'archive': null         // NULL - not in pipeline
+    };
 
-    setJobsData(updatedJobsData);
-    setScreeningDialogOpen(false);
-    setSelectedCandidate(null);
+    const statusMapping = {
+      'toContact': 'in-progress',        // In hiring pipeline
+      'talentAcquisition': 'in-progress', // In hiring pipeline
+      'technical': 'in-progress',         // In hiring pipeline
+      'leadership': 'in-progress',        // In hiring pipeline
+      'offer': 'offered',              // Offer extended
+      'hired': 'hired',                // Successfully hired
+      'maybe': 'maybe',                // In "Maybe" tab
+      'rejected': 'rejected',          // In "Rejected" tab
+      'archive': 'archived'            // In "Archived" tab
+    };
+
+    const dbStage = stageMapping[decision];
+    const dbStatus = statusMapping[decision];
+
+    // Update in database
+    try {
+      const { error } = await supabase
+        .from('applications')
+        .update({ 
+          stage: dbStage,
+          status: dbStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', candidate.id);
+
+      if (error) throw error;
+
+      // Remove from ALL possible locations to prevent duplicates
+      // Remove from "All Applications" list
+      const allIndex = currentJob.all.findIndex(c => c.id === candidate.id);
+      if (allIndex !== -1) {
+        currentJob.all.splice(allIndex, 1);
+      }
+      
+      // Remove from current pipeline stage if exists
+      const currentStage = candidate.stage;
+      if (currentStage && currentJob.pipeline[currentStage]) {
+        const stageIndex = currentJob.pipeline[currentStage].findIndex(c => c.id === candidate.id);
+        if (stageIndex !== -1) {
+          currentJob.pipeline[currentStage].splice(stageIndex, 1);
+        }
+      }
+      
+      // Remove from maybe tab if exists
+      if (currentJob.maybe) {
+        const maybeIndex = currentJob.maybe.findIndex(c => c.id === candidate.id);
+        if (maybeIndex !== -1) {
+          currentJob.maybe.splice(maybeIndex, 1);
+        }
+      }
+      
+      // Remove from rejected tab if exists
+      if (currentJob.Rejected) {
+        const rejectedIndex = currentJob.Rejected.findIndex(c => c.id === candidate.id);
+        if (rejectedIndex !== -1) {
+          currentJob.Rejected.splice(rejectedIndex, 1);
+        }
+      }
+
+      // Update local state
+      // Add to appropriate pipeline stage or tab (only once)
+      if (decision === 'toContact') {
+        currentJob.pipeline.toContact.push({ ...candidate, stage: 'toContact' });
+      } else if (decision === 'talentAcquisition') {
+        currentJob.pipeline.talentAcquisition.push({ ...candidate, stage: 'talentAcquisition' });
+      } else if (decision === 'technical') {
+        currentJob.pipeline.technical.push({ ...candidate, stage: 'technical' });
+      } else if (decision === 'leadership') {
+        currentJob.pipeline.leadership.push({ ...candidate, stage: 'leadership' });
+      } else if (decision === 'offer') {
+        currentJob.pipeline.offer.push({ ...candidate, stage: 'offer' });
+      } else if (decision === 'hired') {
+        currentJob.pipeline.hired.push({ ...candidate, stage: 'hired' });
+      } else if (decision === 'maybe') {
+        if (!currentJob.maybe) currentJob.maybe = [];
+        currentJob.maybe.push({ ...candidate, stage: 'maybe' });
+      } else if (decision === 'rejected') {
+        if (!currentJob.Rejected) currentJob.Rejected = [];
+        currentJob.Rejected.push({ ...candidate, stage: 'rejected' });
+      } else if (decision === 'archive') {
+        // Add to archive list
+        if (!currentJob.archived) currentJob.archived = [];
+        currentJob.archived.push({ ...candidate, stage: 'archived' });
+      }
+
+      setJobsData(updatedJobsData);
+      setScreeningDialogOpen(false);
+      setSelectedCandidate(null);
+      setViewingCandidate(null); // Close the details panel
+
+      toast({
+        title: "Success",
+        description: "Candidate moved successfully.",
+      });
+    } catch (error) {
+      console.error('Error updating candidate stage:', error);
+      toast({
+        title: "Error",
+        description: "Failed to move candidate. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsMovingCandidate(false);
+    }
   };
 
-  const checkInterviewConflict = (date, time, interviewerId) => {
-    if (!date || !time || !interviewerId) return false;
+  const checkInterviewConflict = (date, time, interviewerId, isTeamMember = false) => {
+    if (!date || !time) return false;
     
     const dateStr = date.toISOString().split('T')[0];
     const conflict = scheduledInterviews.find(
       interview => 
         interview.date === dateStr && 
         interview.time === time && 
-        interview.interviewerId === interviewerId
+        (
+          (isTeamMember && interview.teamMemberId === interviewerId) ||
+          (!isTeamMember && interview.interviewerId === interviewerId)
+        )
     );
     
     return conflict;
   };
 
-  const handleScheduleInterview = () => {
+  const handleScheduleInterview = async () => {
     if (!selectedDate || !selectedTime) {
       alert("Please fill all fields");
       return;
     }
 
-    // Only check for conflicts if selecting an external interviewer
-    if (selectedInterviewer !== "self") {
-      const conflict = checkInterviewConflict(selectedDate, selectedTime, selectedInterviewer);
+    setIsSchedulingInterview(true);
+
+    // Check for conflicts based on interview type
+    if (interviewType === 'talentAcquisition') {
+      // For talent acquisition, check current team member conflicts
+      const conflict = checkInterviewConflict(selectedDate, selectedTime, currentTeamMember?.id, true);
       if (conflict) {
-        alert(`Conflict detected! ${interviewers.find(i => i.id === parseInt(selectedInterviewer))?.name || 'Interviewer'} already has an interview scheduled at this time.`);
+        alert(`Conflict detected! You already have an interview scheduled at this time.`);
+        setIsSchedulingInterview(false);
+        return;
+      }
+    } else if (selectedInterviewer && selectedInterviewer !== "self" && selectedInterviewer !== "current-user") {
+      // For technical/leadership with external interviewers, check interviewer conflicts
+      const conflict = checkInterviewConflict(selectedDate, selectedTime, selectedInterviewer, false);
+      if (conflict) {
+        alert(`Conflict detected! ${interviewers.find(i => i.id === selectedInterviewer)?.name || 'Interviewer'} already has an interview scheduled at this time.`);
+        setIsSchedulingInterview(false);
         return;
       }
     }
 
-    // Generate interview link
-    const candidateId = schedulingCandidate.id;
-    const stageType = interviewType;
-    const timestamp = Date.now();
-    const generatedLink = `${window.location.origin}/interview?candidate=${candidateId}&stage=${stageType}&token=${timestamp}`;
-    setInterviewLink(generatedLink);
+    // Default meeting link
+    const defaultMeetLink = "https://meet.google.com/new";
+    setInterviewLink(defaultMeetLink);
 
     const updatedJobsData = { ...jobsData };
     const currentJob = updatedJobsData[selectedJob.id];
@@ -302,81 +951,236 @@ export default function EmployerInterviews() {
     // Get the LATEST candidate data from jobsData (in case reviews were added)
     const latestCandidate = currentJob.pipeline[currentStage].find(c => c.id === schedulingCandidate.id) || schedulingCandidate;
 
-    // Remove from current stage
-    const stageIndex = currentJob.pipeline[currentStage].findIndex(c => c.id === schedulingCandidate.id);
-    if (stageIndex !== -1) {
-      currentJob.pipeline[currentStage].splice(stageIndex, 1);
+    // For talent acquisition interviews, always use current team member
+    // For technical/leadership, use selected interviewer
+    let actualInterviewer = null;
+    let actualInterviewerId = null;
+    
+    if (interviewType === 'talentAcquisition') {
+      // Always use current team member for talent acquisition
+      actualInterviewer = {
+        id: currentTeamMember?.id || 'team-member',
+        name: currentTeamMember?.name || 'Team Member',
+        role: currentTeamMember?.role || 'Team Member',
+        email: ''
+      };
+      actualInterviewerId = null; // Keep as null since we're not using interviewers table for team members
+    } else {
+      // Use selected interviewer for technical/leadership
+      actualInterviewer = selectedInterviewer === "self" 
+        ? { id: "self", name: "You", role: "Employer", email: "" }
+        : (interviewers.find(i => i.id === selectedInterviewer) || { id: selectedInterviewer, name: "Unknown", role: "Interviewer", email: "" });
+      actualInterviewerId = (selectedInterviewer !== "self" && actualInterviewer.id !== "self") 
+        ? actualInterviewer.id  // UUID from database
+        : null;  // NULL if employer conducts interview
+    }
+
+    // Remove from ALL possible locations to prevent duplicates
+    // Remove from current pipeline stage
+    if (currentStage && currentJob.pipeline[currentStage]) {
+      const stageIndex = currentJob.pipeline[currentStage].findIndex(c => c.id === schedulingCandidate.id);
+      if (stageIndex !== -1) {
+        currentJob.pipeline[currentStage].splice(stageIndex, 1);
+      }
+    }
+    
+    // Remove from all applications
+    const allIndex = currentJob.all.findIndex(c => c.id === schedulingCandidate.id);
+    if (allIndex !== -1) {
+      currentJob.all.splice(allIndex, 1);
+    }
+    
+    // Remove from maybe
+    if (currentJob.maybe) {
+      const maybeIndex = currentJob.maybe.findIndex(c => c.id === schedulingCandidate.id);
+      if (maybeIndex !== -1) {
+        currentJob.maybe.splice(maybeIndex, 1);
+      }
+    }
+    
+    // Remove from rejected
+    if (currentJob.Rejected) {
+      const rejectedIndex = currentJob.Rejected.findIndex(c => c.id === schedulingCandidate.id);
+      if (rejectedIndex !== -1) {
+        currentJob.Rejected.splice(rejectedIndex, 1);
+      }
     }
 
     // Add interview details and move to next stage
     const nextStage = interviewType;
-    const interviewerData = selectedInterviewer === "self" 
-      ? { id: "self", name: "You", role: "Employer", email: "" }
-      : (interviewers.find(i => i.id === parseInt(selectedInterviewer)) || { id: selectedInterviewer, name: "Unknown", role: "Interviewer", email: "" });
     const dateStr = selectedDate.toISOString().split('T')[0];
     
-    // Add interview history
-    const candidateKey = `${selectedJob.id}_${schedulingCandidate.id}`;
-    if (!interviewHistory[candidateKey]) {
-      interviewHistory[candidateKey] = [];
-    }
-    interviewHistory[candidateKey].push({
-      stage: currentStage,
-      date: dateStr,
-      time: selectedTime,
-      interviewer: interviewerData,
-      link: generatedLink,
-      status: 'scheduled',
-      review: null
-    });
-    setInterviewHistory({...interviewHistory});
-    
-    currentJob.pipeline[nextStage].push({ 
-      ...latestCandidate,
-      stage: nextStage,
-      interview: {
-        date: dateStr,
-        time: selectedTime,
-        interviewer: interviewerData,
-        scheduled: true,
-        link: generatedLink
+    // Map UI stage to database stage
+    const stageMapping = {
+      'toContact': 'to-contact',
+      'talentAcquisition': 'talent-acquisition',
+      'technical': 'technical',
+      'leadership': 'leadership',
+      'offer': 'offer',
+      'rejectedOffers': 'rejected-offer',
+      'hired': 'hired'
+    };
+
+    const dbStage = stageMapping[nextStage];
+
+    // Map interview type to database format
+    const interviewTypeMapping = {
+      'talentAcquisition': 'talent-acquisition',
+      'technical': 'technical',
+      'leadership': 'leadership'
+    };
+
+    try {
+      // Update application stage in database
+      const { error: appError } = await supabase
+        .from('applications')
+        .update({ 
+          stage: dbStage,
+          status: 'interview-scheduled',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', schedulingCandidate.id);
+
+      if (appError) throw appError;
+
+      // Create scheduled datetime (combine date and time)
+      const scheduledDateTime = new Date(`${dateStr}T${selectedTime}:00`);
+
+      // Create interview record in database
+      // For talent acquisition: use team_member_id
+      // For technical/leadership: use interviewer_id
+      let interviewInsertData: any;
+      
+      if (interviewType === 'talentAcquisition') {
+        interviewInsertData = {
+          application_id: schedulingCandidate.id,
+          team_member_id: currentTeamMember?.id,
+          interview_type: interviewTypeMapping[nextStage],
+          status: 'scheduled',
+          scheduled_date: scheduledDateTime.toISOString(),
+          duration_minutes: selectedDuration,
+          meet_link: defaultMeetLink
+        };
+      } else {
+        interviewInsertData = {
+          application_id: schedulingCandidate.id,
+          interviewer_id: actualInterviewerId,
+          interview_type: interviewTypeMapping[nextStage],
+          status: 'scheduled',
+          scheduled_date: scheduledDateTime.toISOString(),
+          duration_minutes: selectedDuration,
+          meet_link: defaultMeetLink
+        };
       }
-    });
 
-    console.log(`📦 Candidate moved to ${nextStage}:`, {
-      name: latestCandidate.name,
-      stage: nextStage,
-      hasTA: !!latestCandidate.talentAcquisitionReview,
-      hasTech: !!latestCandidate.technicalReview,
-      hasLeader: !!latestCandidate.leadershipReview,
-      fullData: currentJob.pipeline[nextStage][currentJob.pipeline[nextStage].length - 1]
-    });
+      const { data: interviewData, error: interviewError } = await supabase
+        .from('interviews')
+        .insert(interviewInsertData)
+        .select()
+        .single();
 
-    // Add to scheduled interviews (only for external interviewers)
-    if (selectedInterviewer !== "self" && interviewerData) {
-      scheduledInterviews.push({
-        candidateId: schedulingCandidate.id,
-        candidateName: schedulingCandidate.name,
+      if (interviewError) {
+        console.error('Error creating interview:', interviewError);
+        throw interviewError;
+      }
+
+      console.log('✅ Interview created in database:', interviewData);
+
+      // Add interview history (local state)
+      const candidateKey = `${selectedJob.id}_${schedulingCandidate.id}`;
+      if (!interviewHistory[candidateKey]) {
+        interviewHistory[candidateKey] = [];
+      }
+      interviewHistory[candidateKey].push({
+        stage: currentStage,
         date: dateStr,
         time: selectedTime,
-        interviewerId: parseInt(selectedInterviewer),
-        interviewerName: interviewerData.name || 'Unknown',
-        type: nextStage
+        interviewer: actualInterviewer,
+        link: defaultMeetLink,
+        status: 'scheduled',
+        review: null
       });
-    }
+      setInterviewHistory({...interviewHistory});
+      
+      // Update local state
+      currentJob.pipeline[nextStage].push({ 
+        ...latestCandidate,
+        stage: nextStage,
+        interview: {
+          id: interviewData.id,
+          date: dateStr,
+          time: selectedTime,
+          interviewer: actualInterviewer,
+          scheduled: true,
+          link: defaultMeetLink
+        }
+      });
 
-    setJobsData(updatedJobsData);
-    setScheduleDialogOpen(false);
-    setSchedulingCandidate(null);
-    setSelectedDate(null);
-    setSelectedTime("");
-    setSelectedHours("10");
-    setSelectedMinutes("00");
-    setSelectedInterviewer("");
-    setInterviewType("");
+      console.log(`📦 Candidate moved to ${nextStage}:`, {
+        name: latestCandidate.name,
+        stage: nextStage,
+        interviewId: interviewData.id,
+        hasTA: !!latestCandidate.talentAcquisitionReview,
+        hasTech: !!latestCandidate.technicalReview,
+        hasLeader: !!latestCandidate.leadershipReview,
+        fullData: currentJob.pipeline[nextStage][currentJob.pipeline[nextStage].length - 1]
+      });
+
+      // Add to scheduled interviews tracking
+      if (interviewType === 'talentAcquisition') {
+        // Track talent acquisition interviews by team member
+        scheduledInterviews.push({
+          candidateId: schedulingCandidate.id,
+          candidateName: schedulingCandidate.name,
+          date: dateStr,
+          time: selectedTime,
+          teamMemberId: currentTeamMember?.id,
+          interviewerName: actualInterviewer.name || 'Team Member',
+          type: nextStage
+        });
+      } else if (selectedInterviewer !== "self" && actualInterviewer) {
+        // Track technical/leadership interviews by external interviewer
+        scheduledInterviews.push({
+          candidateId: schedulingCandidate.id,
+          candidateName: schedulingCandidate.name,
+          date: dateStr,
+          time: selectedTime,
+          interviewerId: actualInterviewer.id,
+          interviewerName: actualInterviewer.name || 'Unknown',
+          type: nextStage
+        });
+      }
+
+      setJobsData(updatedJobsData);
+      setScheduleDialogOpen(false);
+      setSchedulingCandidate(null);
+      setSelectedDate(null);
+      setSelectedTime("");
+      setSelectedHours("10");
+      setSelectedMinutes("00");
+      setSelectedInterviewer("");
+      setInterviewType("");
+      setSelectedDuration(60); // Reset duration
+
+      toast({
+        title: "Success",
+        description: "Interview scheduled successfully.",
+      });
+
+    } catch (error) {
+      console.error('Error scheduling interview:', error);
+      toast({
+        title: "Error",
+        description: "Failed to schedule interview. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSchedulingInterview(false);
+    }
   };
 
   const handleMoveToNextStage = (candidate) => {
+    setIsMovingCandidate(true);
     const currentStage = candidate.stage;
 
     // Define next stage based on current stage
@@ -401,12 +1205,12 @@ export default function EmployerInterviews() {
         salary: "",
         startDate: "",
         benefits: "",
-        workLocation: "Office/Remote",
-        contractType: "Full-time"
+        workLocation: '',
       });
       setOfferGenerated(false);
       setGenerateOfferDialog(true);
       setCandidateDetailDialog(false);
+      setIsMovingCandidate(false); // Reset loading for offer dialog
       return;
     }
 
@@ -414,23 +1218,96 @@ export default function EmployerInterviews() {
     if (nextStage === 'talentAcquisition' || nextStage === 'technical' || nextStage === 'leadership') {
       setSchedulingCandidate(candidate);
       setInterviewType(nextStage);
-      // Show interviewer selection when moving TO technical or leadership (external interviewers)
-      if ((currentStage === 'talentAcquisition' && nextStage === 'technical') || (currentStage === 'technical' && nextStage === 'leadership')) {
-        setSelectedInterviewer(""); // Need to select interviewer
+      
+      if (nextStage === 'talentAcquisition') {
+        // Auto-assign talent acquisition to current user, no interviewer selection needed
+        setSelectedInterviewer("current-user"); // Special value for current team member
       } else {
-        setSelectedInterviewer("self"); // We are the interviewer
+        // Show interviewer selection for technical/leadership stages
+        if ((currentStage === 'talentAcquisition' && nextStage === 'technical') ||
+            (currentStage === 'technical' && nextStage === 'leadership')) {
+          setSelectedInterviewer(""); // Need to select interviewer
+        } else {
+          setSelectedInterviewer("self"); // We are the interviewer
+        }
       }
+      
       setScheduleDialogOpen(true);
       setCandidateDetailDialog(false);
+      setIsMovingCandidate(false); // Reset loading for schedule dialog
     } else {
-      // Direct move for other stages
+      // Direct move for other stages (like hired)
       const updatedJobsData = { ...jobsData };
       const currentJob = updatedJobsData[selectedJob.id];
 
-      // Remove from current stage
-      const stageIndex = currentJob.pipeline[currentStage].findIndex(c => c.id === candidate.id);
-      if (stageIndex !== -1) {
-        currentJob.pipeline[currentStage].splice(stageIndex, 1);
+      // Map UI stage to database stage
+      const stageMapping = {
+        'toContact': 'to-contact',
+        'talentAcquisition': 'talent-acquisition',
+        'technical': 'technical',
+        'leadership': 'leadership',
+        'offer': 'offer',
+        'rejectedOffers': 'rejected-offer',
+        'hired': 'hired'
+      };
+
+      const dbStage = stageMapping[nextStage];
+
+      // Update in database
+      supabase
+        .from('applications')
+        .update({ 
+          stage: dbStage,
+          status: nextStage === 'hired' ? 'hired' : 'in-progress',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', candidate.id)
+        .then(({ error }) => {
+          if (error) {
+            console.error('Error updating candidate stage:', error);
+            toast({
+              title: "Error",
+              description: "Failed to move candidate. Please try again.",
+              variant: "destructive",
+            });
+          } else {
+            toast({
+              title: "Success",
+              description: "Candidate moved successfully.",
+            });
+          }
+          setIsMovingCandidate(false); // Reset loading after database operation
+        });
+
+      // Remove from ALL possible locations to prevent duplicates
+      // Remove from current pipeline stage
+      if (currentStage && currentJob.pipeline[currentStage]) {
+        const stageIndex = currentJob.pipeline[currentStage].findIndex(c => c.id === candidate.id);
+        if (stageIndex !== -1) {
+          currentJob.pipeline[currentStage].splice(stageIndex, 1);
+        }
+      }
+      
+      // Remove from all applications
+      const allIndex = currentJob.all.findIndex(c => c.id === candidate.id);
+      if (allIndex !== -1) {
+        currentJob.all.splice(allIndex, 1);
+      }
+      
+      // Remove from maybe
+      if (currentJob.maybe) {
+        const maybeIndex = currentJob.maybe.findIndex(c => c.id === candidate.id);
+        if (maybeIndex !== -1) {
+          currentJob.maybe.splice(maybeIndex, 1);
+        }
+      }
+      
+      // Remove from rejected
+      if (currentJob.Rejected) {
+        const rejectedIndex = currentJob.Rejected.findIndex(c => c.id === candidate.id);
+        if (rejectedIndex !== -1) {
+          currentJob.Rejected.splice(rejectedIndex, 1);
+        }
       }
 
       if (nextStage) {
@@ -443,28 +1320,67 @@ export default function EmployerInterviews() {
     }
   };
 
-  const handleRejectAndArchive = (candidate) => {
+  const handleRejectAndArchive = async (candidate) => {
     const updatedJobsData = { ...jobsData };
     const currentJob = updatedJobsData[selectedJob.id];
     const currentStage = candidate.stage;
 
-    // Remove from current stage
-    const stageIndex = currentJob.pipeline[currentStage].findIndex(c => c.id === candidate.id);
-    if (stageIndex !== -1) {
-      currentJob.pipeline[currentStage].splice(stageIndex, 1);
+    try {
+      // Update in database to rejected stage
+      const { error } = await supabase
+        .from('applications')
+        .update({ 
+          stage: 'rejected',
+          status: 'rejected',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', candidate.id);
+
+      if (error) throw error;
+
+      // Remove from ALL possible locations to prevent duplicates
+      // Remove from current pipeline stage
+      if (currentStage && currentJob.pipeline[currentStage]) {
+        const stageIndex = currentJob.pipeline[currentStage].findIndex(c => c.id === candidate.id);
+        if (stageIndex !== -1) {
+          currentJob.pipeline[currentStage].splice(stageIndex, 1);
+        }
+      }
+      
+      // Remove from all applications
+      const allIndex = currentJob.all.findIndex(c => c.id === candidate.id);
+      if (allIndex !== -1) {
+        currentJob.all.splice(allIndex, 1);
+      }
+      
+      // Remove from maybe
+      if (currentJob.maybe) {
+        const maybeIndex = currentJob.maybe.findIndex(c => c.id === candidate.id);
+        if (maybeIndex !== -1) {
+          currentJob.maybe.splice(maybeIndex, 1);
+        }
+      }
+
+      // Add to rejected
+      if (!currentJob.Rejected) currentJob.Rejected = [];
+      currentJob.Rejected.push({ ...candidate, stage: 'rejected' });
+
+      setJobsData(updatedJobsData);
+      setCandidateDetailDialog(false);
+      setDetailCandidate(null);
+
+      toast({
+        title: "Success",
+        description: "Candidate rejected successfully.",
+      });
+    } catch (error) {
+      console.error('Error rejecting candidate:', error);
+      toast({
+        title: "Error",
+        description: "Failed to reject candidate. Please try again.",
+        variant: "destructive",
+      });
     }
-
-    // Add to rejected
-    if (!currentJob.Rejected) currentJob.Rejected = [];
-    currentJob.Rejected.push({ ...candidate, stage: 'rejected' });
-
-    // Also add to archived
-    if (!currentJob.archived) currentJob.archived = [];
-    currentJob.archived.push({ ...candidate, stage: 'archived' });
-
-    setJobsData(updatedJobsData);
-    setCandidateDetailDialog(false);
-    setDetailCandidate(null);
   };
 
   const handleGenerateOffer = () => {
@@ -475,51 +1391,122 @@ export default function EmployerInterviews() {
     setOfferGenerated(true);
   };
 
-  const handleSendOffer = () => {
+  const handleSendOffer = async () => {
     if (!offerGenerated) {
-      alert("Please generate the offer first");
+      toast({
+        title: "Not Generated",
+        description: "Please generate the offer first by filling in the details and clicking 'Generate Offer'.",
+        variant: "destructive",
+      });
       return;
     }
 
-    const updatedJobsData = { ...jobsData };
-    const currentJob = updatedJobsData[selectedJob.id];
-    const currentStage = offerCandidate.stage;
-
-    // Get the LATEST candidate data from jobsData (in case reviews were added)
-    const latestCandidate = currentJob.pipeline[currentStage].find(c => c.id === offerCandidate.id) || offerCandidate;
-
-    // Remove from current stage
-    const stageIndex = currentJob.pipeline[currentStage].findIndex(c => c.id === offerCandidate.id);
-    if (stageIndex !== -1) {
-      currentJob.pipeline[currentStage].splice(stageIndex, 1);
+    if (!offerCandidate) {
+      toast({
+        title: "Error",
+        description: "No candidate selected for the offer.",
+        variant: "destructive",
+      });
+      return;
     }
 
-    // Add to offer stage with offer details
-    currentJob.pipeline.offer.push({ 
-      ...latestCandidate,
-      stage: 'offer',
-      offer: {
-        ...offerDetails,
-        sentAt: new Date().toLocaleDateString(),
-        status: 'pending'
-      }
-    });
+    try {
+      // 1. Insert the new offer into the 'offers' table
+      const { data: newOffer, error: offerError } = await supabase
+        .from('offers')
+        .insert({
+          application_id: offerCandidate.id, // The candidate's application ID
+          position: offerDetails.position,
+          salary: offerDetails.salary,
+          start_date: offerDetails.startDate,
+          work_location: offerJobMeta.workplace || offerDetails.workLocation || selectedJob?.workplace || null,
+          benefits_perks: offerDetails.benefits,
+          status: 'pending', // Initial status
+        })
+        .select()
+        .single();
 
-    setJobsData(updatedJobsData);
-    setGenerateOfferDialog(false);
-    setOfferCandidate(null);
-    setOfferDetails({
-      candidateName: '',
-      candidateEmail: '',
-      candidatePhone: '',
-      position: '',
-      salary: '',
-      startDate: '',
-      benefits: '',
-      workLocation: '',
-      contractType: 'Full-time'
-    });
-    setOfferGenerated(false);
+      if (offerError) {
+        console.error('Error creating offer:', offerError);
+        throw offerError;
+      }
+
+      // 2. Update the application's stage to 'offer'
+      const { error: appError } = await supabase
+        .from('applications')
+        .update({
+          stage: 'offer',
+          status: 'offered',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', offerCandidate.id);
+
+      if (appError) {
+        console.error('Error updating application stage:', appError);
+        throw appError;
+      }
+
+      // 3. Update local state to reflect the changes
+      const updatedJobsData = { ...jobsData };
+      const currentJob = updatedJobsData[selectedJob.id];
+      const currentStage = offerCandidate.stage;
+
+      // Get the LATEST candidate data from jobsData
+      const latestCandidate = currentJob.pipeline[currentStage]?.find(c => c.id === offerCandidate.id) || offerCandidate;
+
+      // Remove candidate from their previous stage in the local state
+      if (currentStage && currentJob.pipeline[currentStage]) {
+        const stageIndex = currentJob.pipeline[currentStage].findIndex(c => c.id === offerCandidate.id);
+        if (stageIndex !== -1) {
+          currentJob.pipeline[currentStage].splice(stageIndex, 1);
+        }
+      }
+
+      // Add candidate to the 'offer' stage with the new offer data from the database
+      currentJob.pipeline.offer.push({
+        ...latestCandidate,
+        stage: 'offer',
+        offer: { // This now mirrors the structure from the DB
+          id: newOffer.id,
+          position: newOffer.position,
+          salary: newOffer.salary,
+          start_date: newOffer.start_date,
+          work_location: newOffer.work_location,
+          workLocation: newOffer.work_location,
+          status: newOffer.status,
+          sentAt: newOffer.created_at,
+        },
+      });
+
+      setJobsData(updatedJobsData);
+      setGenerateOfferDialog(false);
+      setOfferCandidate(null);
+      setOfferDetails({
+        candidateName: '',
+        candidateEmail: '',
+        candidatePhone: '',
+        position: '',
+        salary: '',
+        startDate: '',
+        benefits: '',
+        workLocation: '',
+      });
+      setOfferJobMeta({ employmentType: '', workplace: '' });
+      setOfferGenerated(false);
+
+      toast({
+        title: "Success",
+        description: "Offer has been sent and saved.",
+      });
+
+    } catch (error) {
+      toast({
+        title: "Error Sending Offer",
+        description: "There was a problem saving the offer. Please try again.",
+        variant: "destructive",
+      });
+      console.error('Failed to send offer:', error);
+    }
   };
 
   const handleSubmitReview = () => {
@@ -576,7 +1563,7 @@ export default function EmployerInterviews() {
     setReviewRating(3);
   };
 
-  const onDragEnd = (result) => {
+  const onDragEnd = async (result) => {
     const { source, destination } = result;
     if (!destination) return;
 
@@ -590,41 +1577,198 @@ export default function EmployerInterviews() {
     // Get the candidate being moved
     const [movedCandidate] = currentJob.pipeline[sourceStageId].splice(source.index, 1);
     
-    // Update the candidate's stage
-    movedCandidate.stage = destStageId;
-    
-    // Add to destination stage
-    currentJob.pipeline[destStageId].splice(destination.index, 0, movedCandidate);
+    // Map UI stage to database stage
+    const stageMapping = {
+      'toContact': 'to-contact',
+      'talentAcquisition': 'talent-acquisition',
+      'technical': 'technical',
+      'leadership': 'leadership',
+      'offer': 'offer',
+      'rejectedOffers': 'rejected-offer',
+      'hired': 'hired'
+    };
 
-    setJobsData(updatedJobsData);
+    const dbStage = stageMapping[destStageId];
+
+    // Determine status based on destination stage
+    let status = 'in-progress'; // Default for pipeline stages
+    if (destStageId === 'hired') status = 'hired';
+    else if (destStageId === 'offer') status = 'offered';
+    else if (destStageId === 'rejectedOffers') status = 'rejected';
+
+    // Update in database
+    try {
+      const { error } = await supabase
+        .from('applications')
+        .update({ 
+          stage: dbStage,
+          status: status,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', movedCandidate.id);
+
+      if (error) throw error;
+
+      // Update the candidate's stage
+      movedCandidate.stage = destStageId;
+      
+      // Add to destination stage
+      currentJob.pipeline[destStageId].splice(destination.index, 0, movedCandidate);
+
+      setJobsData(updatedJobsData);
+
+      toast({
+        title: "Success",
+        description: "Candidate moved successfully.",
+      });
+    } catch (error) {
+      console.error('Error updating candidate stage:', error);
+      // Revert the change on error
+      currentJob.pipeline[sourceStageId].splice(source.index, 0, movedCandidate);
+      setJobsData(updatedJobsData);
+      
+      toast({
+        title: "Error",
+        description: "Failed to move candidate. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleArchiveCandidate = (candidate) => {
+  const handleArchiveCandidate = async (candidate) => {
+    setIsMovingCandidate(true);
     const updatedJobsData = { ...jobsData };
     const currentJob = updatedJobsData[selectedJob.id];
     const currentStage = candidate.stage;
 
-    // Remove from current stage
-    const stageIndex = currentJob.pipeline[currentStage].findIndex(c => c.id === candidate.id);
-    if (stageIndex !== -1) {
-      currentJob.pipeline[currentStage].splice(stageIndex, 1);
+    try {
+      // Update in database
+      // stage = NULL when in "Archived" tab
+      const { error } = await supabase
+        .from('applications')
+        .update({ 
+          stage: null,
+          status: 'archived',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', candidate.id);
+
+      if (error) throw error;
+
+      // Remove from ALL possible locations to prevent duplicates
+      // Remove from current pipeline stage
+      if (currentStage && currentJob.pipeline[currentStage]) {
+        const stageIndex = currentJob.pipeline[currentStage].findIndex(c => c.id === candidate.id);
+        if (stageIndex !== -1) {
+          currentJob.pipeline[currentStage].splice(stageIndex, 1);
+        }
+      }
+      
+      // Remove from all applications
+      const allIndex = currentJob.all.findIndex(c => c.id === candidate.id);
+      if (allIndex !== -1) {
+        currentJob.all.splice(allIndex, 1);
+      }
+      
+      // Remove from maybe
+      if (currentJob.maybe) {
+        const maybeIndex = currentJob.maybe.findIndex(c => c.id === candidate.id);
+        if (maybeIndex !== -1) {
+          currentJob.maybe.splice(maybeIndex, 1);
+        }
+      }
+      
+      // Remove from rejected
+      if (currentJob.Rejected) {
+        const rejectedIndex = currentJob.Rejected.findIndex(c => c.id === candidate.id);
+        if (rejectedIndex !== -1) {
+          currentJob.Rejected.splice(rejectedIndex, 1);
+        }
+      }
+
+      // Add to archived
+      if (!currentJob.archived) currentJob.archived = [];
+      currentJob.archived.push({ ...candidate, stage: 'archived' });
+
+      setJobsData(updatedJobsData);
+      setCandidateDetailDialog(false);
+      setDetailCandidate(null);
+
+      toast({
+        title: "Success",
+        description: "Candidate archived successfully.",
+      });
+    } catch (error) {
+      console.error('Error archiving candidate:', error);
+      toast({
+        title: "Error",
+        description: "Failed to archive candidate. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsMovingCandidate(false);
     }
-
-    // Add to archived
-    if (!currentJob.archived) currentJob.archived = [];
-    currentJob.archived.push({ ...candidate, stage: 'archived' });
-
-    setJobsData(updatedJobsData);
-    setCandidateDetailDialog(false);
-    setDetailCandidate(null);
   };
+
+  if (loading || authLoading) {
+    return (
+      <EmployerLayout>
+        <div className="flex justify-center items-center h-64">
+          <div className="text-gray-600">Loading job applications...</div>
+        </div>
+      </EmployerLayout>
+    );
+  }
+
+  if (!currentEmployer) {
+    return (
+      <EmployerLayout>
+        <div className="flex justify-center items-center h-64">
+          <div className="text-center text-gray-600">
+            <p>No employer profile found</p>
+            <p className="text-sm">Please contact your administrator</p>
+          </div>
+        </div>
+      </EmployerLayout>
+    );
+  }
+
+  if (!selectedJob && jobs.length === 0) {
+    return (
+      <EmployerLayout>
+        <div className="max-w-7xl mx-auto py-8 px-6">
+          <h1 className="text-3xl font-bold text-gray-900 mb-4">Job Applications</h1>
+          <div className="bg-white rounded-lg border p-16 text-center">
+            <div className="flex flex-col items-center gap-4">
+              <Briefcase className="w-16 h-16 text-gray-300" />
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">No Jobs Posted Yet</h3>
+                <p className="text-gray-600 mb-4">Create your first job posting to start receiving applications.</p>
+                <Button className="bg-orange-500 hover:bg-orange-600">
+                  Create Job Posting
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </EmployerLayout>
+    );
+  }
 
   return (
     <EmployerLayout>
+      <style>{scrollbarStyles}</style>
       <div className="max-w-7xl mx-auto py-8 px-6 relative">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">Job Applications</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-4">
+            Job Applications
+            {currentEmployer && (
+              <span className="text-lg font-normal text-gray-600 ml-3">
+                - {currentEmployer.company_name}
+              </span>
+            )}
+          </h1>
           
           {/* AI Scoring Banner */}
           <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6 flex items-start gap-3">
@@ -637,7 +1781,7 @@ export default function EmployerInterviews() {
           {/* Job Selector and Filters */}
           <div className="flex items-center justify-between gap-4 mb-6">
             <Select
-              value={selectedJob.id}
+              value={selectedJob?.id}
               onValueChange={(val) => {
                 const job = jobs.find((j) => j.id === val);
                 if (job) setSelectedJob(job);
@@ -645,16 +1789,22 @@ export default function EmployerInterviews() {
             >
               <SelectTrigger className="flex items-center gap-3 bg-white border rounded-lg px-4 py-2.5 flex-1 max-w-md">
                 <div className="flex items-center gap-3 flex-1">
-                  <span className="font-semibold text-gray-900">{selectedJob.title}</span>
-                  <Badge
-                    className={`${
-                      selectedJob.status === "Published"
-                        ? "bg-green-100 text-green-800"
-                        : "bg-red-100 text-red-800"
-                    } border-none`}
-                  >
-                    {selectedJob.status}
-                  </Badge>
+                  <span className="font-semibold text-gray-900">{selectedJob?.title || 'Select a job'}</span>
+                  {selectedJob && (
+                    <Badge
+                      className={`${
+                        selectedJob.status === "Published"
+                          ? "bg-green-100 text-green-800"
+                          : selectedJob.status === "Closed"
+                          ? "bg-gray-100 text-gray-800"
+                          : selectedJob.status === "Draft"
+                          ? "bg-yellow-100 text-yellow-800"
+                          : "bg-red-100 text-red-800"
+                      } border-none`}
+                    >
+                      {selectedJob.status}
+                    </Badge>
+                  )}
                 </div>
               </SelectTrigger>
               <SelectContent>
@@ -910,9 +2060,9 @@ export default function EmployerInterviews() {
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Candidates List */}
-                <div className="space-y-4">
+              <div className={`grid gap-6 transition-all duration-300 ${viewingCandidate ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+                {/* Candidates List - Scrollable */}
+                <div className="space-y-4 overflow-y-auto pr-2 custom-scrollbar" style={{ maxHeight: 'calc(100vh - 300px)' }}>
                   {currentJobData.all.map((candidate) => (
                     <div 
                       key={candidate.id} 
@@ -927,7 +2077,7 @@ export default function EmployerInterviews() {
                           <div className="flex items-center justify-between mb-2">
                             <h3 className="font-semibold text-gray-900">{candidate.name}</h3>
                             <Badge variant="outline" className="text-yellow-600 border-yellow-200 bg-yellow-50">
-                              {candidate.status}
+                              {candidate.statusDisplay}
                             </Badge>
                           </div>
                           <div className="space-y-1 text-sm text-gray-600">
@@ -970,9 +2120,9 @@ export default function EmployerInterviews() {
                   ))}
                 </div>
 
-                {/* Candidate Details Panel - Absolute Position Sidebar - Only show when candidate is selected */}
+                {/* Candidate Details Panel - Fixed Position Sidebar - Only show when candidate is selected */}
                 {viewingCandidate && (
-                  <div className="bg-white border rounded-lg p-6 absolute right-0 top-0 w-96 h-[calc(100vh-120px)] overflow-y-auto shadow-lg z-40 mr-6">
+                  <div className="bg-white border rounded-lg p-6 sticky top-6 h-[calc(100vh-200px)] overflow-y-auto shadow-lg custom-scrollbar">
                     <div className="space-y-6">
                       {/* Header */}
                       <div>
@@ -1206,10 +2356,18 @@ export default function EmployerInterviews() {
                         {/* Resume / CV */}
                         <div>
                           <h3 className="font-semibold text-gray-900 mb-3">Resume</h3>
-                          <Button variant="outline" className="w-full flex items-center justify-center gap-2">
-                            <Globe className="w-4 h-4" />
-                            View CV
-                          </Button>
+                          {viewingCandidate?.resumeUrl ? (
+                            <Button 
+                              variant="outline" 
+                              className="w-full flex items-center justify-center gap-2"
+                              onClick={() => window.open(viewingCandidate.resumeUrl, '_blank')}
+                            >
+                              <Globe className="w-4 h-4" />
+                              View CV
+                            </Button>
+                          ) : (
+                            <p className="text-sm text-gray-500 italic">No resume uploaded</p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1233,9 +2391,14 @@ export default function EmployerInterviews() {
               <div className="space-y-3 py-4">
                 <button
                   onClick={() => handleScreenCandidate(viewingCandidate, 'toContact')}
-                  className="w-full flex items-start gap-3 p-4 rounded-lg border hover:bg-blue-50 transition-colors text-left"
+                  disabled={isMovingCandidate}
+                  className="w-full flex items-start gap-3 p-4 rounded-lg border hover:bg-blue-50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <CheckCircle className="w-5 h-5 text-blue-600 mt-0.5" />
+                  {isMovingCandidate ? (
+                    <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mt-0.5" />
+                  ) : (
+                    <CheckCircle className="w-5 h-5 text-blue-600 mt-0.5" />
+                  )}
                   <div>
                     <div className="font-semibold text-gray-900">To Contact</div>
                     <div className="text-sm text-gray-500">Move to hiring pipeline</div>
@@ -1243,9 +2406,14 @@ export default function EmployerInterviews() {
                 </button>
                 <button
                   onClick={() => handleScreenCandidate(viewingCandidate, 'maybe')}
-                  className="w-full flex items-start gap-3 p-4 rounded-lg border hover:bg-yellow-50 transition-colors text-left"
+                  disabled={isMovingCandidate}
+                  className="w-full flex items-start gap-3 p-4 rounded-lg border hover:bg-yellow-50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5" />
+                  {isMovingCandidate ? (
+                    <div className="w-5 h-5 border-2 border-yellow-600 border-t-transparent rounded-full animate-spin mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5" />
+                  )}
                   <div>
                     <div className="font-semibold text-gray-900">Maybe</div>
                     <div className="text-sm text-gray-500">Keep for consideration</div>
@@ -1253,9 +2421,14 @@ export default function EmployerInterviews() {
                 </button>
                 <button
                   onClick={() => handleScreenCandidate(viewingCandidate, 'rejected')}
-                  className="w-full flex items-start gap-3 p-4 rounded-lg border hover:bg-red-50 transition-colors text-left"
+                  disabled={isMovingCandidate}
+                  className="w-full flex items-start gap-3 p-4 rounded-lg border hover:bg-red-50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <XCircle className="w-5 h-5 text-red-600 mt-0.5" />
+                  {isMovingCandidate ? (
+                    <div className="w-5 h-5 border-2 border-red-600 border-t-transparent rounded-full animate-spin mt-0.5" />
+                  ) : (
+                    <XCircle className="w-5 h-5 text-red-600 mt-0.5" />
+                  )}
                   <div>
                     <div className="font-semibold text-gray-900">Rejected</div>
                     <div className="text-sm text-gray-500">Candidate refused or was rejected</div>
@@ -1263,9 +2436,14 @@ export default function EmployerInterviews() {
                 </button>
                 <button
                   onClick={() => handleScreenCandidate(viewingCandidate, 'archive')}
-                  className="w-full flex items-start gap-3 p-4 rounded-lg border hover:bg-gray-50 transition-colors text-left"
+                  disabled={isMovingCandidate}
+                  className="w-full flex items-start gap-3 p-4 rounded-lg border hover:bg-gray-50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Archive className="w-5 h-5 text-gray-600 mt-0.5" />
+                  {isMovingCandidate ? (
+                    <div className="w-5 h-5 border-2 border-gray-600 border-t-transparent rounded-full animate-spin mt-0.5" />
+                  ) : (
+                    <Archive className="w-5 h-5 text-gray-600 mt-0.5" />
+                  )}
                   <div>
                     <div className="font-semibold text-gray-900">Archive</div>
                     <div className="text-sm text-gray-500">Remove from active view</div>
@@ -1277,54 +2455,81 @@ export default function EmployerInterviews() {
 
           {/* Hiring Pipeline Tab */}
           <TabsContent value="pipeline" className="mt-0">
-            <div className="space-y-4">
-              {/* Pipeline Selector and View Toggle */}
-              <div className="flex items-center gap-4">
-                <Select defaultValue="default">
-                  <SelectTrigger className="w-64 bg-white">
-                    <SelectValue placeholder="Select pipeline..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="default">Select pipeline...</SelectItem>
-                  </SelectContent>
-                </Select>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={() => setViewMode("pipeline")}
-                    className={viewMode === "pipeline" ? "bg-primary text-white" : "bg-gray-200 text-gray-700"}
-                  >
-                    Pipeline View
-                  </Button>
-                  <Button
-                    onClick={() => setViewMode("table")}
-                    className={viewMode === "table" ? "bg-primary text-white" : "bg-gray-200 text-gray-700"}
-                  >
-                    Table View
-                  </Button>
+            {Object.values(candidates).flat().length === 0 ? (
+              <div className="bg-white rounded-lg border p-16 text-center">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center">
+                    <svg
+                      className="w-8 h-8 text-primary"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                      />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">No Candidates in Pipeline</h3>
+                    <p className="text-gray-500">
+                      Screen candidates from the "All Applications" tab to add them to the hiring pipeline.
+                    </p>
+                  </div>
                 </div>
               </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Pipeline Selector and View Toggle */}
+                <div className="flex items-center gap-4">
+                  <Select defaultValue="default">
+                    <SelectTrigger className="w-64 bg-white">
+                      <SelectValue placeholder="Select pipeline..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">Select pipeline...</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => setViewMode("pipeline")}
+                      className={viewMode === "pipeline" ? "bg-primary text-white" : "bg-gray-200 text-gray-700"}
+                    >
+                      Pipeline View
+                    </Button>
+                    <Button
+                      onClick={() => setViewMode("table")}
+                      className={viewMode === "table" ? "bg-primary text-white" : "bg-gray-200 text-gray-700"}
+                    >
+                      Table View
+                    </Button>
+                  </div>
+                </div>
 
-              {/* Kanban Board - Pipeline View */}
-              {viewMode === "pipeline" && (
+                {/* Kanban Board - Pipeline View */}
+                {viewMode === "pipeline" && (
+                <DragDropContext onDragEnd={onDragEnd}>
                 <div className="w-full pb-4 overflow-x-auto">
-                  <DragDropContext onDragEnd={onDragEnd}>
                   <div className="flex gap-8 mb-4">
                     {pipelineStages.slice(0, 4).map((stage) => (
                       <Droppable droppableId={stage.id} key={stage.id}>
                         {(provided) => (
                           <div ref={provided.innerRef} {...provided.droppableProps}>
-                            <div key={stage.id} className={`rounded-lg border min-h-[800px] ${stage.color} px-6 py-6`} style={{ width: '480px' }}>
-                              <div className="p-4 border-b">
+                            <div key={stage.id} className={`rounded-lg border min-h-[600px] max-h-[600px] overflow-y-auto custom-scrollbar ${stage.color} px-4 py-4`} style={{ width: '400px' }}>
+                              <div className="p-3 border-b">
                                 <div className="flex items-center justify-between mb-1">
-                                  <h3 className="font-semibold text-gray-900">{stage.label}</h3>
-                                  <span className="text-sm bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+                                  <h3 className="font-semibold text-gray-900 text-sm">{stage.label}</h3>
+                                  <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
                                     {stage.candidates.length}
                                   </span>
                                 </div>
                               </div>
-                              <div className="p-4">
+                              <div className="p-3">
                                 {stage.candidates.length === 0 ? (
-                                  <p className="text-sm text-gray-400 italic text-center py-8">
+                                  <p className="text-sm text-gray-400 italic text-center py-6">
                                     No candidates in this stage
                                   </p>
                                 ) : (
@@ -1336,37 +2541,61 @@ export default function EmployerInterviews() {
                                             ref={provided.innerRef}
                                             {...provided.draggableProps}
                                             {...provided.dragHandleProps}
+                                            key={c.id}
                                           >
-                                            {/* Technical Interview and Leadership Interview - Show status and reviews */}
-                                            {stage.id === 'technical' || stage.id === 'leadership' ? (
+                                            {(stage.id === 'technical' || stage.id === 'leadership') ? (
+                                              /* Technical and Leadership stages - Smaller cards with review info */
                                               <div 
-                                                className="bg-white rounded-lg shadow-md p-3 space-y-2 hover:shadow-lg transition-shadow cursor-pointer"
+                                                className="bg-white rounded-lg shadow-sm p-2 space-y-2 hover:shadow-md transition-shadow cursor-pointer border"
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  console.log(`🔍 Opening detail for ${c.name} in ${c.stage}:`, {
-                                                    hasTA: !!c.talentAcquisitionReview,
-                                                    hasTech: !!c.technicalReview,
-                                                    hasLeader: !!c.leadershipReview,
-                                                    fullData: c
-                                                  });
                                                   setDetailCandidate(c);
                                                   setCandidateDetailDialog(true);
                                                 }}
                                               >
                                                 <div className="flex items-center justify-between">
                                                   <div className="flex items-center gap-2">
-                                                    <div className="w-6 h-6 bg-primary/10 rounded-full flex items-center justify-center">
+                                                    <div className="w-5 h-5 bg-primary/10 rounded-full flex items-center justify-center">
                                                       <User className="w-3 h-3 text-primary" />
                                                     </div>
-                                                    <h4 className="font-semibold text-sm text-gray-900 truncate">
+                                                    <h4 className="font-semibold text-xs text-gray-900 truncate">
                                                       {c.name}
                                                     </h4>
                                                   </div>
-                                                  {c.review && (
-                                                    <Badge variant="outline" className="text-xs text-green-600 border-green-300 bg-green-50 px-1.5 py-0">
-                                                      ✓ Done
-                                                    </Badge>
-                                                  )}
+                                                  {/* Show review status badge */}
+                                                  {(() => {
+                                                    const hasReview = (candidate) => {
+                                                      if (stage.id === 'talentAcquisition' && candidate.talentAcquisitionReview) {
+                                                        return candidate.talentAcquisitionReview.toString().trim() !== '';
+                                                      }
+                                                      if (stage.id === 'technical' && candidate.technicalReview) {
+                                                        return candidate.technicalReview.toString().trim() !== '';
+                                                      }
+                                                      if (stage.id === 'leadership' && candidate.leadershipReview) {
+                                                        return candidate.leadershipReview.toString().trim() !== '';
+                                                      }
+                                                      if (candidate.interview_reviews && typeof candidate.interview_reviews === 'object' && !Array.isArray(candidate.interview_reviews)) {
+                                                        return candidate.interview_reviews.rating && candidate.interview_reviews.review_text && candidate.interview_reviews.review_text.toString().trim() !== '';
+                                                      }
+                                                      if (candidate.interview_reviews && Array.isArray(candidate.interview_reviews) && candidate.interview_reviews.length > 0) {
+                                                        const review = candidate.interview_reviews[0];
+                                                        return review.rating && review.review_text && review.review_text.toString().trim() !== '';
+                                                      }
+                                                      if (candidate.rating && candidate.review_text) {
+                                                        return candidate.review_text.toString().trim() !== '';
+                                                      }
+                                                      return false;
+                                                    };
+                                                    
+                                                    if (hasReview(c)) {
+                                                      return (
+                                                        <Badge variant="outline" className="text-xs text-green-600 border-green-300 bg-green-50 px-1 py-0">
+                                                          ✓
+                                                        </Badge>
+                                                      );
+                                                    }
+                                                    return null;
+                                                  })()}
                                                 </div>
                                                 
                                                 <div className="text-xs text-gray-500 truncate">{c.email}</div>
@@ -1453,7 +2682,7 @@ export default function EmployerInterviews() {
                                                       {c.name}
                                                     </h4>
                                                   </div>
-                                                  {(stage.id === 'talentAcquisition' || stage.id === 'leadership') && c.review && (
+                                                  {((stage.id === 'talentAcquisition' && c.talentAcquisitionReview) || (stage.id === 'leadership' && c.leadershipReview)) && (
                                                     <Badge variant="outline" className="text-xs text-green-600 border-green-300 bg-green-50 px-1.5 py-0">
                                                       ✓
                                                     </Badge>
@@ -1514,46 +2743,234 @@ export default function EmployerInterviews() {
                                                       <div className="truncate">{c.offer.position}</div>
                                                       <div>{c.offer.salary}</div>
                                                       <div>Status: {c.offer.status}</div>
+                                                      {c.offer.sentAt && (
+                                                        <div>Sent: {formatOfferSentAt(c.offer.sentAt)}</div>
+                                                      )}
                                                     </div>
                                                   </div>
                                                 )}
 
-                                                {/* Show review for Talent Acquisition and Leadership */}
-                                                {(stage.id === 'talentAcquisition' || stage.id === 'leadership') && (
-                                                  <div>
-                                                    {c.review ? (
-                                                      <div className="bg-green-50 border border-green-200 rounded p-2 text-xs">
-                                                        <p className="font-semibold text-green-900 text-xs mb-1">
-                                                          {stage.id === 'talentAcquisition' ? 'TA Review:' : 'Leadership Review:'}
-                                                        </p>
-                                                        <div 
-                                                          className="flex items-center gap-1"
-                                                          onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setViewReviewCandidate(c);
-                                                          }}
-                                                        >
-                                                          {[...Array(5)].map((_, i) => (
-                                                            <span key={i} className={`text-xs ${i < c.rating ? 'text-yellow-500' : 'text-gray-300'}`}>★</span>
-                                                          ))}
+                                                {/* Show review for Talent Acquisition */}
+                                                {stage.id === 'talentAcquisition' && (() => {
+                                                  // Same logic as TalentAcquisitionInterviews.tsx
+                                                  const hasReview = (candidate) => {
+                                                    // Check specific TA review fields first
+                                                    if (candidate.talentAcquisitionReview) {
+                                                      return candidate.talentAcquisitionReview.toString().trim() !== '';
+                                                    }
+                                                    // Check if review data is in object format (one-to-one relationship)
+                                                    if (candidate.interview_reviews && typeof candidate.interview_reviews === 'object' && !Array.isArray(candidate.interview_reviews)) {
+                                                      return candidate.interview_reviews.rating && candidate.interview_reviews.review_text && candidate.interview_reviews.review_text.toString().trim() !== '';
+                                                    }
+                                                    // Check if review data is in array format (for backward compatibility)
+                                                    if (candidate.interview_reviews && Array.isArray(candidate.interview_reviews) && candidate.interview_reviews.length > 0) {
+                                                      const review = candidate.interview_reviews[0];
+                                                      return review.rating && review.review_text && review.review_text.toString().trim() !== '';
+                                                    }
+                                                    // Check if review data is flattened (from JOIN query)
+                                                    if (candidate.rating && candidate.review_text) {
+                                                      return candidate.review_text.toString().trim() !== '';
+                                                    }
+                                                    return false;
+                                                  };
+                                                  
+                                                  const getReview = (candidate) => {
+                                                    // Return specific TA review fields first
+                                                    if (candidate.talentAcquisitionReview) {
+                                                      return {
+                                                        rating: candidate.talentAcquisitionRating || 0,
+                                                        review_text: candidate.talentAcquisitionReview,
+                                                        created_at: candidate.talentAcquisitionReviewedAt || new Date().toISOString()
+                                                      };
+                                                    }
+                                                    // Return single object review data if available (one-to-one relationship)
+                                                    if (candidate.interview_reviews && typeof candidate.interview_reviews === 'object' && !Array.isArray(candidate.interview_reviews)) {
+                                                      return candidate.interview_reviews;
+                                                    }
+                                                    // Return array review data if available (for backward compatibility)
+                                                    if (candidate.interview_reviews && Array.isArray(candidate.interview_reviews) && candidate.interview_reviews.length > 0) {
+                                                      return candidate.interview_reviews[0];
+                                                    }
+                                                    // Return flattened review data if available
+                                                    if (candidate.rating && candidate.review_text) {
+                                                      return {
+                                                        rating: candidate.rating,
+                                                        review_text: candidate.review_text,
+                                                        created_at: candidate.updated_at
+                                                      };
+                                                    }
+                                                    return null;
+                                                  };
+                                                  
+                                                  if (hasReview(c)) {
+                                                    const review = getReview(c);
+                                                    return (
+                                                      <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+                                                        <div className="flex items-center justify-between mb-3">
+                                                          <h4 className="font-medium text-emerald-800 text-xs">✓ Evaluation Completed</h4>
+                                                          <Badge className="bg-emerald-100 text-emerald-800 text-xs">
+                                                            {parseFloat(review.rating).toFixed(1)} ⭐
+                                                          </Badge>
                                                         </div>
-                                                        <p className="text-gray-700 mt-1 line-clamp-2">{c.review}</p>
+                                                        <p className="text-xs text-emerald-700 mb-2">
+                                                          {review.review_text}
+                                                        </p>
+                                                        <p className="text-xs text-emerald-600">
+                                                          Submitted on {new Date(review.created_at).toLocaleDateString()}
+                                                        </p>
                                                       </div>
-                                                    ) : (
-                                                      <Button
-                                                        size="sm"
-                                                        className="w-full bg-primary text-white text-xs h-6"
-                                                        onClick={(e) => {
-                                                          e.stopPropagation();
-                                                          setReviewingCandidate(c);
-                                                          setReviewDialogOpen(true);
-                                                        }}
-                                                      >
-                                                        Review
-                                                      </Button>
-                                                    )}
-                                                  </div>
-                                                )}
+                                                    );
+                                                  }
+                                                  return null;
+                                                })()}
+
+                                                {/* Show review for Technical */}
+                                                {stage.id === 'technical' && (() => {
+                                                  // Same logic as TalentAcquisitionInterviews.tsx
+                                                  const hasReview = (candidate) => {
+                                                    // Check specific technical review fields first
+                                                    if (candidate.technicalReview) {
+                                                      return candidate.technicalReview.toString().trim() !== '';
+                                                    }
+                                                    // Check if review data is in object format (one-to-one relationship)
+                                                    if (candidate.interview_reviews && typeof candidate.interview_reviews === 'object' && !Array.isArray(candidate.interview_reviews)) {
+                                                      return candidate.interview_reviews.rating && candidate.interview_reviews.review_text && candidate.interview_reviews.review_text.toString().trim() !== '';
+                                                    }
+                                                    // Check if review data is in array format (for backward compatibility)
+                                                    if (candidate.interview_reviews && Array.isArray(candidate.interview_reviews) && candidate.interview_reviews.length > 0) {
+                                                      const review = candidate.interview_reviews[0];
+                                                      return review.rating && review.review_text && review.review_text.toString().trim() !== '';
+                                                    }
+                                                    // Check if review data is flattened (from JOIN query)
+                                                    if (candidate.rating && candidate.review_text) {
+                                                      return candidate.review_text.toString().trim() !== '';
+                                                    }
+                                                    return false;
+                                                  };
+                                                  
+                                                  const getReview = (candidate) => {
+                                                    // Return specific technical review fields first
+                                                    if (candidate.technicalReview) {
+                                                      return {
+                                                        rating: candidate.technicalRating || 0,
+                                                        review_text: candidate.technicalReview,
+                                                        created_at: candidate.technicalReviewedAt || new Date().toISOString()
+                                                      };
+                                                    }
+                                                    // Return single object review data if available (one-to-one relationship)
+                                                    if (candidate.interview_reviews && typeof candidate.interview_reviews === 'object' && !Array.isArray(candidate.interview_reviews)) {
+                                                      return candidate.interview_reviews;
+                                                    }
+                                                    // Return array review data if available (for backward compatibility)
+                                                    if (candidate.interview_reviews && Array.isArray(candidate.interview_reviews) && candidate.interview_reviews.length > 0) {
+                                                      return candidate.interview_reviews[0];
+                                                    }
+                                                    // Return flattened review data if available
+                                                    if (candidate.rating && candidate.review_text) {
+                                                      return {
+                                                        rating: candidate.rating,
+                                                        review_text: candidate.review_text,
+                                                        created_at: candidate.updated_at
+                                                      };
+                                                    }
+                                                    return null;
+                                                  };
+                                                  
+                                                  if (hasReview(c)) {
+                                                    const review = getReview(c);
+                                                    return (
+                                                      <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+                                                        <div className="flex items-center justify-between mb-3">
+                                                          <h4 className="font-medium text-emerald-800 text-xs">✓ Technical Review Done</h4>
+                                                          <Badge className="bg-emerald-100 text-emerald-800 text-xs">
+                                                            {parseFloat(review.rating).toFixed(1)} ⭐
+                                                          </Badge>
+                                                        </div>
+                                                        <p className="text-xs text-emerald-700 mb-2">
+                                                          {review.review_text}
+                                                        </p>
+                                                        <p className="text-xs text-emerald-600">
+                                                          Submitted on {new Date(review.created_at).toLocaleDateString()}
+                                                        </p>
+                                                      </div>
+                                                    );
+                                                  }
+                                                  return null;
+                                                })()}
+
+                                                {/* Show review for Leadership */}
+                                                {stage.id === 'leadership' && (() => {
+                                                  // Same logic as TalentAcquisitionInterviews.tsx
+                                                  const hasReview = (candidate) => {
+                                                    // Check specific leadership review fields first
+                                                    if (candidate.leadershipReview) {
+                                                      return candidate.leadershipReview.toString().trim() !== '';
+                                                    }
+                                                    // Check if review data is in object format (one-to-one relationship)
+                                                    if (candidate.interview_reviews && typeof candidate.interview_reviews === 'object' && !Array.isArray(candidate.interview_reviews)) {
+                                                      return candidate.interview_reviews.rating && candidate.interview_reviews.review_text && candidate.interview_reviews.review_text.toString().trim() !== '';
+                                                    }
+                                                    // Check if review data is in array format (for backward compatibility)
+                                                    if (candidate.interview_reviews && Array.isArray(candidate.interview_reviews) && candidate.interview_reviews.length > 0) {
+                                                      const review = candidate.interview_reviews[0];
+                                                      return review.rating && review.review_text && review.review_text.toString().trim() !== '';
+                                                    }
+                                                    // Check if review data is flattened (from JOIN query)
+                                                    if (candidate.rating && candidate.review_text) {
+                                                      return candidate.review_text.toString().trim() !== '';
+                                                    }
+                                                    return false;
+                                                  };
+                                                  
+                                                  const getReview = (candidate) => {
+                                                    // Return specific leadership review fields first
+                                                    if (candidate.leadershipReview) {
+                                                      return {
+                                                        rating: candidate.leadershipRating || 0,
+                                                        review_text: candidate.leadershipReview,
+                                                        created_at: candidate.leadershipReviewedAt || new Date().toISOString()
+                                                      };
+                                                    }
+                                                    // Return single object review data if available (one-to-one relationship)
+                                                    if (candidate.interview_reviews && typeof candidate.interview_reviews === 'object' && !Array.isArray(candidate.interview_reviews)) {
+                                                      return candidate.interview_reviews;
+                                                    }
+                                                    // Return array review data if available (for backward compatibility)
+                                                    if (candidate.interview_reviews && Array.isArray(candidate.interview_reviews) && candidate.interview_reviews.length > 0) {
+                                                      return candidate.interview_reviews[0];
+                                                    }
+                                                    // Return flattened review data if available
+                                                    if (candidate.rating && candidate.review_text) {
+                                                      return {
+                                                        rating: candidate.rating,
+                                                        review_text: candidate.review_text,
+                                                        created_at: candidate.updated_at
+                                                      };
+                                                    }
+                                                    return null;
+                                                  };
+                                                  
+                                                  if (hasReview(c)) {
+                                                    const review = getReview(c);
+                                                    return (
+                                                      <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+                                                        <div className="flex items-center justify-between mb-3">
+                                                          <h4 className="font-medium text-emerald-800 text-xs">✓ Leadership Review Done</h4>
+                                                          <Badge className="bg-emerald-100 text-emerald-800 text-xs">
+                                                            {parseFloat(review.rating).toFixed(1)} ⭐
+                                                          </Badge>
+                                                        </div>
+                                                        <p className="text-xs text-emerald-700 mb-2">
+                                                          {review.review_text}
+                                                        </p>
+                                                        <p className="text-xs text-emerald-600">
+                                                          Submitted on {new Date(review.created_at).toLocaleDateString()}
+                                                        </p>
+                                                      </div>
+                                                    );
+                                                  }
+                                                  return null;
+                                                })()}
                                               </div>
                                             )}
                                           </li>
@@ -1562,6 +2979,7 @@ export default function EmployerInterviews() {
                                     ))}
                                   </ul>
                                 )}
+                                {provided.placeholder}
                               </div>
                             </div>
                             {provided.placeholder}
@@ -1576,7 +2994,7 @@ export default function EmployerInterviews() {
                       <Droppable droppableId={stage.id} key={stage.id}>
                         {(provided) => (
                           <div ref={provided.innerRef} {...provided.droppableProps}>
-                            <div key={stage.id} className={`rounded-lg border min-h-[400px] ${stage.color} px-6 py-6`} style={{ width: '480px' }}> 
+                            <div key={stage.id} className={`rounded-lg border min-h-[400px] max-h-[400px] overflow-y-auto custom-scrollbar ${stage.color} px-6 py-6`} style={{ width: '480px' }}> 
                               <div className="p-4 border-b">
                                 <div className="flex items-center justify-between mb-1">
                                   <h3 className="font-semibold text-gray-900">{stage.label}</h3>
@@ -1617,7 +3035,7 @@ export default function EmployerInterviews() {
                                                     {c.name}
                                                   </h4>
                                                 </div>
-                                                {(stage.id === 'talentAcquisition' || stage.id === 'leadership') && c.review && (
+                                                {((stage.id === 'talentAcquisition' && c.talentAcquisitionReview) || (stage.id === 'leadership' && c.leadershipReview)) && (
                                                   <Badge variant="outline" className="text-xs text-green-600 border-green-300 bg-green-50 px-1.5 py-0">
                                                     ✓
                                                   </Badge>
@@ -1652,40 +3070,113 @@ export default function EmployerInterviews() {
                                                     <div className="truncate">{c.offer.position}</div>
                                                     <div>{c.offer.salary}</div>
                                                     <div>Status: {c.offer.status}</div>
+                                                    {c.offer.sentAt && (
+                                                      <div>Sent: {formatOfferSentAt(c.offer.sentAt)}</div>
+                                                    )}
                                                   </div>
                                                 </div>
                                               )}
 
-                                              {/* Show review for Talent Acquisition and Leadership */}
-                                              {(stage.id === 'talentAcquisition' || stage.id === 'leadership') && (
-                                                <div>
-                                                  {c.review ? (
-                                                    <div 
-                                                      className="flex items-center gap-1"
-                                                      onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setViewReviewCandidate(c);
-                                                      }}
-                                                    >
-                                                      {[...Array(5)].map((_, i) => (
-                                                        <span key={i} className={`text-xs ${i < c.rating ? 'text-yellow-500' : 'text-gray-300'}`}>★</span>
-                                                      ))}
+                                              {/* Show review for all interview types using same backend logic as TalentAcquisitionInterviews.tsx */}
+                                              {(() => {
+                                                // Same logic as TalentAcquisitionInterviews.tsx
+                                                const hasReview = (candidate) => {
+                                                  // Check specific review fields first based on stage
+                                                  if (stage.id === 'talentAcquisition' && candidate.talentAcquisitionReview) {
+                                                    return candidate.talentAcquisitionReview.toString().trim() !== '';
+                                                  }
+                                                  if (stage.id === 'technical' && candidate.technicalReview) {
+                                                    return candidate.technicalReview.toString().trim() !== '';
+                                                  }
+                                                  if (stage.id === 'leadership' && candidate.leadershipReview) {
+                                                    return candidate.leadershipReview.toString().trim() !== '';
+                                                  }
+                                                  // Check if review data is in object format (one-to-one relationship)
+                                                  if (candidate.interview_reviews && typeof candidate.interview_reviews === 'object' && !Array.isArray(candidate.interview_reviews)) {
+                                                    return candidate.interview_reviews.rating && candidate.interview_reviews.review_text && candidate.interview_reviews.review_text.toString().trim() !== '';
+                                                  }
+                                                  // Check if review data is in array format (for backward compatibility)
+                                                  if (candidate.interview_reviews && Array.isArray(candidate.interview_reviews) && candidate.interview_reviews.length > 0) {
+                                                    const review = candidate.interview_reviews[0];
+                                                    return review.rating && review.review_text && review.review_text.toString().trim() !== '';
+                                                  }
+                                                  // Check if review data is flattened (from JOIN query)
+                                                  if (candidate.rating && candidate.review_text) {
+                                                    return candidate.review_text.toString().trim() !== '';
+                                                  }
+                                                  return false;
+                                                };
+                                                
+                                                const getReview = (candidate) => {
+                                                  // Return specific review fields first based on stage
+                                                  if (stage.id === 'talentAcquisition' && candidate.talentAcquisitionReview) {
+                                                    return {
+                                                      rating: candidate.talentAcquisitionRating || 0,
+                                                      review_text: candidate.talentAcquisitionReview,
+                                                      created_at: candidate.talentAcquisitionReviewedAt || new Date().toISOString()
+                                                    };
+                                                  }
+                                                  if (stage.id === 'technical' && candidate.technicalReview) {
+                                                    return {
+                                                      rating: candidate.technicalRating || 0,
+                                                      review_text: candidate.technicalReview,
+                                                      created_at: candidate.technicalReviewedAt || new Date().toISOString()
+                                                    };
+                                                  }
+                                                  if (stage.id === 'leadership' && candidate.leadershipReview) {
+                                                    return {
+                                                      rating: candidate.leadershipRating || 0,
+                                                      review_text: candidate.leadershipReview,
+                                                      created_at: candidate.leadershipReviewedAt || new Date().toISOString()
+                                                    };
+                                                  }
+                                                  // Return single object review data if available (one-to-one relationship)
+                                                  if (candidate.interview_reviews && typeof candidate.interview_reviews === 'object' && !Array.isArray(candidate.interview_reviews)) {
+                                                    return candidate.interview_reviews;
+                                                  }
+                                                  // Return array review data if available (for backward compatibility)
+                                                  if (candidate.interview_reviews && Array.isArray(candidate.interview_reviews) && candidate.interview_reviews.length > 0) {
+                                                    return candidate.interview_reviews[0];
+                                                  }
+                                                  // Return flattened review data if available
+                                                  if (candidate.rating && candidate.review_text) {
+                                                    return {
+                                                      rating: candidate.rating,
+                                                      review_text: candidate.review_text,
+                                                      created_at: candidate.updated_at
+                                                    };
+                                                  }
+                                                  return null;
+                                                };
+                                                
+                                                const getStageTitle = () => {
+                                                  if (stage.id === 'talentAcquisition') return '✓ Evaluation Completed';
+                                                  if (stage.id === 'technical') return '✓ Technical Review Done';
+                                                  if (stage.id === 'leadership') return '✓ Leadership Review Done';
+                                                  return '✓ Review Completed';
+                                                };
+                                                
+                                                if ((stage.id === 'talentAcquisition' || stage.id === 'technical' || stage.id === 'leadership') && hasReview(c)) {
+                                                  const review = getReview(c);
+                                                  return (
+                                                    <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                                                      <div className="flex items-center justify-between mb-2">
+                                                        <h4 className="font-medium text-emerald-800 text-xs">{getStageTitle()}</h4>
+                                                        <Badge className="bg-emerald-100 text-emerald-800 text-xs">
+                                                          {parseFloat(review.rating).toFixed(1)} ⭐
+                                                        </Badge>
+                                                      </div>
+                                                      <p className="text-xs text-emerald-700 mb-1 line-clamp-2">
+                                                        {review.review_text}
+                                                      </p>
+                                                      <p className="text-xs text-emerald-600">
+                                                        {new Date(review.created_at).toLocaleDateString()}
+                                                      </p>
                                                     </div>
-                                                  ) : (
-                                                    <Button
-                                                      size="sm"
-                                                      className="w-full bg-primary text-white text-xs h-6"
-                                                      onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setReviewingCandidate(c);
-                                                        setReviewDialogOpen(true);
-                                                      }}
-                                                    >
-                                                      Review
-                                                    </Button>
-                                                  )}
-                                                </div>
-                                              )}
+                                                  );
+                                                }
+                                                return null;
+                                              })()}
                                             </div>
                                           </li>
                                         )}
@@ -1701,9 +3192,9 @@ export default function EmployerInterviews() {
                       </Droppable>
                     ))}
                   </div>
+                </div>
                 </DragDropContext>
-              </div>
-              )}
+                )}
 
               {/* Table View */}
               {viewMode === "table" && (
@@ -1765,76 +3256,915 @@ export default function EmployerInterviews() {
                   </table>
                 </div>
               )}
-            </div>
+              </div>
+            )}
           </TabsContent>
 
           {/* Maybe Tab */}
           <TabsContent value="maybe" className="mt-0">
-            <div className="grid grid-cols-1 gap-6">
-              {(currentJobData.maybe && currentJobData.maybe.length > 0) ? (
-                currentJobData.maybe.map((candidate) => (
-                  <div key={candidate.id} className="bg-white border rounded-lg p-4">
-                    <div className="flex items-center gap-4">
-                      <AlertCircle className="w-6 h-6 text-yellow-600" />
+            {!currentJobData.maybe || currentJobData.maybe.length === 0 ? (
+              <div className="bg-white rounded-lg border p-16 text-center">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center">
+                    <AlertCircle className="w-8 h-8 text-yellow-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">No Candidates in Maybe</h3>
+                    <p className="text-gray-500">Candidates you keep for consideration will appear here.</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className={`grid gap-6 transition-all duration-300 ${viewingCandidate ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+                <div className="space-y-4 overflow-y-auto pr-2 custom-scrollbar" style={{ maxHeight: 'calc(100vh - 300px)' }}>
+                  {currentJobData.maybe.map((candidate) => (
+                    <div 
+                      key={candidate.id} 
+                      className={`bg-white border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer ${viewingCandidate?.id === candidate.id ? 'border-primary shadow-md' : ''}`}
+                      onClick={() => setViewingCandidate(candidate)}
+                    >
+                      <div className="flex items-start gap-4">
+                        <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center flex-shrink-0">
+                          <AlertCircle className="w-6 h-6 text-yellow-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between mb-2">
+                            <div>
+                              <h3 className="font-semibold text-gray-900">{candidate.name}</h3>
+                              <p className="text-sm text-gray-600">{candidate.email}</p>
+                            </div>
+                            <Badge className="bg-yellow-100 text-yellow-800 border-none">{candidate.statusDisplay}</Badge>
+                          </div>
+                          <div className="flex items-center gap-4 text-sm text-gray-600">
+                            <span className="flex items-center gap-1">
+                              <MapPin className="w-4 h-4" />
+                              {candidate.location}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Calendar className="w-4 h-4" />
+                              {candidate.appliedDate}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {viewingCandidate && (
+                  <div className="bg-white border rounded-lg p-6 sticky top-6 h-[calc(100vh-200px)] overflow-y-auto shadow-lg custom-scrollbar">
+                    <div className="space-y-6">
                       <div>
-                        <h3 className="font-semibold text-gray-900">{candidate.name}</h3>
-                        <p className="text-gray-500">Keep for consideration</p>
+                        <div className="flex items-start justify-between mb-4">
+                          <h2 className="text-xl font-bold text-primary">{viewingCandidate.name}'s application</h2>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-primary border-primary">
+                              Pipeline: {viewingCandidate.stage ? pipelineStages.find(s => s.id === viewingCandidate.stage)?.label : 'Pending'}
+                            </Badge>
+                            <button
+                              onClick={() => setViewingCandidate(null)}
+                              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
+                              title="Close"
+                            >
+                              <XCircle className="w-5 h-5 text-gray-500 hover:text-gray-700" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Move to Pipeline Button */}
+                        <Button 
+                          onClick={() => setScreeningDialogOpen(true)}
+                          className="w-full bg-gradient-primary text-white mb-6"
+                        >
+                          Move to...
+                        </Button>
+
+                        {/* AI Candidate Scoring */}
+                        <div className="mb-6">
+                          <div className="flex items-center gap-2 mb-3">
+                            <BarChart3 className="w-5 h-5 text-primary" />
+                            <h3 className="font-semibold text-gray-900">AI Candidate Scoring</h3>
+                          </div>
+                          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <BarChart3 className="w-5 h-5 text-red-500" />
+                                <span className="font-semibold text-gray-900">Match Score</span>
+                              </div>
+                              <span className="text-2xl font-bold text-red-500">{viewingCandidate.matchScore}%</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Contact Details */}
+                        <div className="mb-6">
+                          <h3 className="font-semibold text-gray-900 mb-3">Contact Details</h3>
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                                <Phone className="w-5 h-5 text-primary" />
+                              </div>
+                              <div>
+                                <div className="text-xs text-gray-500">Phone</div>
+                                <div className="font-medium text-gray-900">{viewingCandidate.phone}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                                <Mail className="w-5 h-5 text-primary" />
+                              </div>
+                              <div>
+                                <div className="text-xs text-gray-500">Email</div>
+                                <div className="font-medium text-gray-900">{viewingCandidate.email}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Professional Information */}
+                        <div className="mb-6">
+                          <h3 className="font-semibold text-gray-900 mb-3">Professional Information</h3>
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                                <Briefcase className="w-5 h-5 text-primary" />
+                              </div>
+                              <div className="flex-1">
+                                <div className="text-xs text-gray-500">Current Company</div>
+                                <div className="font-medium text-gray-900">{viewingCandidate.company}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Personal & Education */}
+                        <div className="mb-6">
+                          <h3 className="font-semibold text-gray-900 mb-3">Personal & Education</h3>
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                                <MapPin className="w-5 h-5 text-primary" />
+                              </div>
+                              <div>
+                                <div className="text-xs text-gray-500">Location</div>
+                                <div className="font-medium text-gray-900">{viewingCandidate.location}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Professional Links */}
+                        <div className="mb-6">
+                          <h3 className="font-semibold text-gray-900 mb-3">Professional Links</h3>
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between py-2">
+                              <div className="flex items-center gap-2">
+                                <Linkedin className="w-4 h-4 text-gray-600" />
+                                <span className="text-sm text-gray-900">LinkedIn</span>
+                              </div>
+                              <span className="text-sm text-gray-500">Not provided</span>
+                            </div>
+                            <div className="flex items-center justify-between py-2">
+                              <div className="flex items-center gap-2">
+                                <Github className="w-4 h-4 text-gray-600" />
+                                <span className="text-sm text-gray-900">GitHub</span>
+                              </div>
+                              <span className="text-sm text-gray-500">Not provided</span>
+                            </div>
+                            <div className="flex items-center justify-between py-2">
+                              <div className="flex items-center gap-2">
+                                <Globe className="w-4 h-4 text-gray-600" />
+                                <span className="text-sm text-gray-900">Portfolio</span>
+                              </div>
+                              <span className="text-sm text-gray-500">Not provided</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Interview History */}
+                        <div className="mb-6">
+                          <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <Calendar className="w-5 h-5 text-primary" />
+                            Interview History
+                          </h3>
+                          {(() => {
+                            const candidateKey = `${selectedJob.id}_${viewingCandidate.id}`;
+                            const history = interviewHistory[candidateKey] || [];
+                            return history.length > 0 ? (
+                              <div className="space-y-2">
+                                {history.map((interview, idx) => {
+                                  const stageName = interview.stage === 'talentAcquisition' ? 'Talent Acquisition' : interview.stage === 'technical' ? 'Technical' : 'Leadership';
+                                  const reviewTitle = interview.stage === 'talentAcquisition' ? 'TA Review' : interview.stage === 'technical' ? 'Technical Interviewer Review' : 'Leadership Review';
+                                  const bgColor = interview.stage === 'technical' ? 'bg-purple-50 border-purple-200' : interview.stage === 'leadership' ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-200';
+                                  const textColor = interview.stage === 'technical' ? 'text-purple-900' : interview.stage === 'leadership' ? 'text-orange-900' : 'text-blue-900';
+                                  
+                                  return (
+                                    <div key={idx} className={`${bgColor} border rounded-lg p-3 text-sm`}>
+                                      <div className="flex items-start justify-between mb-2">
+                                        <span className={`font-semibold ${textColor}`}>
+                                          {stageName} Interview
+                                        </span>
+                                        <Badge className={interview.review ? 'bg-green-100 text-green-700 text-xs' : 'bg-blue-100 text-blue-700 text-xs'}>
+                                          {interview.review ? '✓ Reviewed' : interview.status}
+                                        </Badge>
+                                      </div>
+                                      <div className="text-gray-700 space-y-1 text-xs">
+                                        <div className="flex items-center gap-1">
+                                          <Calendar className="w-3 h-3" />
+                                          {new Date(interview.date).toLocaleDateString()}
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                          <Clock className="w-3 h-3" />
+                                          {interview.time}
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                          <User className="w-3 h-3" />
+                                          Interviewer: {interview.interviewer?.name || 'N/A'}
+                                        </div>
+                                        {interview.review && (
+                                          <div className="mt-2 pt-2 border-t border-current border-opacity-20">
+                                            <p className={`font-medium ${textColor} mb-1`}>{reviewTitle}:</p>
+                                            {interview.rating && (
+                                              <div className="flex items-center gap-1 mb-1">
+                                                {[...Array(5)].map((_, i) => (
+                                                  <span key={i} className={`text-xs ${i < interview.rating ? 'text-yellow-500' : 'text-gray-300'}`}>★</span>
+                                                ))}
+                                              </div>
+                                            )}
+                                            <p className="text-gray-700 italic">{interview.review}</p>
+                                          </div>
+                                        )}
+                                        {interview.link && (
+                                          <div className="mt-2 text-xs flex gap-1 flex-col">
+                                            <button
+                                              onClick={() => {
+                                                navigator.clipboard.writeText(interview.link);
+                                                alert("Interview link copied!");
+                                              }}
+                                              className="text-blue-600 hover:underline flex items-center gap-1 text-left"
+                                            >
+                                              <Globe className="w-3 h-3" />
+                                              Copy Link
+                                            </button>
+                                            <a href={interview.link} target="_blank" rel="noopener noreferrer" className="text-green-600 hover:underline flex items-center gap-1 font-semibold">
+                                              <Video className="w-3 h-3" />
+                                              Join Interview
+                                            </a>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-500 italic">No interviews scheduled yet</p>
+                            );
+                          })()}
+                        </div>
+
+                        {/* Services Section */}
+                        {viewingCandidate.services && viewingCandidate.services.length > 0 && (
+                          <div className="mb-6">
+                            <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                              <Briefcase className="w-5 h-5 text-orange-500" />
+                              Services Offered ({viewingCandidate.services.length})
+                            </h3>
+                            <Button 
+                              onClick={() => {
+                                setSelectedCandidateServices(viewingCandidate);
+                                setServicesDialogOpen(true);
+                              }}
+                              className="w-full bg-orange-500 hover:bg-orange-600 text-white"
+                            >
+                              View All Services
+                            </Button>
+                          </div>
+                        )}
+
+                        {/* Resume / CV */}
+                        <div>
+                          <h3 className="font-semibold text-gray-900 mb-3">Resume</h3>
+                          {viewingCandidate?.resumeUrl ? (
+                            <Button 
+                              variant="outline" 
+                              className="w-full flex items-center justify-center gap-2"
+                              onClick={() => window.open(viewingCandidate.resumeUrl, '_blank')}
+                            >
+                              <Globe className="w-4 h-4" />
+                              View CV
+                            </Button>
+                          ) : (
+                            <p className="text-sm text-gray-500 italic">No resume uploaded</p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
-                ))
-              ) : (
-                <p className="text-sm text-gray-400 italic text-center py-8">No candidates kept for consideration.</p>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </TabsContent>
 
           {/* Rejected Tab */}
           <TabsContent value="rejected" className="mt-0">
-            <div className="flex gap-4 overflow-x-auto">
-              {(currentJobData.Rejected && currentJobData.Rejected.length > 0) ? (
-                currentJobData.Rejected.map((candidate) => (
-                  <div key={candidate.id} className="bg-white border rounded-lg p-4 min-w-[300px]">
-                    <div className="flex items-center gap-4">
-                      <XCircle className="w-6 h-6 text-red-600" />
+            {!currentJobData.Rejected || currentJobData.Rejected.length === 0 ? (
+              <div className="bg-white rounded-lg border p-16 text-center">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
+                    <XCircle className="w-8 h-8 text-red-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">No Rejected Candidates</h3>
+                    <p className="text-gray-500">Rejected candidates will appear here.</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className={`grid gap-6 transition-all duration-300 ${viewingCandidate ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+                <div className="space-y-4 overflow-y-auto pr-2 custom-scrollbar" style={{ maxHeight: 'calc(100vh - 300px)' }}>
+                  {currentJobData.Rejected.map((candidate) => (
+                    <div 
+                      key={candidate.id} 
+                      className={`bg-white border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer ${viewingCandidate?.id === candidate.id ? 'border-primary shadow-md' : ''}`}
+                      onClick={() => setViewingCandidate(candidate)}
+                    >
+                      <div className="flex items-start gap-4">
+                        <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
+                          <XCircle className="w-6 h-6 text-red-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between mb-2">
+                            <div>
+                              <h3 className="font-semibold text-gray-900">{candidate.name}</h3>
+                              <p className="text-sm text-gray-600">{candidate.email}</p>
+                            </div>
+                            <Badge className="bg-red-100 text-red-800 border-none">{candidate.statusDisplay}</Badge>
+                          </div>
+                          <div className="flex items-center gap-4 text-sm text-gray-600">
+                            <span className="flex items-center gap-1">
+                              <MapPin className="w-4 h-4" />
+                              {candidate.location}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Calendar className="w-4 h-4" />
+                              {candidate.appliedDate}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {viewingCandidate && (
+                  <div className="bg-white border rounded-lg p-6 sticky top-6 h-[calc(100vh-200px)] overflow-y-auto shadow-lg custom-scrollbar">
+                    <div className="space-y-6">
                       <div>
-                        <h3 className="font-semibold text-gray-900">{candidate.name}</h3>
-                        <p className="text-gray-500">Candidate refused or was rejected</p>
+                        <div className="flex items-start justify-between mb-4">
+                          <h2 className="text-xl font-bold text-primary">{viewingCandidate.name}'s application</h2>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-primary border-primary">
+                              Pipeline: {viewingCandidate.stage ? pipelineStages.find(s => s.id === viewingCandidate.stage)?.label : 'Pending'}
+                            </Badge>
+                            <button
+                              onClick={() => setViewingCandidate(null)}
+                              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
+                              title="Close"
+                            >
+                              <XCircle className="w-5 h-5 text-gray-500 hover:text-gray-700" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* AI Candidate Scoring */}
+                        <div className="mb-6">
+                          <div className="flex items-center gap-2 mb-3">
+                            <BarChart3 className="w-5 h-5 text-primary" />
+                            <h3 className="font-semibold text-gray-900">AI Candidate Scoring</h3>
+                          </div>
+                          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <BarChart3 className="w-5 h-5 text-red-500" />
+                                <span className="font-semibold text-gray-900">Match Score</span>
+                              </div>
+                              <span className="text-2xl font-bold text-red-500">{viewingCandidate.matchScore}%</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Contact Details */}
+                        <div className="mb-6">
+                          <h3 className="font-semibold text-gray-900 mb-3">Contact Details</h3>
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                                <Phone className="w-5 h-5 text-primary" />
+                              </div>
+                              <div>
+                                <div className="text-xs text-gray-500">Phone</div>
+                                <div className="font-medium text-gray-900">{viewingCandidate.phone}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                                <Mail className="w-5 h-5 text-primary" />
+                              </div>
+                              <div>
+                                <div className="text-xs text-gray-500">Email</div>
+                                <div className="font-medium text-gray-900">{viewingCandidate.email}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Professional Information */}
+                        <div className="mb-6">
+                          <h3 className="font-semibold text-gray-900 mb-3">Professional Information</h3>
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                                <Briefcase className="w-5 h-5 text-primary" />
+                              </div>
+                              <div className="flex-1">
+                                <div className="text-xs text-gray-500">Current Company</div>
+                                <div className="font-medium text-gray-900">{viewingCandidate.company}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Personal & Education */}
+                        <div className="mb-6">
+                          <h3 className="font-semibold text-gray-900 mb-3">Personal & Education</h3>
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                                <MapPin className="w-5 h-5 text-primary" />
+                              </div>
+                              <div>
+                                <div className="text-xs text-gray-500">Location</div>
+                                <div className="font-medium text-gray-900">{viewingCandidate.location}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Professional Links */}
+                        <div className="mb-6">
+                          <h3 className="font-semibold text-gray-900 mb-3">Professional Links</h3>
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between py-2">
+                              <div className="flex items-center gap-2">
+                                <Linkedin className="w-4 h-4 text-gray-600" />
+                                <span className="text-sm text-gray-900">LinkedIn</span>
+                              </div>
+                              <span className="text-sm text-gray-500">Not provided</span>
+                            </div>
+                            <div className="flex items-center justify-between py-2">
+                              <div className="flex items-center gap-2">
+                                <Github className="w-4 h-4 text-gray-600" />
+                                <span className="text-sm text-gray-900">GitHub</span>
+                              </div>
+                              <span className="text-sm text-gray-500">Not provided</span>
+                            </div>
+                            <div className="flex items-center justify-between py-2">
+                              <div className="flex items-center gap-2">
+                                <Globe className="w-4 h-4 text-gray-600" />
+                                <span className="text-sm text-gray-900">Portfolio</span>
+                              </div>
+                              <span className="text-sm text-gray-500">Not provided</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Interview History */}
+                        <div className="mb-6">
+                          <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <Calendar className="w-5 h-5 text-primary" />
+                            Interview History
+                          </h3>
+                          {(() => {
+                            const candidateKey = `${selectedJob.id}_${viewingCandidate.id}`;
+                            const history = interviewHistory[candidateKey] || [];
+                            return history.length > 0 ? (
+                              <div className="space-y-2">
+                                {history.map((interview, idx) => {
+                                  const stageName = interview.stage === 'talentAcquisition' ? 'Talent Acquisition' : interview.stage === 'technical' ? 'Technical' : 'Leadership';
+                                  const reviewTitle = interview.stage === 'talentAcquisition' ? 'TA Review' : interview.stage === 'technical' ? 'Technical Interviewer Review' : 'Leadership Review';
+                                  const bgColor = interview.stage === 'technical' ? 'bg-purple-50 border-purple-200' : interview.stage === 'leadership' ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-200';
+                                  const textColor = interview.stage === 'technical' ? 'text-purple-900' : interview.stage === 'leadership' ? 'text-orange-900' : 'text-blue-900';
+                                  
+                                  return (
+                                    <div key={idx} className={`${bgColor} border rounded-lg p-3 text-sm`}>
+                                      <div className="flex items-start justify-between mb-2">
+                                        <span className={`font-semibold ${textColor}`}>
+                                          {stageName} Interview
+                                        </span>
+                                        <Badge className={interview.review ? 'bg-green-100 text-green-700 text-xs' : 'bg-blue-100 text-blue-700 text-xs'}>
+                                          {interview.review ? '✓ Reviewed' : interview.status}
+                                        </Badge>
+                                      </div>
+                                      <div className="text-gray-700 space-y-1 text-xs">
+                                        <div className="flex items-center gap-1">
+                                          <Calendar className="w-3 h-3" />
+                                          {new Date(interview.date).toLocaleDateString()}
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                          <Clock className="w-3 h-3" />
+                                          {interview.time}
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                          <User className="w-3 h-3" />
+                                          Interviewer: {interview.interviewer?.name || 'N/A'}
+                                        </div>
+                                        {interview.review && (
+                                          <div className="mt-2 pt-2 border-t border-current border-opacity-20">
+                                            <p className={`font-medium ${textColor} mb-1`}>{reviewTitle}:</p>
+                                            {interview.rating && (
+                                              <div className="flex items-center gap-1 mb-1">
+                                                {[...Array(5)].map((_, i) => (
+                                                  <span key={i} className={`text-xs ${i < interview.rating ? 'text-yellow-500' : 'text-gray-300'}`}>★</span>
+                                                ))}
+                                              </div>
+                                            )}
+                                            <p className="text-gray-700 italic">{interview.review}</p>
+                                          </div>
+                                        )}
+                                        {interview.link && (
+                                          <div className="mt-2 text-xs flex gap-1 flex-col">
+                                            <button
+                                              onClick={() => {
+                                                navigator.clipboard.writeText(interview.link);
+                                                alert("Interview link copied!");
+                                              }}
+                                              className="text-blue-600 hover:underline flex items-center gap-1 text-left"
+                                            >
+                                              <Globe className="w-3 h-3" />
+                                              Copy Link
+                                            </button>
+                                            <a href={interview.link} target="_blank" rel="noopener noreferrer" className="text-green-600 hover:underline flex items-center gap-1 font-semibold">
+                                              <Video className="w-3 h-3" />
+                                              Join Interview
+                                            </a>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-500 italic">No interviews scheduled yet</p>
+                            );
+                          })()}
+                        </div>
+
+                        {/* Services Section */}
+                        {viewingCandidate.services && viewingCandidate.services.length > 0 && (
+                          <div className="mb-6">
+                            <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                              <Briefcase className="w-5 h-5 text-orange-500" />
+                              Services Offered ({viewingCandidate.services.length})
+                            </h3>
+                            <Button 
+                              onClick={() => {
+                                setSelectedCandidateServices(viewingCandidate);
+                                setServicesDialogOpen(true);
+                              }}
+                              className="w-full bg-orange-500 hover:bg-orange-600 text-white"
+                            >
+                              View All Services
+                            </Button>
+                          </div>
+                        )}
+
+                        {/* Resume / CV */}
+                        <div>
+                          <h3 className="font-semibold text-gray-900 mb-3">Resume</h3>
+                          {viewingCandidate?.resumeUrl ? (
+                            <Button 
+                              variant="outline" 
+                              className="w-full flex items-center justify-center gap-2"
+                              onClick={() => window.open(viewingCandidate.resumeUrl, '_blank')}
+                            >
+                              <Globe className="w-4 h-4" />
+                              View CV
+                            </Button>
+                          ) : (
+                            <p className="text-sm text-gray-500 italic">No resume uploaded</p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
-                ))
-              ) : (
-                <p className="text-sm text-gray-400 italic text-center py-8">No rejected candidates.</p>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </TabsContent>
 
           {/* Archived Tab */}
           <TabsContent value="archived" className="mt-0">
-            <div className="bg-white rounded-lg border p-16 text-center">
-              <div className="flex flex-col items-center gap-4">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
-                  <svg
-                    className="w-8 h-8 text-gray-600"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-                    />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">No Archived Applications</h3>
-                  <p className="text-gray-500">Archived applications will appear here.</p>
+            {!currentJobData.archived || currentJobData.archived.length === 0 ? (
+              <div className="bg-white rounded-lg border p-16 text-center">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
+                    <Archive className="w-8 h-8 text-gray-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">No Archived Applications</h3>
+                    <p className="text-gray-500">Archived applications will appear here.</p>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className={`grid gap-6 transition-all duration-300 ${viewingCandidate ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+                <div className="space-y-4 overflow-y-auto pr-2 custom-scrollbar" style={{ maxHeight: 'calc(100vh - 300px)' }}>
+                  {currentJobData.archived.map((candidate) => (
+                    <div 
+                      key={candidate.id} 
+                      className={`bg-white border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer ${viewingCandidate?.id === candidate.id ? 'border-primary shadow-md' : ''}`}
+                      onClick={() => setViewingCandidate(candidate)}
+                    >
+                      <div className="flex items-start gap-4">
+                        <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
+                          <Archive className="w-6 h-6 text-gray-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between mb-2">
+                            <div>
+                              <h3 className="font-semibold text-gray-900">{candidate.name}</h3>
+                              <p className="text-sm text-gray-600">{candidate.email}</p>
+                            </div>
+                            <Badge className="bg-gray-100 text-gray-800 border-none">{candidate.statusDisplay}</Badge>
+                          </div>
+                          <div className="flex items-center gap-4 text-sm text-gray-600">
+                            <span className="flex items-center gap-1">
+                              <MapPin className="w-4 h-4" />
+                              {candidate.location}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Calendar className="w-4 h-4" />
+                              {candidate.appliedDate}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {viewingCandidate && (
+                  <div className="bg-white border rounded-lg p-6 sticky top-6 h-[calc(100vh-200px)] overflow-y-auto shadow-lg custom-scrollbar">
+                    <div className="space-y-6">
+                      <div>
+                        <div className="flex items-start justify-between mb-4">
+                          <h2 className="text-xl font-bold text-primary">{viewingCandidate.name}'s application</h2>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-primary border-primary">
+                              Pipeline: {viewingCandidate.stage ? pipelineStages.find(s => s.id === viewingCandidate.stage)?.label : 'Pending'}
+                            </Badge>
+                            <button
+                              onClick={() => setViewingCandidate(null)}
+                              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
+                              title="Close"
+                            >
+                              <XCircle className="w-5 h-5 text-gray-500 hover:text-gray-700" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Move to Maybe Button */}
+                        <Button 
+                          onClick={() => handleScreenCandidate(viewingCandidate, 'maybe')}
+                          className="w-full bg-gradient-primary text-white mb-6"
+                        >
+                          Move to Maybe
+                        </Button>
+
+                        {/* AI Candidate Scoring */}
+                        <div className="mb-6">
+                          <div className="flex items-center gap-2 mb-3">
+                            <BarChart3 className="w-5 h-5 text-primary" />
+                            <h3 className="font-semibold text-gray-900">AI Candidate Scoring</h3>
+                          </div>
+                          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <BarChart3 className="w-5 h-5 text-red-500" />
+                                <span className="font-semibold text-gray-900">Match Score</span>
+                              </div>
+                              <span className="text-2xl font-bold text-red-500">{viewingCandidate.matchScore}%</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Contact Details */}
+                        <div className="mb-6">
+                          <h3 className="font-semibold text-gray-900 mb-3">Contact Details</h3>
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                                <Phone className="w-5 h-5 text-primary" />
+                              </div>
+                              <div>
+                                <div className="text-xs text-gray-500">Phone</div>
+                                <div className="font-medium text-gray-900">{viewingCandidate.phone}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                                <Mail className="w-5 h-5 text-primary" />
+                              </div>
+                              <div>
+                                <div className="text-xs text-gray-500">Email</div>
+                                <div className="font-medium text-gray-900">{viewingCandidate.email}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Professional Information */}
+                        <div className="mb-6">
+                          <h3 className="font-semibold text-gray-900 mb-3">Professional Information</h3>
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                                <Briefcase className="w-5 h-5 text-primary" />
+                              </div>
+                              <div className="flex-1">
+                                <div className="text-xs text-gray-500">Current Company</div>
+                                <div className="font-medium text-gray-900">{viewingCandidate.company}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Personal & Education */}
+                        <div className="mb-6">
+                          <h3 className="font-semibold text-gray-900 mb-3">Personal & Education</h3>
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                                <MapPin className="w-5 h-5 text-primary" />
+                              </div>
+                              <div>
+                                <div className="text-xs text-gray-500">Location</div>
+                                <div className="font-medium text-gray-900">{viewingCandidate.location}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Professional Links */}
+                        <div className="mb-6">
+                          <h3 className="font-semibold text-gray-900 mb-3">Professional Links</h3>
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between py-2">
+                              <div className="flex items-center gap-2">
+                                <Linkedin className="w-4 h-4 text-gray-600" />
+                                <span className="text-sm text-gray-900">LinkedIn</span>
+                              </div>
+                              <span className="text-sm text-gray-500">Not provided</span>
+                            </div>
+                            <div className="flex items-center justify-between py-2">
+                              <div className="flex items-center gap-2">
+                                <Github className="w-4 h-4 text-gray-600" />
+                                <span className="text-sm text-gray-900">GitHub</span>
+                              </div>
+                              <span className="text-sm text-gray-500">Not provided</span>
+                            </div>
+                            <div className="flex items-center justify-between py-2">
+                              <div className="flex items-center gap-2">
+                                <Globe className="w-4 h-4 text-gray-600" />
+                                <span className="text-sm text-gray-900">Portfolio</span>
+                              </div>
+                              <span className="text-sm text-gray-500">Not provided</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Interview History */}
+                        <div className="mb-6">
+                          <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <Calendar className="w-5 h-5 text-primary" />
+                            Interview History
+                          </h3>
+                          {(() => {
+                            const candidateKey = `${selectedJob.id}_${viewingCandidate.id}`;
+                            const history = interviewHistory[candidateKey] || [];
+                            return history.length > 0 ? (
+                              <div className="space-y-2">
+                                {history.map((interview, idx) => {
+                                  const stageName = interview.stage === 'talentAcquisition' ? 'Talent Acquisition' : interview.stage === 'technical' ? 'Technical' : 'Leadership';
+                                  const reviewTitle = interview.stage === 'talentAcquisition' ? 'TA Review' : interview.stage === 'technical' ? 'Technical Interviewer Review' : 'Leadership Review';
+                                  const bgColor = interview.stage === 'technical' ? 'bg-purple-50 border-purple-200' : interview.stage === 'leadership' ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-200';
+                                  const textColor = interview.stage === 'technical' ? 'text-purple-900' : interview.stage === 'leadership' ? 'text-orange-900' : 'text-blue-900';
+                                  
+                                  return (
+                                    <div key={idx} className={`${bgColor} border rounded-lg p-3 text-sm`}>
+                                      <div className="flex items-start justify-between mb-2">
+                                        <span className={`font-semibold ${textColor}`}>
+                                          {stageName} Interview
+                                        </span>
+                                        <Badge className={interview.review ? 'bg-green-100 text-green-700 text-xs' : 'bg-blue-100 text-blue-700 text-xs'}>
+                                          {interview.review ? '✓ Reviewed' : interview.status}
+                                        </Badge>
+                                      </div>
+                                      <div className="text-gray-700 space-y-1 text-xs">
+                                        <div className="flex items-center gap-1">
+                                          <Calendar className="w-3 h-3" />
+                                          {new Date(interview.date).toLocaleDateString()}
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                          <Clock className="w-3 h-3" />
+                                          {interview.time}
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                          <User className="w-3 h-3" />
+                                          Interviewer: {interview.interviewer?.name || 'N/A'}
+                                        </div>
+                                        {interview.review && (
+                                          <div className="mt-2 pt-2 border-t border-current border-opacity-20">
+                                            <p className={`font-medium ${textColor} mb-1`}>{reviewTitle}:</p>
+                                            {interview.rating && (
+                                              <div className="flex items-center gap-1 mb-1">
+                                                {[...Array(5)].map((_, i) => (
+                                                  <span key={i} className={`text-xs ${i < interview.rating ? 'text-yellow-500' : 'text-gray-300'}`}>★</span>
+                                                ))}
+                                              </div>
+                                            )}
+                                            <p className="text-gray-700 italic">{interview.review}</p>
+                                          </div>
+                                        )}
+                                        {interview.link && (
+                                          <div className="mt-2 text-xs flex gap-1 flex-col">
+                                            <button
+                                              onClick={() => {
+                                                navigator.clipboard.writeText(interview.link);
+                                                alert("Interview link copied!");
+                                              }}
+                                              className="text-blue-600 hover:underline flex items-center gap-1 text-left"
+                                            >
+                                              <Globe className="w-3 h-3" />
+                                              Copy Link
+                                            </button>
+                                            <a href={interview.link} target="_blank" rel="noopener noreferrer" className="text-green-600 hover:underline flex items-center gap-1 font-semibold">
+                                              <Video className="w-3 h-3" />
+                                              Join Interview
+                                            </a>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-500 italic">No interviews scheduled yet</p>
+                            );
+                          })()}
+                        </div>
+
+                        {/* Services Section */}
+                        {viewingCandidate.services && viewingCandidate.services.length > 0 && (
+                          <div className="mb-6">
+                            <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                              <Briefcase className="w-5 h-5 text-orange-500" />
+                              Services Offered ({viewingCandidate.services.length})
+                            </h3>
+                            <Button 
+                              onClick={() => {
+                                setSelectedCandidateServices(viewingCandidate);
+                                setServicesDialogOpen(true);
+                              }}
+                              className="w-full bg-orange-500 hover:bg-orange-600 text-white"
+                            >
+                              View All Services
+                            </Button>
+                          </div>
+                        )}
+
+                        {/* Resume / CV */}
+                        <div>
+                          <h3 className="font-semibold text-gray-900 mb-3">Resume</h3>
+                          {viewingCandidate?.resumeUrl ? (
+                            <Button 
+                              variant="outline" 
+                              className="w-full flex items-center justify-center gap-2"
+                              onClick={() => window.open(viewingCandidate.resumeUrl, '_blank')}
+                            >
+                              <Globe className="w-4 h-4" />
+                              View CV
+                            </Button>
+                          ) : (
+                            <p className="text-sm text-gray-500 italic">No resume uploaded</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </div>
@@ -2055,85 +4385,162 @@ export default function EmployerInterviews() {
               </div>
             )}
 
-            {/* Interview Reviews Section - Show all completed reviews */}
-            {/* Debug: See console for detailCandidate review data */}
+            {/* Interview Reviews Section - Progressive display based on current stage */}
             <div className="space-y-3">
-              {/* TA Review - Show in Technical and beyond (not in TA stage itself) */}
-              {(detailCandidate?.talentAcquisitionReview || detailCandidate?.review) && (detailCandidate?.stage === 'technical' || detailCandidate?.stage === 'leadership' || detailCandidate?.stage === 'offer' || detailCandidate?.stage === 'rejectedOffers' || detailCandidate?.stage === 'hired') && (
-                <div className="bg-green-50 rounded-lg p-3 border border-green-200">
-                  <h4 className="font-semibold text-green-900 mb-1 text-xs flex items-center gap-1">
-                    <CheckCircle className="w-4 h-4" />
-                    Talent Acquisition Review
-                  </h4>
-                  <div className="flex items-center gap-1 mb-1">
-                    {[...Array(5)].map((_, i) => (
-                      <Star
-                        key={i}
-                        className={`w-4 h-4 ${
-                          i < (detailCandidate.talentAcquisitionRating || detailCandidate.rating || 0)
-                            ? 'fill-yellow-500 text-yellow-500'
-                            : 'text-gray-300'
-                        }`}
-                      />
-                    ))}
-                    <span className="ml-1 text-xs text-gray-600">({detailCandidate.talentAcquisitionRating || detailCandidate.rating || 0}/5)</span>
-                  </div>
-                  <p className="text-gray-700 text-xs whitespace-pre-wrap">{detailCandidate.talentAcquisitionReview || detailCandidate.review}
-</p>
-                  <p className="text-xs text-gray-500 mt-1">Reviewed: {detailCandidate.talentAcquisitionReviewedAt || detailCandidate.reviewedAt}</p>
-                </div>
-              )}
+              {(() => {
+                const hasReview = (candidate, reviewType) => {
+                  if (!candidate) return false; // Add null check
+                  
+                  if (reviewType === 'talentAcquisition') {
+                    if (candidate.talentAcquisitionReview) {
+                      return candidate.talentAcquisitionReview.toString().trim() !== '';
+                    }
+                    if (candidate.review) {
+                      return candidate.review.toString().trim() !== '';
+                    }
+                  } else if (reviewType === 'technical') {
+                    if (candidate.technicalReview) {
+                      return candidate.technicalReview.toString().trim() !== '';
+                    }
+                  } else if (reviewType === 'leadership') {
+                    if (candidate.leadershipReview) {
+                      return candidate.leadershipReview.toString().trim() !== '';
+                    }
+                  }
+                  return false;
+                };
+                
+                const getReview = (candidate, reviewType) => {
+                  if (!candidate) return null; // Add null check
+                  
+                  if (reviewType === 'talentAcquisition') {
+                    if (candidate.talentAcquisitionReview) {
+                      return {
+                        rating: candidate.talentAcquisitionRating || 0,
+                        review_text: candidate.talentAcquisitionReview,
+                        created_at: candidate.talentAcquisitionReviewedAt || new Date().toISOString()
+                      };
+                    }
+                    if (candidate.review) {
+                      return {
+                        rating: candidate.rating || 0,
+                        review_text: candidate.review,
+                        created_at: candidate.reviewedAt || new Date().toISOString()
+                      };
+                    }
+                  } else if (reviewType === 'technical') {
+                    if (candidate.technicalReview) {
+                      return {
+                        rating: candidate.technicalRating || 0,
+                        review_text: candidate.technicalReview,
+                        created_at: candidate.technicalReviewedAt || new Date().toISOString()
+                      };
+                    }
+                  } else if (reviewType === 'leadership') {
+                    if (candidate.leadershipReview) {
+                      return {
+                        rating: candidate.leadershipRating || 0,
+                        review_text: candidate.leadershipReview,
+                        created_at: candidate.leadershipReviewedAt || new Date().toISOString()
+                      };
+                    }
+                  }
+                  return null;
+                };
 
-              {/* Technical Review - Show in Leadership and beyond (not in Technical stage itself) */}
-              {detailCandidate?.technicalReview && (detailCandidate?.stage === 'leadership' || detailCandidate?.stage === 'offer' || detailCandidate?.stage === 'rejectedOffers' || detailCandidate?.stage === 'hired') && (
-                <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
-                  <h4 className="font-semibold text-purple-900 mb-1 text-xs flex items-center gap-1">
-                    <CheckCircle className="w-4 h-4" />
-                    Technical Interviewer Review
-                  </h4>
-                  <div className="flex items-center gap-1 mb-1">
-                    {[...Array(5)].map((_, i) => (
-                      <Star
-                        key={i}
-                        className={`w-4 h-4 ${
-                          i < (detailCandidate.technicalRating || 0)
-                            ? 'fill-yellow-500 text-yellow-500'
-                            : 'text-gray-300'
-                        }`}
-                      />
-                    ))}
-                    <span className="ml-1 text-xs text-gray-600">({detailCandidate.technicalRating || 0}/5)</span>
-                  </div>
-                  <p className="text-gray-700 text-xs whitespace-pre-wrap">{detailCandidate.technicalReview}
-</p>
-                  <p className="text-xs text-gray-500 mt-1">Reviewed: {detailCandidate.technicalReviewedAt || new Date().toLocaleDateString()}</p>
-                </div>
-              )}
+                const reviews = [];
+                const currentStage = detailCandidate?.stage;
+                
+                // Progressive display based on current stage:
+                // - In talentAcquisition stage: Show only TA review
+                // - In technical stage: Show TA + Technical reviews  
+                // - In leadership/offer/hired stages: Show TA + Technical + Leadership reviews
+                
+                // Always show TA review if it exists (available from technical stage onwards)
+                if (hasReview(detailCandidate, 'talentAcquisition')) {
+                  const review = getReview(detailCandidate, 'talentAcquisition');
+                  reviews.push(
+                    <div key="ta" className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-medium text-emerald-800 text-sm">✓ Talent Acquisition Review</h4>
+                        <Badge className="bg-emerald-100 text-emerald-800">
+                          {parseFloat(review.rating).toFixed(1)} ⭐
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-emerald-700 mb-2 whitespace-pre-wrap">
+                        {review.review_text}
+                      </p>
+                      <p className="text-xs text-emerald-600">
+                        Submitted on {new Date(review.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  );
+                }
 
-              {/* Leadership Review - Show in Offer and beyond (not in Leadership stage itself) */}
-              {detailCandidate?.leadershipReview && (detailCandidate?.stage === 'offer' || detailCandidate?.stage === 'rejectedOffers' || detailCandidate?.stage === 'hired') && (
-                <div className="bg-orange-50 rounded-lg p-3 border border-orange-200">
-                  <h4 className="font-semibold text-orange-900 mb-1 text-xs flex items-center gap-1">
-                    <CheckCircle className="w-4 h-4" />
-                    Leadership Review
-                  </h4>
-                  <div className="flex items-center gap-1 mb-1">
-                    {[...Array(5)].map((_, i) => (
-                      <Star
-                        key={i}
-                        className={`w-4 h-4 ${
-                          i < (detailCandidate.leadershipRating || 0)
-                            ? 'fill-yellow-500 text-yellow-500'
-                            : 'text-gray-300'
-                        }`}
-                      />
-                    ))}
-                    <span className="ml-1 text-xs text-gray-600">({detailCandidate.leadershipRating || 0}/5)</span>
-                  </div>
-                  <p className="text-gray-700 text-xs whitespace-pre-wrap">{detailCandidate.leadershipReview}
-</p>
-                  <p className="text-xs text-gray-500 mt-1">Reviewed: {detailCandidate.leadershipReviewedAt || new Date().toLocaleDateString()}</p>
-                </div>
+                // Show Technical review only from leadership stage onwards
+                if ((currentStage === 'technical' || currentStage === 'leadership' || currentStage === 'offer' || currentStage === 'rejectedOffers' || currentStage === 'hired') && hasReview(detailCandidate, 'technical')) {
+                  const review = getReview(detailCandidate, 'technical');
+                  reviews.push(
+                    <div key="tech" className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-medium text-emerald-800 text-sm">✓ Technical Review</h4>
+                        <Badge className="bg-emerald-100 text-emerald-800">
+                          {parseFloat(review.rating).toFixed(1)} ⭐
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-emerald-700 mb-2 whitespace-pre-wrap">
+                        {review.review_text}
+                      </p>
+                      <p className="text-xs text-emerald-600">
+                        Submitted on {new Date(review.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  );
+                }
+
+                // Show Leadership review only from offer stage onwards
+                if ((currentStage === 'leadership' || currentStage === 'offer' || currentStage === 'rejectedOffers' || currentStage === 'hired') && hasReview(detailCandidate, 'leadership')) {
+                  const review = getReview(detailCandidate, 'leadership');
+                  reviews.push(
+                    <div key="leadership" className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-medium text-emerald-800 text-sm">✓ Leadership Review</h4>
+                        <Badge className="bg-emerald-100 text-emerald-800">
+                          {parseFloat(review.rating).toFixed(1)} ⭐
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-emerald-700 mb-2 whitespace-pre-wrap">
+                        {review.review_text}
+                      </p>
+                      <p className="text-xs text-emerald-600">
+                        Submitted on {new Date(review.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  );
+                }
+
+                return reviews;
+              })()}
+            </div>
+
+            {/* Resume / CV Section */}
+            <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+              <h4 className="font-semibold text-gray-900 mb-2 text-xs flex items-center gap-1">
+                <FileText className="w-4 h-4 text-gray-600" />
+                Resume / CV
+              </h4>
+              {detailCandidate?.resumeUrl ? (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  className="w-full flex items-center justify-center gap-2 text-xs py-2"
+                  onClick={() => window.open(detailCandidate.resumeUrl, '_blank')}
+                >
+                  <Globe className="w-3 h-3" />
+                  View  CV
+                </Button>
+              ) : (
+                <p className="text-xs text-gray-500 italic">No resume uploaded</p>
               )}
             </div>
 
@@ -2153,8 +4560,7 @@ export default function EmployerInterviews() {
                       salary: "",
                       startDate: "",
                       benefits: "",
-                      workLocation: "Office/Remote",
-                      contractType: "Full-time"
+                      workLocation: ''
                     });
                     setOfferGenerated(false);
                     setGenerateOfferDialog(true);
@@ -2169,10 +4575,20 @@ export default function EmployerInterviews() {
                 <>
                   <Button
                     onClick={() => handleMoveToNextStage(detailCandidate)}
+                    disabled={isMovingCandidate}
                     className="w-full bg-gradient-primary hover:bg-orange-600 text-white hover:text-white text-xs py-2"
                   >
-                    <CheckCircle className="w-4 h-4 mr-1" />
-                    Move to Leadership Interview
+                    {isMovingCandidate ? (
+                      <>
+                        <div className="w-4 h-4 mr-1 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Moving...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-4 h-4 mr-1" />
+                        Move to Leadership Interview
+                      </>
+                    )}
                   </Button>
                   <Button
                     onClick={() => {
@@ -2186,8 +4602,7 @@ export default function EmployerInterviews() {
                         salary: "",
                         startDate: "",
                         benefits: "",
-                        workLocation: "Office/Remote",
-                        contractType: "Full-time"
+                        workLocation: ''
                       });
                       setOfferGenerated(false);
                       setGenerateOfferDialog(true);
@@ -2215,21 +4630,41 @@ export default function EmployerInterviews() {
               ) : (
                 <Button
                   onClick={() => handleMoveToNextStage(detailCandidate)}
+                  disabled={isMovingCandidate}
                   className="w-full bg-gradient-primary hover:bg-orange-600 text-white hover:text-white text-xs py-2"
                 >
-                  <CheckCircle className="w-4 h-4 mr-1" />
-                  Move to Next Stage
+                  {isMovingCandidate ? (
+                    <>
+                      <div className="w-4 h-4 mr-1 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Moving...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="w-4 h-4 mr-1" />
+                      Move to Next Stage
+                    </>
+                  )}
                 </Button>
               )}
               {/* Archive Button - Hide for To Contact, Rejected Offers, and Hired stages */}
               {detailCandidate?.stage !== 'toContact' && detailCandidate?.stage !== 'rejectedOffers' && detailCandidate?.stage !== 'hired' && (
                 <Button
                   onClick={() => handleArchiveCandidate(detailCandidate)}
+                  disabled={isMovingCandidate}
                   variant="outline"
                   className="w-full border-gray-300 text-gray-600 hover:bg-gray-50 hover:text-gray-700 text-xs py-2"
                 >
-                  <Archive className="w-4 h-4 mr-1" />
-                  Move to Archive
+                  {isMovingCandidate ? (
+                    <>
+                      <div className="w-4 h-4 mr-1 border-2 border-gray-600 border-t-transparent rounded-full animate-spin" />
+                      Archiving...
+                    </>
+                  ) : (
+                    <>
+                      <Archive className="w-4 h-4 mr-1" />
+                      Move to Archive
+                    </>
+                  )}
                 </Button>
               )}
             </div>
@@ -2275,80 +4710,76 @@ export default function EmployerInterviews() {
               </div>
             </div>
 
-            {/* Show Interviewer Selection ONLY when moving from Talent Acquisition to Technical */}
-            {schedulingCandidate?.stage === 'talentAcquisition' && interviewType === 'technical' && (
+            {/* Show Interviewer Selection for technical/leadership stages only */}
+            {interviewType === 'talentAcquisition' ? (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+                <div>
+                  <h4 className="font-semibold text-gray-900 text-sm">
+                    Assigned to: {currentTeamMember?.name || 'You'}
+                  </h4>
+                  <p className="text-xs text-gray-600">Talent acquisition interview will be conducted by you</p>
+                </div>
+              </div>
+            ) : ((schedulingCandidate?.stage === 'talentAcquisition' && interviewType === 'technical') ||
+             (schedulingCandidate?.stage === 'technical' && interviewType === 'leadership')) ? (
               <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
                 <label className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
                   <User className="w-4 h-4 text-primary" />
-                  Select Technical Interviewer
+                  Select {interviewType === 'technical' ? 'Technical' : 'Leadership'} Interviewer
                 </label>
                 <Select value={selectedInterviewer} onValueChange={setSelectedInterviewer}>
                   <SelectTrigger className="w-full bg-white">
                     <SelectValue placeholder="Choose an interviewer..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {interviewers.map((interviewer) => (
-                      <SelectItem key={interviewer.id} value={String(interviewer.id)}>
-                        <div className="flex flex-col py-1">
-                          <span className="font-medium text-gray-900">{interviewer.name}</span>
-                          <span className="text-xs text-gray-500">{interviewer.role}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
+                    {(() => {
+                      console.log('🔍 All interviewers:', interviewers);
+                      console.log('🎯 Current interviewType:', interviewType);
+                      
+                      // Filter interviewers based on interview type for better UX
+                      const filteredInterviewers = interviewers.filter(interviewer => {
+                        const dbInterviewType = interviewer.interviewType;
+                        const targetType = interviewType;
+                        
+                        console.log('🎯 Filtering interviewer:', interviewer.name, 'Type:', dbInterviewType, 'Target:', targetType);
+                        
+                        // Direct match first
+                        if (dbInterviewType === targetType) return true;
+                        
+                        // Handle naming variations between frontend and database
+                        if (targetType === 'technical' && dbInterviewType === 'technical') return true;
+                        if (targetType === 'leadership' && dbInterviewType === 'leadership') return true;
+                        
+                        return false;
+                      });
+                      
+                      console.log('✅ Filtered interviewers:', filteredInterviewers);
+                      return filteredInterviewers;
+                    })()
+                      .map((interviewer) => (
+                        <SelectItem key={interviewer.id} value={interviewer.id}>
+                          <div className="flex items-center gap-3 p-2 min-w-0">
+                            <div className="w-10 h-10 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full flex items-center justify-center shadow-md">
+                              <span className="text-white font-bold text-sm">
+                                {interviewer.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'I'}
+                              </span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold text-gray-900 truncate">{interviewer.name}</div>
+                              <div className="text-xs text-gray-600 truncate">{interviewer.email}</div>
+                              <div className="text-xs text-orange-600 font-medium truncate">
+                                {interviewer.role?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Interviewer'}
+                              </div>
+                            </div>
+                          </div>
+                        </SelectItem>
+                      ))
+                    }
                   </SelectContent>
                 </Select>
               </div>
-            )}
-
-            {/* Show Leadership Role Selection when moving from Technical to Leadership */}
-            {schedulingCandidate?.stage === 'technical' && interviewType === 'leadership' && (
-              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                <label className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
-                  <Briefcase className="w-4 h-4 text-primary" />
-                  Select Leadership Role
-                </label>
-                <Select value={selectedInterviewer} onValueChange={setSelectedInterviewer}>
-                  <SelectTrigger className="w-full bg-white">
-                    <SelectValue placeholder="Choose leadership role..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cto">
-                      <div className="flex flex-col py-1">
-                        <span className="font-medium text-gray-900">CTO</span>
-                        <span className="text-xs text-gray-500">Chief Technology Officer</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="ceo">
-                      <div className="flex flex-col py-1">
-                        <span className="font-medium text-gray-900">CEO</span>
-                        <span className="text-xs text-gray-500">Chief Executive Officer</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="coo">
-                      <div className="flex flex-col py-1">
-                        <span className="font-medium text-gray-900">COO</span>
-                        <span className="text-xs text-gray-500">Chief Operating Officer</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="vp-engineering">
-                      <div className="flex flex-col py-1">
-                        <span className="font-medium text-gray-900">VP of Engineering</span>
-                        <span className="text-xs text-gray-500">Vice President of Engineering</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="director">
-                      <div className="flex flex-col py-1">
-                        <span className="font-medium text-gray-900">Director</span>
-                        <span className="text-xs text-gray-500">Engineering Director</span>
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {/* Show "You are the interviewer" for other stages */}
-            {!(schedulingCandidate?.stage === 'talentAcquisition' && interviewType === 'technical') && !(schedulingCandidate?.stage === 'technical' && interviewType === 'leadership') && (
+            ) : (
               <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
                 <CheckCircle className="w-5 h-5 text-green-600" />
                 <div>
@@ -2358,6 +4789,26 @@ export default function EmployerInterviews() {
               </div>
             )}
 
+            {/* Duration Selection */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <label className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-primary" />
+                Interview Duration
+              </label>
+              <Select value={selectedDuration.toString()} onValueChange={(value) => setSelectedDuration(parseInt(value))}>
+                <SelectTrigger className="w-full bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="30">30 minutes</SelectItem>
+                  <SelectItem value="45">45 minutes</SelectItem>
+                  <SelectItem value="60">60 minutes</SelectItem>
+                  <SelectItem value="90">90 minutes</SelectItem>
+                  <SelectItem value="120">120 minutes</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Select Date */}
               <div>
@@ -2365,15 +4816,13 @@ export default function EmployerInterviews() {
                   <Calendar className="w-4 h-4 text-primary" />
                   Select Date
                 </label>
-                <div className="border-2 border-orange-200 rounded-lg p-4 bg-white shadow-sm hover:border-primary transition-colors">
-                  <CalendarComponent
-                    mode="single"
-                    selected={selectedDate}
-                    onSelect={setSelectedDate}
-                    disabled={(date) => date < new Date()}
-                    className="rounded-md"
-                  />
-                </div>
+                <Input
+                  type="date"
+                  value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''}
+                  onChange={(e) => setSelectedDate(e.target.value ? new Date(e.target.value) : null)}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="w-full"
+                />
               </div>
 
               {/* Select Time - Clock/Time Picker */}
@@ -2429,20 +4878,30 @@ export default function EmployerInterviews() {
             </div>
 
             {/* Conflict Warning */}
-            {selectedDate && selectedTime && selectedInterviewer && selectedInterviewer !== "self" && checkInterviewConflict(selectedDate, selectedTime, selectedInterviewer) && (
+            {selectedDate && selectedTime && interviewType === 'talentAcquisition' && checkInterviewConflict(selectedDate, selectedTime, currentTeamMember?.id, true) && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2 text-sm text-red-700">
+                <AlertCircle className="w-4 h-4" />
+                <span>You already have an interview scheduled at this time!</span>
+              </div>
+            )}
+
+            {selectedDate && selectedTime && interviewType !== 'talentAcquisition' && selectedInterviewer && selectedInterviewer !== "self" && selectedInterviewer !== "current-user" && checkInterviewConflict(selectedDate, selectedTime, selectedInterviewer, false) && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
                 <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
                 <div>
                   <h4 className="font-semibold text-red-900 text-sm">Scheduling Conflict Detected</h4>
                   <p className="text-sm text-red-700">
-                    {interviewers.find(i => i.id === parseInt(selectedInterviewer))?.name} already has an interview scheduled at this time. Please choose a different time slot.
+                    {interviewers.find(i => i.id === selectedInterviewer)?.name} already has an interview scheduled at this time. Please choose a different time slot.
                   </p>
                 </div>
               </div>
             )}
 
             {/* Summary with Interview Link Generation */}
-            {selectedDate && selectedTime && (!selectedInterviewer || selectedInterviewer === "self" || !checkInterviewConflict(selectedDate, selectedTime, selectedInterviewer)) && (
+            {selectedDate && selectedTime && (
+              (interviewType === 'talentAcquisition' && !checkInterviewConflict(selectedDate, selectedTime, currentTeamMember?.id, true)) ||
+              (interviewType !== 'talentAcquisition' && (!selectedInterviewer || selectedInterviewer === "self" || selectedInterviewer === "current-user" || !checkInterviewConflict(selectedDate, selectedTime, selectedInterviewer, false)))
+            ) && (
               <div className="bg-gradient-to-r from-green-50 to-green-100 border border-green-200 rounded-lg p-4 space-y-4">
                 <div>
                   <h4 className="font-semibold text-green-900 mb-3 flex items-center gap-2">
@@ -2463,7 +4922,7 @@ export default function EmployerInterviews() {
                       <span>
                         {selectedInterviewer === "self" 
                           ? "You (Employer)" 
-                          : interviewers.find(i => i.id === parseInt(selectedInterviewer))?.name || "Select Interviewer"}
+                          : interviewers.find(i => i.id === selectedInterviewer)?.name || "Select Interviewer"}
                       </span>
                     </div>
                     <div className="flex items-start gap-2">
@@ -2473,6 +4932,10 @@ export default function EmployerInterviews() {
                     <div className="flex items-start gap-2">
                       <span className="font-medium min-w-[120px]">Time:</span>
                       <span>{selectedHours}:{selectedMinutes}</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="font-medium min-w-[120px]">Duration:</span>
+                      <span>{selectedDuration} minutes</span>
                     </div>
                   </div>
                 </div>
@@ -2491,6 +4954,7 @@ export default function EmployerInterviews() {
                     setSelectedTime("");
                     setSelectedInterviewer("");
                     setInterviewType("");
+                    setSelectedDuration(60); // Reset duration
                   }}
                 >
                   Cancel
@@ -2507,10 +4971,24 @@ export default function EmployerInterviews() {
                     }, 500);
                   }}
                   className="bg-gradient-primary text-white"
-                  disabled={!selectedDate || !selectedTime || (schedulingCandidate?.stage === 'talentAcquisition' && interviewType === 'technical' && (!selectedInterviewer || checkInterviewConflict(selectedDate, selectedTime, selectedInterviewer)))}
+                  disabled={isSchedulingInterview || !selectedDate || !selectedTime || 
+                           (interviewType === 'talentAcquisition' && checkInterviewConflict(selectedDate, selectedTime, currentTeamMember?.id, true)) ||
+                           (interviewType !== 'talentAcquisition' && ((schedulingCandidate?.stage === 'toContact' && interviewType === 'talentAcquisition') ||
+                            (schedulingCandidate?.stage === 'talentAcquisition' && interviewType === 'technical') ||
+                            (schedulingCandidate?.stage === 'technical' && interviewType === 'leadership')) && 
+                           (!selectedInterviewer || checkInterviewConflict(selectedDate, selectedTime, selectedInterviewer, false)))}
                 >
-                  <Video className="w-4 h-4 mr-2" />
-                  Generate Meet Link & Schedule
+                  {isSchedulingInterview ? (
+                    <>
+                      <div className="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Scheduling...
+                    </>
+                  ) : (
+                    <>
+                      <Video className="w-4 h-4 mr-2" />
+                      Generate Meet Link & Schedule
+                    </>
+                  )}
                 </Button>
                 {interviewLink && (
                   <div className="flex items-center gap-2 mt-2">
@@ -2573,8 +5051,8 @@ export default function EmployerInterviews() {
                     <input
                       type="text"
                       value={offerDetails.position}
-                      onChange={(e) => setOfferDetails({...offerDetails, position: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                      readOnly
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100"
                       placeholder="Job title"
                     />
                   </div>
@@ -2588,9 +5066,6 @@ export default function EmployerInterviews() {
                       placeholder="e.g., $80,000/year"
                     />
                   </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
                     <input
@@ -2602,31 +5077,24 @@ export default function EmployerInterviews() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Contract Type</label>
-                    <select
-                      value={offerDetails.contractType}
-                      onChange={(e) => setOfferDetails({...offerDetails, contractType: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
-                    >
-                      <option value="Full-time">Full-time</option>
-                      <option value="Part-time">Part-time</option>
-                      <option value="Contract">Contract</option>
-                      <option value="Internship">Internship</option>
-                      <option value="Freelancer">Freelancer</option>
-                    </select>
+                    <input
+                      type="text"
+                      value={offerJobMeta.employmentType || selectedJob?.employment_type || ''}
+                      readOnly
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Work Location</label>
+                    <input
+                      type="text"
+                      value={offerJobMeta.workplace || offerDetails.workLocation || selectedJob?.workplace || ''}
+                      readOnly
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100"
+                      placeholder="Work location"
+                    />
                   </div>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Work Location</label>
-                  <input
-                    type="text"
-                    value={offerDetails.workLocation}
-                    onChange={(e) => setOfferDetails({...offerDetails, workLocation: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
-                    placeholder="Office, Remote, Hybrid"
-                  />
-                </div>
-
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Benefits & Perks</label>
                   <textarea
@@ -2636,7 +5104,6 @@ export default function EmployerInterviews() {
                     placeholder="Health insurance, vacation days, stock options, etc."
                   />
                 </div>
-
                 <div className="flex gap-3">
                   <Button
                     onClick={handleGenerateOffer}
@@ -2645,14 +5112,6 @@ export default function EmployerInterviews() {
                   >
                     <Star className="w-4 h-4 mr-2" />
                     Generate Offer
-                  </Button>
-                  <Button
-                    onClick={handleScheduleInterview}
-                    className="bg-gradient-primary text-white"
-                    disabled={!selectedDate || !selectedTime || !interviewLink || (schedulingCandidate?.stage === 'talentAcquisition' && interviewType === 'technical' && (!selectedInterviewer || checkInterviewConflict(selectedDate, selectedTime, selectedInterviewer)))}
-                  >
-                    <Calendar className="w-4 h-4 mr-2" />
-                    Schedule Interview
                   </Button>
                 </div>
               </div>
@@ -2701,8 +5160,8 @@ export default function EmployerInterviews() {
                         <div><strong>Position:</strong> {offerDetails.position}</div>
                         <div><strong>Salary:</strong> {offerDetails.salary}</div>
                         <div><strong>Start Date:</strong> {new Date(offerDetails.startDate).toLocaleDateString()}</div>
-                        <div><strong>Employment Type:</strong> {offerDetails.contractType}</div>
-                        <div className="col-span-2"><strong>Work Location:</strong> {offerDetails.workLocation}</div>
+                        <div><strong>Employment Type:</strong> {offerJobMeta.employmentType || selectedJob?.employment_type || 'Not specified'}</div>
+                        <div className="col-span-2"><strong>Work Location:</strong> {offerJobMeta.workplace || offerDetails.workLocation || selectedJob?.workplace || 'Not specified'}</div>
                       </div>
                     </div>
 
@@ -2751,9 +5210,9 @@ export default function EmployerInterviews() {
                   salary: '',
                   startDate: '',
                   benefits: '',
-                  workLocation: '',
-                  contractType: 'Full-time'
+                  workLocation: ''
                 });
+                setOfferJobMeta({ employmentType: '', workplace: '' });
                 setOfferGenerated(false);
               }}
             >

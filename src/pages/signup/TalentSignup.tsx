@@ -39,7 +39,6 @@ const TalentSignup = () => {
     educationLevel: "",
     jobTypes: [] as string[],
     workLocation: [] as string[],
-    availabilityStatus: "",
     shortBio: "",
     linkedinUrl: "",
     githubUrl: "",
@@ -81,7 +80,7 @@ const TalentSignup = () => {
     setSkills(skills.filter(s => s !== skill));
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!formData.acceptTerms || !formData.consentSharing) {
       toast({
         title: "Please accept required terms",
@@ -100,19 +99,57 @@ const TalentSignup = () => {
       return;
     }
 
-    login({
-      id: '1',
-      email: formData.email,
-      name: `${formData.firstName} ${formData.lastName}`,
-      role: 'talent'
-    });
-    
-    toast({
-      title: "Account created successfully!",
-      description: "Welcome to TalenTek",
-    });
-    
-    navigate('/talent/overview');
+    try {
+      // Call real signup API
+      const { authApi } = await import('@/lib/api');
+      const user = await authApi.signup({
+        email: formData.email,
+        password: formData.password,
+        user_role: 'talent',
+        profile_data: {
+          full_name: `${formData.firstName} ${formData.lastName}`,
+          phone_number: formData.phoneNumber,
+          city: formData.city,
+          current_position: formData.currentPosition,
+          years_of_experience: formData.yearsOfExperience,
+          education_level: formData.educationLevel,
+          job_types: formData.jobTypes,
+          work_location: formData.workLocation,
+          short_bio: formData.shortBio,
+          linkedin_url: formData.linkedinUrl,
+          github_url: formData.githubUrl,
+          portfolio_url: formData.portfolioUrl,
+          has_carte_entrepreneur: hasCarteEntrepreneur,
+          skills: skills,
+        },
+      });
+
+      if (!user) {
+        toast({
+          title: "Signup failed",
+          description: "Unable to create account. Please try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Login after signup
+      await login({ email: formData.email, password: formData.password });
+      
+      toast({
+        title: "Account created successfully!",
+        description: "Welcome to TalenTek",
+      });
+      
+      navigate('/talent/overview');
+    } catch (error) {
+      console.error('Signup error:', error);
+      toast({
+        title: "Error",
+        description: "An error occurred during signup. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (

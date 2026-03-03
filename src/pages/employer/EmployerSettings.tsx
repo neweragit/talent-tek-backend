@@ -4,21 +4,26 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { User, Mail, Phone, Building, Save, Lock, Eye, EyeOff } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
+import { User, Mail, Phone, Building, Save, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
 
 const EmployerSettings = () => {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [dataLoading, setDataLoading] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   
   const [profileData, setProfileData] = useState({
-    firstName: "John",
-    lastName: "Doe",
-    email: "john@company.com",
-    phone: "+1 (555) 123-4567",
-    company: "TalenTek",
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    company: "",
+    companyLogo: "",
   });
 
   const [passwordData, setPasswordData] = useState({
@@ -26,6 +31,65 @@ const EmployerSettings = () => {
     newPassword: "",
     confirmPassword: "",
   });
+
+  useEffect(() => {
+    if (user?.id) {
+      loadUserData();
+    }
+  }, [user]);
+
+  const loadUserData = async () => {
+    setDataLoading(true);
+    try {
+      // Get user email
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('email')
+        .eq('id', user?.id)
+        .single();
+
+      if (userError) throw userError;
+
+      // Get team member data with employer info
+      const { data: teamMemberData, error: teamError } = await supabase
+        .from('employer_team_members')
+        .select(`
+          first_name,
+          last_name,
+          phone,
+          employers!fk_team_member_employer (
+            company_name,
+            logo_url
+          )
+        `)
+        .eq('user_id', user?.id)
+        .single();
+
+      if (teamError) {
+        console.error('Team member data not found:', teamError);
+      }
+
+      const employer = teamMemberData?.employers as any;
+
+      setProfileData({
+        firstName: teamMemberData?.first_name || "",
+        lastName: teamMemberData?.last_name || "",
+        email: userData?.email || "",
+        phone: teamMemberData?.phone || "",
+        company: employer?.company_name || "",
+        companyLogo: employer?.logo_url || "",
+      });
+    } catch (error: any) {
+      console.error('Error loading user data:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load profile data.",
+        variant: "destructive",
+      });
+    } finally {
+      setDataLoading(false);
+    }
+  };
 
   const handleProfileChange = (field: string, value: string) => {
     setProfileData((prev) => ({ ...prev, [field]: value }));
@@ -37,13 +101,41 @@ const EmployerSettings = () => {
 
   const handleSaveProfile = async () => {
     setLoading(true);
-    setTimeout(() => {
+    try {
+      // Update user email
+      const { error: userError } = await supabase
+        .from('users')
+        .update({ email: profileData.email })
+        .eq('id', user?.id);
+
+      if (userError) throw userError;
+
+      // Update employer_team_members (first name, last name, phone)
+      const { error: teamMemberError } = await supabase
+        .from('employer_team_members')
+        .update({
+          first_name: profileData.firstName,
+          last_name: profileData.lastName,
+          phone: profileData.phone,
+        })
+        .eq('user_id', user?.id);
+
+      if (teamMemberError) throw teamMemberError;
+
       toast({
         title: "Success",
         description: "Profile updated successfully.",
       });
+    } catch (error: any) {
+      console.error('Error updating profile:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update profile.",
+        variant: "destructive",
+      });
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   const handleChangePassword = async () => {
@@ -66,7 +158,45 @@ const EmployerSettings = () => {
     }
 
     setLoading(true);
-    setTimeout(() => {
+    try {
+      // Verify current password
+      const { data: userData, error: fetchError } = await supabase
+        .from('users')
+        .select('password_hash')
+        .eq('id', user?.id)
+        .single();
+
+      if (fetchError || !userData) {
+        throw new Error('User not found');
+      }
+
+      const bcrypt = await import('bcryptjs');
+      const isValidPassword = await bcrypt.compare(
+        passwordData.currentPassword,
+        userData.password_hash
+      );
+
+      if (!isValidPassword) {
+        toast({
+          title: "Error",
+          description: "Current password is incorrect.",
+          variant: "destructive",
+        });
+        setLoading(false);
+        return;
+      }
+
+      // Hash new password
+      const hashedPassword = await bcrypt.hash(passwordData.newPassword, 10);
+
+      // Update password
+      const { error } = await supabase
+        .from('users')
+        .update({ password_hash: hashedPassword })
+        .eq('id', user?.id);
+
+      if (error) throw error;
+
       toast({
         title: "Success",
         description: "Password changed successfully.",
@@ -76,8 +206,16 @@ const EmployerSettings = () => {
         newPassword: "",
         confirmPassword: "",
       });
+    } catch (error: any) {
+      console.error('Error changing password:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to change password.",
+        variant: "destructive",
+      });
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   return (
@@ -89,7 +227,33 @@ const EmployerSettings = () => {
           <p className="text-gray-600">Manage your account and security settings</p>
         </div>
 
+        {dataLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          </div>
+        ) : (
         <div className="space-y-6">
+          {/* Company Logo Display */}
+          {profileData.companyLogo && (
+            <Card className="shadow-lg border-gray-200">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-4">
+                  <div className="w-20 h-20 rounded-lg overflow-hidden border-2 border-gray-200 flex-shrink-0">
+                    <img 
+                      src={profileData.companyLogo} 
+                      alt={profileData.company} 
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">You're a member of</p>
+                    <p className="text-xl font-bold text-gray-900">{profileData.company}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Account Settings */}
           <Card className="shadow-lg border-gray-200">
             <CardHeader className="bg-gradient-to-r from-orange-50 to-white border-b">
@@ -259,6 +423,7 @@ const EmployerSettings = () => {
             </CardContent>
           </Card>
         </div>
+        )}
       </div>
     </EmployerLayout>
   );

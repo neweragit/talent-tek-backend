@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Menu, X, BarChart3, Users, Settings, LogOut, Building2, CreditCard } from "lucide-react";
+import { Menu, X, BarChart3, Users, Settings, LogOut, Building2, CreditCard, Ticket } from "lucide-react";
 import DashboardNavbar from "./DashboardNavbar";
 
 interface EmployerAdminLayoutProps {
@@ -18,6 +18,7 @@ const EmployerAdminLayout = ({ children }: EmployerAdminLayoutProps) => {
   const menuItems = [
     { label: "Overview", icon: BarChart3, path: "/employer-admin/overview" },
     { label: "Recruiters", icon: Users, path: "/employer-admin/users" },
+    { label: "Support Tickets", icon: Ticket, path: "/employer-admin/tickets" },
     { label: "Company Profile", icon: Building2, path: "/employer-admin/company-profile" },
     { label: "Payment & Subscription", icon: CreditCard, path: "/employer-admin/payment" },
     { label: "Settings", icon: Settings, path: "/employer-admin/settings" },

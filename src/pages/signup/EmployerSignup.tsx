@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -11,19 +11,22 @@ import Navbar from "@/components/Navbar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
-import sha256 from 'crypto-js/sha256';
-import { Briefcase, Globe, User, CheckCircle } from "lucide-react";
+import { Briefcase, Globe, User, CheckCircle, Loader2 } from "lucide-react";
+import { Plan } from "@/lib/types";
 
 // Helper to upload file to Supabase Storage
-async function uploadProfileImage(file: File, userId: string): Promise<string | null> {
+async function uploadProfileImage(file: File, employerId: string): Promise<string | null> {
   const fileExt = file.name.split('.').pop();
-  const filePath = `${userId}.${fileExt}`;
-  const { data, error } = await supabase.storage.from('profile').upload(filePath, file, {
+  const filePath = `logos/${employerId}.${fileExt}`;
+  const { error } = await supabase.storage.from('companys_logo').upload(filePath, file, {
     upsert: true,
   });
-  if (error) return null;
+  if (error) {
+    console.error('Upload error:', error);
+    return null;
+  }
   // Get public URL
-  const { data: publicUrlData } = supabase.storage.from('profile').getPublicUrl(filePath);
+  const { data: publicUrlData } = supabase.storage.from('companys_logo').getPublicUrl(filePath);
   return publicUrlData?.publicUrl || null;
 }
 
@@ -32,6 +35,8 @@ const EmployerSignup = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
   const { toast } = useToast();
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [loadingPlans, setLoadingPlans] = useState(true);
   
   const [formData, setFormData] = useState({
     email: "",
@@ -53,65 +58,71 @@ const EmployerSignup = () => {
     linkedinUrl: "",
     facebookUrl: "",
     plan: "",
-    subscriptionType: "",
-    subscriptionStartDate: "",
-    subscriptionEndDate: "",
+    planId: "",
   });
   const [logoFile, setLogoFile] = useState<File | null>(null);
+
+  // Load plans on component mount
+  useEffect(() => {
+    loadPlans();
+  }, []);
+
+  const loadPlans = async () => {
+    try {
+      const { plansApi } = await import('@/lib/api');
+      const data = await plansApi.getAll({ target_user_type: 'employer', is_active: true });
+      setPlans(data || []);
+    } catch (error) {
+      console.error('Error loading plans:', error);
+      toast({
+        title: 'Error loading plans',
+        description: 'Could not load subscription plans. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingPlans(false);
+    }
+  };
 
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
   const handleSubmit = async () => {
-    // 1. Hash password
-    const password_hash = sha256(formData.password).toString();
-    // 2. Check if email exists
-    const { data: existingUser, error: checkError } = await supabase
-      .from('users')
-      .select('id')
-      .eq('email', formData.email)
-      .maybeSingle();
-    if (existingUser) {
-      toast({ title: 'Signup failed', description: 'Email already exists.' });
+    if (formData.password !== formData.confirmPassword) {
+      toast({
+        title: "Passwords don't match",
+        description: "Please ensure both passwords are the same.",
+        variant: "destructive",
+      });
       return;
     }
-    // 3. Insert into users table (let DB generate id)
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .insert([
-        {
-          email: formData.email,
-          password_hash,
-          user_role: 'employer',
-          is_active: true,
-          email_verified: false,
-          profile_completed: true,
-          first_name: formData.firstName,
-          last_name: formData.lastName,
-        }
-      ])
-      .select();
-    if (userError || !userData || !userData[0]) {
-      toast({ title: 'Signup failed', description: userError?.message || 'Could not create user.' });
-      return;
-    }
-    const user_id = userData[0].id;
-    // 4. Upload logo if present
-    let logo_url = null;
-    if (logoFile) {
-      logo_url = await uploadProfileImage(logoFile, user_id);
-      if (!logo_url) {
-        toast({ title: 'Signup failed', description: 'Failed to upload logo.' });
+
+    try {
+      // Call real signup API
+      const { authApi } = await import('@/lib/api');
+      
+      // Check if email exists
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', formData.email)
+        .maybeSingle();
+      
+      if (existingUser) {
+        toast({ 
+          title: 'Signup failed', 
+          description: 'Email already exists.',
+          variant: 'destructive'
+        });
         return;
       }
-    }
-    // 5. Insert into employers table
-    const { error: empError } = await supabase
-      .from('employers')
-      .insert([
-        {
-          user_id,
+
+      const user = await authApi.signup({
+        email: formData.email,
+        password: formData.password,
+        user_role: 'superadmin',
+        profile_data: {
           company_name: formData.companyName,
           tagline: formData.tagline,
           description: formData.description,
@@ -125,30 +136,86 @@ const EmployerSignup = () => {
           zip_code: formData.zipCode,
           linkedin_url: formData.linkedinUrl,
           facebook_url: formData.facebookUrl,
-          plan: formData.plan || 'Free',
-          subscription_type: formData.subscriptionType || 'Free',
-          subscription_start_date: formData.subscriptionStartDate || null,
-          subscription_end_date: formData.subscriptionEndDate || null,
-          logo_url,
           rep_first_name: formData.firstName,
           rep_last_name: formData.lastName,
+        },
+      });
+
+      if (!user) {
+        toast({
+          title: 'Signup failed',
+          description: 'Could not create account. Please try again.',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      // Upload logo if present
+      if (logoFile && user.profile) {
+        console.log('Uploading logo for employer ID:', user.profile.id);
+        const logo_url = await uploadProfileImage(logoFile, user.profile.id);
+        console.log('Logo URL received:', logo_url);
+        if (logo_url) {
+          // Update employer with logo URL
+          const { data, error } = await supabase
+            .from('employers')
+            .update({ logo_url })
+            .eq('id', user.profile.id);
+          
+          if (error) {
+            console.error('Error updating logo URL:', error);
+          } else {
+            console.log('Logo URL updated successfully:', data);
+          }
+        } else {
+          console.error('Failed to get logo URL from upload');
         }
-      ]);
-    if (empError) {
-      toast({ title: 'Signup failed', description: empError.message });
-      return;
+      } else {
+        console.log('No logo file or profile:', { logoFile: !!logoFile, profile: !!user.profile });
+      }
+
+      // Create subscription if plan selected
+      if (formData.planId && user.profile) {
+        const { subscriptionsApi } = await import('@/lib/api');
+        const selectedPlan = plans.find(p => p.id === formData.planId);
+        
+        if (selectedPlan) {
+          const expiresAt = new Date();
+          if (selectedPlan.billing_cycle === 'monthly') {
+            expiresAt.setMonth(expiresAt.getMonth() + 1);
+          } else if (selectedPlan.billing_cycle === 'annually') {
+            expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+          } else if (selectedPlan.billing_cycle === 'quarterly') {
+            expiresAt.setMonth(expiresAt.getMonth() + 3);
+          }
+
+          await subscriptionsApi.create({
+            plan_id: formData.planId,
+            employer_id: user.profile.id,
+            status: 'active',
+            auto_renew: true,
+            expires_at: expiresAt.toISOString(),
+          });
+        }
+      }
+
+      // Login after completing all setup
+      await login({ email: formData.email, password: formData.password });
+      
+      toast({
+        title: "Company account created!",
+        description: "Welcome to TalenTek",
+      });
+      
+      navigate('/employer-admin/overview');
+    } catch (error) {
+      console.error('Signup error:', error);
+      toast({
+        title: 'Error',
+        description: 'An error occurred during signup. Please try again.',
+        variant: 'destructive'
+      });
     }
-    login({
-      id: user_id,
-      email: formData.email,
-      name: formData.companyName,
-      role: 'employer'
-    });
-    toast({
-      title: "Company account created!",
-      description: "Welcome to TalenTek",
-    });
-    navigate('/employer/overview');
   };
 
   return (
@@ -277,38 +344,35 @@ const EmployerSignup = () => {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="subscriptionType">Subscription Type</Label>
-                    <Select onValueChange={(value) => handleChange('subscriptionType', value)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select subscription" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Free">Free</SelectItem>
-                        <SelectItem value="Basic">Basic</SelectItem>
-                        <SelectItem value="Pro">Pro</SelectItem>
-                        <SelectItem value="Enterprise">Enterprise</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="subscriptionStartDate">Subscription Start Date</Label>
-                      <Input
-                        id="subscriptionStartDate"
-                        type="date"
-                        value={formData.subscriptionStartDate}
-                        onChange={(e) => handleChange('subscriptionStartDate', e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="subscriptionEndDate">Subscription End Date</Label>
-                      <Input
-                        id="subscriptionEndDate"
-                        type="date"
-                        value={formData.subscriptionEndDate}
-                        onChange={(e) => handleChange('subscriptionEndDate', e.target.value)}
-                      />
-                    </div>
+                    <Label htmlFor="planId">Subscription Plan</Label>
+                    {loadingPlans ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="w-6 h-6 animate-spin text-orange-600" />
+                      </div>
+                    ) : (
+                      <Select onValueChange={(value) => handleChange('planId', value)} value={formData.planId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a plan" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {plans.map((plan) => (
+                            <SelectItem key={plan.id} value={plan.id}>
+                              <div className="flex items-center justify-between w-full">
+                                <span>{plan.display_name}</span>
+                                <span className="ml-2 text-sm text-gray-500">
+                                  ${plan.price}/{plan.billing_cycle === 'monthly' ? 'mo' : plan.billing_cycle === 'annually' ? 'yr' : plan.billing_cycle}
+                                </span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {formData.planId && (
+                      <p className="text-sm text-gray-600 mt-2">
+                        {plans.find(p => p.id === formData.planId)?.description}
+                      </p>
+                    )}
                   </div>
                   <div className="flex gap-2 pt-2">
                     <Button onClick={() => setStep(1)} variant="outline" className="w-full">
@@ -436,27 +500,16 @@ const EmployerSignup = () => {
 
               {step === 4 && (
                 <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Choose Plan</Label>
-                    <div className="grid gap-3">
-                      {['Free', 'Pro', 'Enterprise'].map((plan) => (
-                        <div
-                          key={plan}
-                          onClick={() => handleChange('plan', plan)}
-                          className={`p-4 border rounded-lg cursor-pointer transition-all ${
-                            formData.plan === plan 
-                              ? 'border-primary bg-primary/5 ring-2 ring-primary' 
-                              : 'border-border hover:border-primary/50'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            {formData.plan === plan && <CheckCircle className="w-5 h-5 text-primary" />}
-                            <div className="font-semibold">{plan}</div>
-                          </div>
-                        </div>
-                      ))}
+                  {formData.planId && (
+                    <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                      <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
+                        Selected Plan: {plans.find(p => p.id === formData.planId)?.display_name}
+                      </p>
+                      <p className="text-xs text-blue-700 dark:text-blue-300">
+                        {plans.find(p => p.id === formData.planId)?.description}
+                      </p>
                     </div>
-                  </div>
+                  )}
                   <div className="space-y-2">
                     <Label htmlFor="logo">Upload Company Logo</Label>
                     <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary/50 transition-colors cursor-pointer">

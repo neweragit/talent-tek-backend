@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import TalentLayout from "@/components/layouts/TalentLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,38 +10,42 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Save, X, Edit2, Upload, Download, Briefcase, MapPin, Mail, Phone, Link as LinkIcon, Lock, CreditCard } from "lucide-react";
+import { Save, X, Edit2, Upload, Download, Briefcase, MapPin, Mail, Phone, Link as LinkIcon, Lock, CreditCard, Loader2 } from "lucide-react";
 import { PasswordInput } from "@/components/ui/password-input";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { useAuth } from "@/contexts/AuthContext";
+import { talentsApi } from "@/lib/api";
+import type { Talent } from "@/lib/types";
+import { supabase } from "@/lib/supabase";
 
 const TalentProfile = () => {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [cvFile, setCvFile] = useState<File | null>(null);
-  const [skills, setSkills] = useState<string[]>([
-    "React",
-    "TypeScript",
-    "Node.js",
-    "Tailwind CSS",
-  ]);
+  const [cvUrl, setCvUrl] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [skills, setSkills] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState("");
-  const [hasCarteEntrepreneur, setHasCarteEntrepreneur] = useState(false);
+  const [talentProfile, setTalentProfile] = useState<Talent | null>(null);
 
   const [profileData, setProfileData] = useState({
-    firstName: "John",
-    lastName: "Doe",
-    email: "john.doe@example.com",
-    phoneNumber: "+1 (555) 123-4567",
-    city: "New York",
-    currentPosition: "Senior Software Developer",
-    yearsOfExperience: "5-10",
-    educationLevel: "bachelor",
-    jobTypes: ["Full-time", "Remote"],
-    workLocation: ["Remote", "Hybrid"],
-    availabilityStatus: "actively-looking",
-    shortBio: "Passionate software developer with 8 years of experience building scalable web applications. Specialized in React, TypeScript, and modern JavaScript frameworks.",
-    linkedinUrl: "https://linkedin.com/in/johndoe",
-    githubUrl: "https://github.com/johndoe",
-    portfolioUrl: "https://johndoe.dev",
+    fullName: "",
+    email: "",
+    phoneNumber: "",
+    city: "",
+    currentPosition: "",
+    yearsOfExperience: "",
+    educationLevel: "",
+    jobTypes: [] as string[],
+    workLocation: [] as string[],
+    shortBio: "",
+    linkedinUrl: "",
+    githubUrl: "",
+    portfolioUrl: "",
     hasCarteEntrepreneur: false,
   });
 
@@ -51,6 +55,194 @@ const TalentProfile = () => {
     newPassword: "",
     confirmPassword: "",
   });
+
+  // Load profile data on mount
+  useEffect(() => {
+    loadProfile();
+  }, [user?.id]);
+
+  const loadProfile = async () => {
+    if (!user?.id) return;
+
+    try {
+      setLoading(true);
+      const talent = await talentsApi.getByUserId(user.id);
+      setTalentProfile(talent);
+
+      // Parse full_name into firstName and lastName
+      const nameParts = (talent.full_name || "").split(" ");
+      const firstName = nameParts[0] || "";
+      const lastName = nameParts.slice(1).join(" ") || "";
+
+      const data = {
+        fullName: talent.full_name || "",
+        email: user.email,
+        phoneNumber: talent.phone_number || "",
+        city: talent.city || "",
+        currentPosition: talent.current_position || "",
+        yearsOfExperience: talent.years_of_experience || "",
+        educationLevel: talent.education_level || "",
+        jobTypes: talent.job_types || [],
+        workLocation: talent.work_location || [],
+        shortBio: talent.short_bio || "",
+        linkedinUrl: talent.linkedin_url || "",
+        githubUrl: talent.github_url || "",
+        portfolioUrl: talent.portfolio_url || "",
+        hasCarteEntrepreneur: talent.has_carte_entrepreneur || false,
+      };
+
+      setProfileData(data);
+      setEditData(data);
+      setSkills(talent.skills || []);
+      setCvUrl(talent.resume_url || null);
+    } catch (error) {
+      console.error('Failed to load profile:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load profile data. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUploadCV = async () => {
+    if (!cvFile || !talentProfile?.id || !user?.id) {
+      toast({
+        title: "Error",
+        description: "Please select a file first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate file size (5MB max)
+    if (cvFile.size > 5 * 1024 * 1024) {
+      toast({
+        title: "Error",
+        description: "File size must be less than 5MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate file type
+    const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    if (!allowedTypes.includes(cvFile.type)) {
+      toast({
+        title: "Error",
+        description: "Only PDF, DOC, and DOCX files are allowed",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setUploading(true);
+
+      // Delete old CV if exists
+      if (cvUrl) {
+        const oldPath = cvUrl.split('/').pop();
+        if (oldPath) {
+          await supabase.storage.from('cvs').remove([oldPath]);
+        }
+      }
+
+      // Create unique filename
+      const fileExt = cvFile.name.split('.').pop();
+      const fileName = `${user.id}_${Date.now()}.${fileExt}`;
+
+      // Upload file to Supabase storage
+      const { error: uploadError } = await supabase.storage
+        .from('cvs')
+        .upload(fileName, cvFile, {
+          cacheControl: '3600',
+          upsert: true,
+        });
+
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        throw new Error(uploadError.message || 'Upload failed');
+      }
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('cvs')
+        .getPublicUrl(fileName);
+
+      // Update talent profile with new CV URL
+      await talentsApi.update(talentProfile.id, {
+        resume_url: publicUrl,
+      });
+
+      setCvUrl(publicUrl);
+      setCvFile(null);
+
+      toast({
+        title: "Success",
+        description: "CV uploaded successfully!",
+      });
+    } catch (error: any) {
+      console.error('Failed to upload CV:', error);
+      const errorMessage = error?.message || 'Failed to upload CV. Please try again.';
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDownloadCV = () => {
+    if (cvUrl) {
+      window.open(cvUrl, '_blank');
+    }
+  };
+
+  const handleDeleteCV = async () => {
+    if (!cvUrl || !talentProfile?.id) return;
+
+    try {
+      setUploading(true);
+      setShowDeleteDialog(false);
+
+      // Extract filename from URL
+      const fileName = cvUrl.split('/').pop();
+      if (fileName) {
+        // Delete from storage
+        const { error: deleteError } = await supabase.storage
+          .from('cvs')
+          .remove([fileName]);
+
+        if (deleteError) throw deleteError;
+      }
+
+      // Update talent profile to remove CV URL
+      await talentsApi.update(talentProfile.id, {
+        resume_url: null,
+      });
+
+      setCvUrl(null);
+      setCvFile(null);
+
+      toast({
+        title: "Success",
+        description: "CV deleted successfully",
+      });
+    } catch (error) {
+      console.error('Failed to delete CV:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete CV. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleAddSkill = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && skillInput.trim()) {
@@ -82,12 +274,54 @@ const TalentProfile = () => {
   };
 
   const handleSave = async () => {
-    setProfileData(editData);
-    setIsEditing(false);
-    toast({
-      title: "Profile Updated",
-      description: "Your profile has been saved successfully.",
-    });
+    if (!talentProfile?.id) {
+      toast({
+        title: "Error",
+        description: "Profile not found",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setSaving(true);
+      
+      // Update talent profile in database
+      const updatedTalent = await talentsApi.update(talentProfile.id, {
+        full_name: editData.fullName,
+        phone_number: editData.phoneNumber,
+        city: editData.city,
+        current_position: editData.currentPosition,
+        years_of_experience: editData.yearsOfExperience,
+        education_level: editData.educationLevel,
+        job_types: editData.jobTypes,
+        work_location: editData.workLocation,
+        short_bio: editData.shortBio,
+        linkedin_url: editData.linkedinUrl,
+        github_url: editData.githubUrl,
+        portfolio_url: editData.portfolioUrl,
+        has_carte_entrepreneur: editData.hasCarteEntrepreneur,
+        skills: skills,
+      });
+
+      setTalentProfile(updatedTalent);
+      setProfileData(editData);
+      setIsEditing(false);
+      
+      toast({
+        title: "Profile Updated",
+        description: "Your profile has been saved successfully.",
+      });
+    } catch (error) {
+      console.error('Failed to save profile:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save profile. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCancel = () => {
@@ -143,18 +377,26 @@ const TalentProfile = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-slate-900 dark:text-white">My Profile</h1>
-            <p className="text-muted-foreground">Manage your professional profile and settings</p>
+            <p className="text-muted-foreground">
+              {loading ? "Loading your profile..." : "Manage your professional profile and settings"}
+            </p>
           </div>
           <Button
             onClick={() => setIsEditing(!isEditing)}
             variant={isEditing ? "outline" : "default"}
             className="gap-2"
+            disabled={loading || saving}
           >
             <Edit2 className="w-4 h-4" />
             {isEditing ? "Cancel Editing" : "Edit Profile"}
           </Button>
         </div>
 
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          </div>
+        ) : (
         <Tabs defaultValue="personal" className="w-full">
           <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="personal">Personal Info</TabsTrigger>
@@ -174,25 +416,15 @@ const TalentProfile = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="firstName">First Name</Label>
-                    <Input
-                      id="firstName"
-                      value={isEditing ? editData.firstName : profileData.firstName}
-                      onChange={(e) => isEditing && handleEditChange('firstName', e.target.value)}
-                      disabled={!isEditing}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="lastName">Last Name</Label>
-                    <Input
-                      id="lastName"
-                      value={isEditing ? editData.lastName : profileData.lastName}
-                      onChange={(e) => isEditing && handleEditChange('lastName', e.target.value)}
-                      disabled={!isEditing}
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="fullName">Full Name</Label>
+                  <Input
+                    id="fullName"
+                    value={isEditing ? editData.fullName : profileData.fullName}
+                    onChange={(e) => isEditing && handleEditChange('fullName', e.target.value)}
+                    disabled={!isEditing}
+                    placeholder="Enter your full name"
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -449,27 +681,6 @@ const TalentProfile = () => {
                     ))}
                   </div>
                 </div>
-
-                <div className="space-y-3">
-                  <Label>Availability Status</Label>
-                  <Select
-                    value={isEditing ? editData.availabilityStatus : profileData.availabilityStatus}
-                    onOpenChange={() => {}}
-                    disabled={!isEditing}
-                  >
-                    <SelectTrigger disabled={!isEditing}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    {isEditing && (
-                      <SelectContent>
-                        <SelectItem value="actively-looking">Actively looking for a job</SelectItem>
-                        <SelectItem value="open-to-opportunities">Open to opportunities</SelectItem>
-                        <SelectItem value="passively-considering">Passively considering offers</SelectItem>
-                        <SelectItem value="not-looking">Not looking (but stay in database)</SelectItem>
-                      </SelectContent>
-                    )}
-                  </Select>
-                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -530,60 +741,117 @@ const TalentProfile = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {isEditing ? (
-                  <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-8 text-center hover:border-primary/50 transition-colors">
-                    <Input
-                      type="file"
-                      accept=".pdf,.doc,.docx"
-                      onChange={(e) => {
-                        if (e.target.files && e.target.files[0]) {
-                          setCvFile(e.target.files[0]);
-                          toast({
-                            title: "File selected",
-                            description: `${e.target.files[0].name} is ready to upload`,
-                          });
-                        }
-                      }}
-                      className="hidden"
-                      id="cv-upload"
-                    />
-                    <label htmlFor="cv-upload" className="cursor-pointer block">
-                      {cvFile ? (
-                        <div className="space-y-2">
-                          <Upload className="w-12 h-12 text-green-500 mx-auto" />
-                          <p className="font-medium text-slate-900 dark:text-white">{cvFile.name}</p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">Click to change</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <Upload className="w-12 h-12 text-slate-400 mx-auto" />
-                          <p className="font-medium text-slate-900 dark:text-white">
-                            Drag and drop your CV
-                          </p>
-                          <p className="text-sm text-slate-500 dark:text-slate-400">
-                            or click to select
-                          </p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">
-                            PDF, DOC, or DOCX (max 5MB)
-                          </p>
-                        </div>
-                      )}
-                    </label>
-                  </div>
-                ) : (
+                {/* Current CV Display */}
+                {cvUrl && (
                   <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-700 rounded-lg">
                     <div className="flex items-center gap-3">
                       <Download className="w-5 h-5 text-primary" />
                       <div>
-                        <p className="font-medium">resume.pdf</p>
+                        <p className="font-medium">Current CV</p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">
-                          Last updated: Nov 15, 2024
+                          {cvUrl.split('/').pop()}
                         </p>
                       </div>
                     </div>
-                    <Button variant="outline" size="sm">
-                      Download
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={handleDownloadCV}
+                        disabled={uploading}
+                      >
+                        <LinkIcon className="w-4 h-4 mr-1" />
+                        Consult CV
+                      </Button>
+                      {isEditing && (
+                        <Button 
+                          variant="destructive" 
+                          size="sm"
+                          onClick={() => setShowDeleteDialog(true)}
+                          disabled={uploading}
+                        >
+                          {uploading ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <X className="w-4 h-4" />
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Upload New CV */}
+                {isEditing && (
+                  <>
+                    <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-8 text-center hover:border-primary/50 transition-colors">
+                      <Input
+                        type="file"
+                        accept=".pdf,.doc,.docx"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            setCvFile(e.target.files[0]);
+                            toast({
+                              title: "File selected",
+                              description: `${e.target.files[0].name} is ready to upload`,
+                            });
+                          }
+                        }}
+                        className="hidden"
+                        id="cv-upload"
+                        disabled={uploading}
+                      />
+                      <label htmlFor="cv-upload" className="cursor-pointer block">
+                        {cvFile ? (
+                          <div className="space-y-2">
+                            <Upload className="w-12 h-12 text-green-500 mx-auto" />
+                            <p className="font-medium text-slate-900 dark:text-white">{cvFile.name}</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Click to change</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <Upload className="w-12 h-12 text-slate-400 mx-auto" />
+                            <p className="font-medium text-slate-900 dark:text-white">
+                              {cvUrl ? 'Upload new CV (replaces current)' : 'Drag and drop your CV'}
+                            </p>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                              or click to select
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                              PDF, DOC, or DOCX (max 5MB)
+                            </p>
+                          </div>
+                        )}
+                      </label>
+                    </div>
+                    {cvFile && (
+                      <Button 
+                        onClick={handleUploadCV} 
+                        className="w-full"
+                        disabled={uploading}
+                      >
+                        {uploading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Uploading...
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-4 h-4 mr-2" />
+                            Upload CV
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </>
+                )}
+
+                {/* No CV State */}
+                {!cvUrl && !isEditing && (
+                  <div className="text-center p-8 bg-slate-50 dark:bg-slate-700 rounded-lg">
+                    <p className="text-slate-500 dark:text-slate-400">
+                      No CV uploaded yet. Click "Edit Profile" to upload your CV.
+                    </p>
                   </div>
                 )}
               </CardContent>
@@ -687,21 +955,61 @@ const TalentProfile = () => {
             </Card>
           </TabsContent>
         </Tabs>
+        )}
 
         {/* Save/Cancel Buttons */}
-        {isEditing && (
+        {isEditing && !loading && (
           <div className="flex gap-3 sticky bottom-4">
-            <Button onClick={handleCancel} variant="outline" className="gap-2">
+            <Button 
+              onClick={handleCancel} 
+              variant="outline" 
+              className="gap-2"
+              disabled={saving}
+            >
               <X className="w-4 h-4" />
               Cancel
             </Button>
-            <Button onClick={handleSave} className="gap-2 bg-gradient-primary hover:opacity-90">
-              <Save className="w-4 h-4" />
-              Save Changes
+            <Button 
+              onClick={handleSave} 
+              className="gap-2 bg-gradient-primary hover:opacity-90"
+              disabled={saving}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  Save Changes
+                </>
+              )}
             </Button>
           </div>
         )}
       </div>
+
+      {/* Delete CV Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete CV</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete your CV? This action cannot be undone. You can upload a new CV anytime from your profile.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteCV}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Delete CV
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </TalentLayout>
   );
 };

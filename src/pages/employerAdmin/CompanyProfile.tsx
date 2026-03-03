@@ -92,23 +92,44 @@ export default function CompanyProfile() {
     }
   };
 
-  const uploadLogo = async (): Promise<string | null> => {
-    if (!logoFile || !user?.id) return null;
+  const uploadLogo = async (employerId: string): Promise<string | null> => {
+    if (!logoFile) return null;
     const fileExt = logoFile.name.split('.').pop();
-    const filePath = `${user.id}.${fileExt}`;
-    const { error } = await supabase.storage.from('profile').upload(filePath, logoFile, {
+    const filePath = `logos/${employerId}.${fileExt}`;
+    const { error } = await supabase.storage.from('companys_logo').upload(filePath, logoFile, {
       upsert: true,
     });
-    if (error) return null;
-    const { data: publicUrlData } = supabase.storage.from('profile').getPublicUrl(filePath);
+    if (error) {
+      console.error('Upload error:', error);
+      return null;
+    }
+    const { data: publicUrlData } = supabase.storage.from('companys_logo').getPublicUrl(filePath);
     return publicUrlData?.publicUrl || null;
   };
 
   const handleSave = async () => {
     setLoading(true);
+    
+    // Get employer ID first
+    const { data: employerData } = await supabase
+      .from('employers')
+      .select('id')
+      .eq('user_id', user?.id)
+      .single();
+    
+    if (!employerData) {
+      toast({
+        title: "Error",
+        description: "Could not find employer profile.",
+        variant: "destructive",
+      });
+      setLoading(false);
+      return;
+    }
+    
     let logo_url = formData.logoUrl;
     if (logoFile) {
-      const uploaded = await uploadLogo();
+      const uploaded = await uploadLogo(employerData.id);
       if (uploaded) {
         logo_url = uploaded;
       }

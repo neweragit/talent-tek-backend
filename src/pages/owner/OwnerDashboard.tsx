@@ -2,23 +2,222 @@ import OwnerLayout from "@/components/layouts/OwnerLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, Building2, Briefcase, UserCog, TrendingUp, Activity, DollarSign, CheckCircle } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from "recharts";
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
+import { useToast } from "@/hooks/use-toast";
 
-const statsData = [
-  { name: "Jan", users: 400, revenue: 2400 },
-  { name: "Feb", users: 550, revenue: 3200 },
-  { name: "Mar", users: 680, revenue: 4100 },
-  { name: "Apr", users: 820, revenue: 5200 },
-  { name: "May", users: 950, revenue: 6300 },
-  { name: "Jun", users: 1100, revenue: 7800 },
-];
+interface MonthlyStats {
+  name: string;
+  users: number;
+  revenue: number;
+}
 
-const userTypeData = [
-  { name: "Talents", value: 450, color: "#ea580c" },
-  { name: "Employers", value: 180, color: "#fb923c" },
-  { name: "Interviewers", value: 75, color: "#fdba74" },
-];
+interface UserTypeData {
+  name: string;
+  value: number;
+  color: string;
+}
 
 export default function OwnerDashboard() {
+  const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(true);
+  const [statsData, setStatsData] = useState<MonthlyStats[]>([]);
+  const [userTypeData, setUserTypeData] = useState<UserTypeData[]>([]);
+  const [stats, setStats] = useState({
+    totalUsers: 0,
+    totalUsersGrowth: 0,
+    employers: 0,
+    employersGrowth: 0,
+    talents: 0,
+    talentsGrowth: 0,
+    interviewers: 0,
+    interviewersGrowth: 0,
+  });
+
+  useEffect(() => {
+    loadDashboardData();
+  }, []);
+
+  async function loadDashboardData() {
+    try {
+      setIsLoading(true);
+      await Promise.all([
+        loadUserStats(),
+        loadMonthlyData(),
+        loadUserDistribution(),
+      ]);
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load dashboard data.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function loadUserStats() {
+    const now = new Date();
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    // Total users
+    const { count: totalUsers } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true });
+
+    const { count: lastMonthTotal } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .lt('created_at', thisMonth.toISOString());
+
+    const totalUsersGrowth = lastMonthTotal > 0
+      ? Math.round(((totalUsers - lastMonthTotal) / lastMonthTotal) * 100)
+      : 0;
+
+    // Employers
+    const { count: employers } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_role', 'employer');
+
+    const { count: lastMonthEmployers } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_role', 'employer')
+      .lt('created_at', thisMonth.toISOString());
+
+    const employersGrowth = lastMonthEmployers > 0
+      ? Math.round(((employers - lastMonthEmployers) / lastMonthEmployers) * 100)
+      : 0;
+
+    // Talents
+    const { count: talents } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_role', 'talent');
+
+    const { count: lastMonthTalents } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_role', 'talent')
+      .lt('created_at', thisMonth.toISOString());
+
+    const talentsGrowth = lastMonthTalents > 0
+      ? Math.round(((talents - lastMonthTalents) / lastMonthTalents) * 100)
+      : 0;
+
+    // Interviewers
+    const { count: interviewers } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_role', 'interviewer');
+
+    const { count: lastMonthInterviewers } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_role', 'interviewer')
+      .lt('created_at', thisMonth.toISOString());
+
+    const interviewersGrowth = lastMonthInterviewers > 0
+      ? Math.round(((interviewers - lastMonthInterviewers) / lastMonthInterviewers) * 100)
+      : 0;
+
+    setStats({
+      totalUsers: totalUsers || 0,
+      totalUsersGrowth,
+      employers: employers || 0,
+      employersGrowth,
+      talents: talents || 0,
+      talentsGrowth,
+      interviewers: interviewers || 0,
+      interviewersGrowth,
+    });
+  }
+
+  async function loadMonthlyData() {
+    const monthlyStats: MonthlyStats[] = [];
+    const now = new Date();
+
+    for (let i = 5; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const nextDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59);
+      const monthName = date.toLocaleDateString('en-US', { month: 'short' });
+
+      // Count users created in this month
+      const { count: users } = await supabase
+        .from('users')
+        .select('id', { count: 'exact', head: true })
+        .gte('created_at', date.toISOString())
+        .lte('created_at', nextDate.toISOString());
+
+      // Sum revenue for this month
+      const { data: payments } = await supabase
+        .from('payments')
+        .select('amount')
+        .eq('status', 'completed')
+        .gte('created_at', date.toISOString())
+        .lte('created_at', nextDate.toISOString());
+
+      const revenue = payments?.reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0) || 0;
+
+      monthlyStats.push({
+        name: monthName,
+        users: users || 0,
+        revenue: revenue,
+      });
+    }
+
+    setStatsData(monthlyStats);
+  }
+
+  async function loadUserDistribution() {
+    const { count: talents } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_role', 'talent');
+
+    const { count: employers } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_role', 'employer');
+
+    const { count: interviewers } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_role', 'interviewer');
+
+    setUserTypeData([
+      { name: "Talents", value: talents || 0, color: "#ea580c" },
+      { name: "Employers", value: employers || 0, color: "#fb923c" },
+      { name: "Interviewers", value: interviewers || 0, color: "#fdba74" },
+    ]);
+  }
+
+  function getTimeAgo(date: Date): string {
+    const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
+    
+    if (seconds < 60) return 'Just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+    return date.toLocaleDateString();
+  }
+
+  if (isLoading) {
+    return (
+      <OwnerLayout>
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+            <p className="mt-4 text-gray-600">Loading dashboard...</p>
+          </div>
+        </div>
+      </OwnerLayout>
+    );
+  }
   return (
     <OwnerLayout>
       <div className="space-y-8">
@@ -35,10 +234,12 @@ export default function OwnerDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600 font-medium">Total Users</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-2">1,248</p>
-                  <p className="text-sm text-green-600 mt-1 flex items-center gap-1">
+                  <p className="text-3xl font-bold text-gray-900 mt-2">{stats.totalUsers.toLocaleString()}</p>
+                  <p className={`text-sm mt-1 flex items-center gap-1 ${
+                    stats.totalUsersGrowth >= 0 ? 'text-green-600' : 'text-red-600'
+                  }`}>
                     <TrendingUp className="w-3 h-3" />
-                    +12.5% from last month
+                    {stats.totalUsersGrowth >= 0 ? '+' : ''}{stats.totalUsersGrowth}% from last month
                   </p>
                 </div>
                 <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
@@ -53,10 +254,12 @@ export default function OwnerDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600 font-medium">Employers</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-2">180</p>
-                  <p className="text-sm text-green-600 mt-1 flex items-center gap-1">
+                  <p className="text-3xl font-bold text-gray-900 mt-2">{stats.employers.toLocaleString()}</p>
+                  <p className={`text-sm mt-1 flex items-center gap-1 ${
+                    stats.employersGrowth >= 0 ? 'text-green-600' : 'text-red-600'
+                  }`}>
                     <TrendingUp className="w-3 h-3" />
-                    +8.2% from last month
+                    {stats.employersGrowth >= 0 ? '+' : ''}{stats.employersGrowth}% from last month
                   </p>
                 </div>
                 <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
@@ -71,10 +274,12 @@ export default function OwnerDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600 font-medium">Talents</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-2">893</p>
-                  <p className="text-sm text-green-600 mt-1 flex items-center gap-1">
+                  <p className="text-3xl font-bold text-gray-900 mt-2">{stats.talents.toLocaleString()}</p>
+                  <p className={`text-sm mt-1 flex items-center gap-1 ${
+                    stats.talentsGrowth >= 0 ? 'text-green-600' : 'text-red-600'
+                  }`}>
                     <TrendingUp className="w-3 h-3" />
-                    +15.3% from last month
+                    {stats.talentsGrowth >= 0 ? '+' : ''}{stats.talentsGrowth}% from last month
                   </p>
                 </div>
                 <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
@@ -89,10 +294,12 @@ export default function OwnerDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600 font-medium">Interviewers</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-2">175</p>
-                  <p className="text-sm text-green-600 mt-1 flex items-center gap-1">
+                  <p className="text-3xl font-bold text-gray-900 mt-2">{stats.interviewers.toLocaleString()}</p>
+                  <p className={`text-sm mt-1 flex items-center gap-1 ${
+                    stats.interviewersGrowth >= 0 ? 'text-green-600' : 'text-red-600'
+                  }`}>
                     <TrendingUp className="w-3 h-3" />
-                    +5.7% from last month
+                    {stats.interviewersGrowth >= 0 ? '+' : ''}{stats.interviewersGrowth}% from last month
                   </p>
                 </div>
                 <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
@@ -151,34 +358,6 @@ export default function OwnerDashboard() {
             </CardContent>
           </Card>
         </div>
-
-        {/* Recent Activity */}
-        <Card className="border-orange-200 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-xl">Platform Activity</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {[
-                { icon: CheckCircle, color: "text-green-600", bg: "bg-green-100", text: "New employer registered: TechCorp Inc." },
-                { icon: Users, color: "text-blue-600", bg: "bg-blue-100", text: "15 new talents joined the platform" },
-                { icon: Activity, color: "text-orange-600", bg: "bg-orange-100", text: "Job post approved: Senior React Developer" },
-                { icon: DollarSign, color: "text-purple-600", bg: "bg-purple-100", text: "Subscription payment received: $499" },
-              ].map((activity, idx) => {
-                const Icon = activity.icon;
-                return (
-                  <div key={idx} className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
-                    <div className={`w-10 h-10 ${activity.bg} rounded-full flex items-center justify-center`}>
-                      <Icon className={`w-5 h-5 ${activity.color}`} />
-                    </div>
-                    <p className="text-gray-700">{activity.text}</p>
-                    <span className="ml-auto text-sm text-gray-500">2h ago</span>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
       </div>
     </OwnerLayout>
   );
