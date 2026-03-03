@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Mail, Lock, User, MapPin, Briefcase, FileText, Upload, File as FileIcon, MessageSquare, CheckCircle2, X, CreditCard, LogOut } from "lucide-react";
+import { Mail, Lock, User, MapPin, Briefcase, FileText, Upload, File as FileIcon, MessageSquare, CheckCircle2, X, CreditCard, LogOut, Loader2 } from "lucide-react";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +25,7 @@ const TalentSignup = () => {
   const [skillInput, setSkillInput] = useState("");
   const [hasCarteEntrepreneur, setHasCarteEntrepreneur] = useState(false);
   const [showJobTypeError, setShowJobTypeError] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [formData, setFormData] = useState({
     email: "",
@@ -141,7 +142,10 @@ const TalentSignup = () => {
         description: "Welcome to TalenTek",
       });
       
-      navigate('/talent/overview');
+      // Small delay for better UX
+      setTimeout(() => {
+        navigate('/talent/overview');
+      }, 1000);
     } catch (error) {
       console.error('Signup error:', error);
       toast({
@@ -149,6 +153,8 @@ const TalentSignup = () => {
         description: "An error occurred during signup. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -275,13 +281,13 @@ const TalentSignup = () => {
                     </label>
                   </div>
                   <div className="flex gap-3">
-                    <Button variant="outline" onClick={() => setStep(1)} className="w-full">
+                    <Button variant="outline" onClick={() => setStep(1)} className="w-full" disabled={isSubmitting}>
                       Back
                     </Button>
                     <Button 
                       onClick={() => setStep(3)} 
                       className="w-full bg-gradient-primary hover:opacity-90"
-                      disabled={!cvFile}
+                      disabled={!cvFile || isSubmitting}
                     >
                       Continue
                     </Button>
@@ -571,10 +577,10 @@ const TalentSignup = () => {
                   </div>
 
                   <div className="flex gap-3">
-                    <Button variant="outline" onClick={() => setStep(4)} className="w-full">
+                    <Button variant="outline" onClick={() => setStep(1)} className="w-full" disabled={isSubmitting}>
                       Back
                     </Button>
-                    <Button onClick={() => setStep(6)} className="w-full bg-gradient-primary hover:opacity-90">
+                    <Button onClick={() => setStep(3)} className="w-full bg-gradient-primary hover:opacity-90" disabled={isSubmitting}>
                       Continue
                     </Button>
                   </div>
@@ -638,15 +644,22 @@ const TalentSignup = () => {
                     </label>
                   </div>
                   <div className="flex gap-3">
-                    <Button variant="outline" onClick={() => setStep(5)} className="w-full">
+                    <Button variant="outline" onClick={() => setStep(5)} className="w-full" disabled={isSubmitting}>
                       Back
                     </Button>
                     <Button 
                       onClick={handleSubmit} 
                       className="w-full bg-gradient-primary hover:opacity-90"
-                      disabled={!formData.acceptTerms || !formData.consentSharing}
+                      disabled={!formData.acceptTerms || !formData.consentSharing || isSubmitting}
                     >
-                      Create Account
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Creating Account...
+                        </>
+                      ) : (
+                        "Create Account"
+                      )}
                     </Button>
                   </div>
                 </div>

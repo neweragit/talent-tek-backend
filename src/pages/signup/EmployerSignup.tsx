@@ -37,6 +37,7 @@ const EmployerSignup = () => {
   const { toast } = useToast();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loadingPlans, setLoadingPlans] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [formData, setFormData] = useState({
     email: "",
@@ -98,6 +99,7 @@ const EmployerSignup = () => {
       return;
     }
 
+    setIsSubmitting(true);
     try {
       // Call real signup API
       const { authApi } = await import('@/lib/api');
@@ -207,7 +209,10 @@ const EmployerSignup = () => {
         description: "Welcome to TalenTek",
       });
       
-      navigate('/employer-admin/overview');
+      // Small delay for better UX
+      setTimeout(() => {
+        navigate('/employer-admin/overview');
+      }, 1000);
     } catch (error) {
       console.error('Signup error:', error);
       toast({
@@ -215,6 +220,8 @@ const EmployerSignup = () => {
         description: 'An error occurred during signup. Please try again.',
         variant: 'destructive'
       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -283,7 +290,7 @@ const EmployerSignup = () => {
                       required
                     />
                   </div>
-                  <Button onClick={() => setStep(2)} className="w-full bg-gradient-primary hover:opacity-90">
+                  <Button onClick={() => setStep(2)} className="w-full bg-gradient-primary hover:opacity-90" disabled={isSubmitting}>
                     Continue
                   </Button>
                 </div>
@@ -375,10 +382,10 @@ const EmployerSignup = () => {
                     )}
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <Button onClick={() => setStep(1)} variant="outline" className="w-full">
+                    <Button onClick={() => setStep(1)} variant="outline" className="w-full" disabled={isSubmitting}>
                       Back
                     </Button>
-                    <Button onClick={() => setStep(3)} className="w-full bg-gradient-primary hover:opacity-90">
+                    <Button onClick={() => setStep(3)} className="w-full bg-gradient-primary hover:opacity-90" disabled={isSubmitting}>
                       Next
                     </Button>
                   </div>
@@ -488,10 +495,10 @@ const EmployerSignup = () => {
                     />
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <Button onClick={() => setStep(2)} variant="outline" className="w-full">
+                    <Button onClick={() => setStep(2)} variant="outline" className="w-full" disabled={isSubmitting}>
                       Back
                     </Button>
-                    <Button onClick={() => setStep(4)} className="w-full bg-gradient-primary hover:opacity-90">
+                    <Button onClick={() => setStep(4)} className="w-full bg-gradient-primary hover:opacity-90" disabled={isSubmitting}>
                       Next
                     </Button>
                   </div>
@@ -547,11 +554,18 @@ const EmployerSignup = () => {
                     </p>
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <Button onClick={() => setStep(3)} variant="outline" className="w-full">
+                    <Button onClick={() => setStep(3)} variant="outline" className="w-full" disabled={isSubmitting}>
                       Back
                     </Button>
-                    <Button onClick={handleSubmit} className="w-full bg-gradient-primary hover:opacity-90">
-                      Create Employer Account
+                    <Button onClick={handleSubmit} className="w-full bg-gradient-primary hover:opacity-90" disabled={isSubmitting}>
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Creating Account...
+                        </>
+                      ) : (
+                        "Create Employer Account"
+                      )}
                     </Button>
                   </div>
                 </div>
