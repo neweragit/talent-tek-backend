@@ -107,9 +107,13 @@ CREATE TABLE public.interviews (
   meet_link text,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
+  team_member_id uuid,
+  created_by uuid,
   CONSTRAINT interviews_pkey PRIMARY KEY (id),
   CONSTRAINT fk_interview_application FOREIGN KEY (application_id) REFERENCES public.applications(id),
-  CONSTRAINT fk_interviews_interviewer FOREIGN KEY (interviewer_id) REFERENCES public.interviewers(id)
+  CONSTRAINT fk_interviews_interviewer FOREIGN KEY (interviewer_id) REFERENCES public.interviewers(id),
+  CONSTRAINT interviews_team_member_id_fkey FOREIGN KEY (team_member_id) REFERENCES public.employer_team_members(id),
+  CONSTRAINT fk_interviews_created_by FOREIGN KEY (created_by) REFERENCES public.employer_team_members(id)
 );
 CREATE TABLE public.jobs (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -147,6 +151,20 @@ CREATE TABLE public.notifications (
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT notifications_pkey PRIMARY KEY (id),
   CONSTRAINT fk_notification_user FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.offers (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  application_id uuid NOT NULL,
+  position character varying NOT NULL,
+  salary character varying NOT NULL,
+  start_date date NOT NULL,
+  work_location character varying,
+  benefits_perks text,
+  status character varying NOT NULL DEFAULT 'pending'::character varying CHECK (status::text = ANY (ARRAY['pending'::character varying, 'accepted'::character varying, 'refused'::character varying]::text[])),
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT offers_pkey PRIMARY KEY (id),
+  CONSTRAINT offers_application_id_fkey FOREIGN KEY (application_id) REFERENCES public.applications(id)
 );
 CREATE TABLE public.owners (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -311,18 +329,3 @@ CREATE TABLE public.users (
   updated_at timestamp with time zone DEFAULT now(),
   CONSTRAINT users_pkey PRIMARY KEY (id)
 );
-CREATE TABLE offers (
-    id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
-    application_id uuid NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
-    position VARCHAR(255) NOT NULL,
-    salary VARCHAR(255) NOT NULL,
-    start_date DATE NOT NULL,
-    work_location VARCHAR(100),
-    benefits_perks TEXT,
-    status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'refused')),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-COMMENT ON TABLE offers IS 'Stores job offers extended to candidates.';
-COMMENT ON COLUMN offers.status IS 'The status of the offer: pending, accepted, or refused.';
