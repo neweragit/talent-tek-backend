@@ -20,7 +20,7 @@ const TalentSupportTickets = () => {
 	const { toast } = useToast();
 	const [tickets, setTickets] = useState<any[]>([]);
 	const [loading, setLoading] = useState(true);
-	const [assignees, setAssignees] = useState<any[]>([]);
+	const [contacts, setContacts] = useState<any[]>([]);
 	const [talentData, setTalentData] = useState<any>(null);
 	const [form, setForm] = useState({
 		subject: "",
@@ -53,67 +53,200 @@ const TalentSupportTickets = () => {
 			if (talentError) throw talentError;
 			setTalentData(talent);
 
-			// Get all employers with their superadmin info
-			const { data: employers, error: empError } = await supabase
-				.from("employers")
-				.select("id, user_id, company_name, rep_first_name, rep_last_name");
+			if (!talent) {
+				setContacts([]);
+				return;
+			}
 
-			if (empError) throw empError;
+			// Find all interviews for this talent's applications and get who created them
+			const { data: applications, error: applicationsError } = await supabase
+				.from("applications")
+				.select("id")
+				.eq("talent_id", talent.id);
 
-			// Get all superadmin users
-			const superadminIds = (employers || []).map(emp => emp.user_id).filter(Boolean);
-			const { data: superadmins, error: superError } = await supabase
-				.from("users")
-				.select("id, email")
-				.eq("user_role", "superadmin")
-				.in("id", superadminIds);
+			if (applicationsError) throw applicationsError;
 
-			if (superError) throw superError;
+			console.log('Debug - Found applications:', applications);
 
-			// Load platform owner
+			if (!applications?.length) {
+				setContacts([]);
+				return;
+			}
+
+			const applicationIds = applications.map(app => app.id);
+
+			const { data: interviews, error: interviewsError } = await supabase
+				.from("interviews")
+				.select("created_by, interview_type, application_id")
+				.in("application_id", applicationIds);
+
+			if (interviewsError) throw interviewsError;
+
+			console.log('Debug - Found interviews:', interviews);
+
+			const contactsMap = new Map(); // Use Map to avoid duplicates by email
+
+			// Add platform owner first
 			const { data: ownerUser, error: ownerError } = await supabase
 				.from("users")
 				.select("id, email")
 				.eq("user_role", "owner")
 				.maybeSingle();
 
-			if (ownerError) throw ownerError;
+			if (!ownerError && ownerUser) {
+				contactsMap.set(ownerUser.email, {
+					id: ownerUser.id,
+					name: "Platform Owner",
+					email: ownerUser.email,
+					company: "Platform Support",
+					type: "owner",
+					description: "Platform administrator and support"
+				});
+			}
 
-			const combined = [];
+			// Process interviews and collect unique created_by IDs with interview types
+			if (interviews?.length > 0) {
+				// Group interviews by created_by to collect all interview types per person
+				const contactInterviews = new Map();
 
-			// Add all company superadmins with company names
-			if (employers && superadmins) {
-				employers.forEach(emp => {
-					const superadmin = superadmins.find(sa => sa.id === emp.user_id);
-					if (superadmin) {
-						const name = `${emp.rep_first_name || ''} ${emp.rep_last_name || ''}`.trim() || superadmin.email;
-						combined.push({
-							id: superadmin.id,
-							name: name,
-							email: superadmin.email,
-							company: emp.company_name,
-							type: "superadmin"
-						});
+				interviews.forEach(interview => {
+					// Track by created_by (team members who created interviews)
+					if (interview.created_by) {
+						const key = interview.created_by;
+						if (!contactInterviews.has(key)) {
+							contactInterviews.set(key, {
+								id: interview.created_by,
+								interviewTypes: []
+							});
+						}
+						if (interview.interview_type) {
+							contactInterviews.get(key).interviewTypes.push(interview.interview_type);
+						}
 					}
 				});
+
+				console.log('Debug - Contact interviews map:', contactInterviews);
+
+				// Get team member details for all unique created_by IDs
+				const teamMemberIds = Array.from(contactInterviews.keys());
+
+				if (teamMemberIds.length > 0) {
+					console.log('Debug - Looking for team members with IDs:', teamMemberIds);
+
+					// First get team members (we know this query works)
+					const { data: teamMembersById, error: teamErrorById } = await supabase
+						.from("employer_team_members")
+						.select("id, first_name, last_name, role, user_id")
+						.in("id", teamMemberIds);
+
+					console.log('Debug - Team members by id (no filter):', teamMembersById);
+					
+					if (teamErrorById) {
+						console.error('Error fetching team members:', teamErrorById);
+					}
+
+					// Use the team members we found
+					const allTeamMembers = teamMembersById || [];
+
+					console.log('Debug - All team members found:', allTeamMembers);
+
+					if (allTeamMembers.length > 0) {
+						// Get user emails separately for each team member
+						for (const member of allTeamMembers) {
+							if (member.user_id) {
+								const { data: userData } = await supabase
+									.from("users")
+									.select("email")
+									.eq("id", member.user_id)
+									.single();
+
+								// Skip if we already have this person by email to prevent duplicates
+								const email = userData?.email;
+								if (email && !contactsMap.has(email)) {
+									const interviewData = contactInterviews.get(member.id);
+									const uniqueTypes = [...new Set(interviewData?.interviewTypes || [])];
+									const typeText = uniqueTypes.length > 0 ? uniqueTypes.join(', ') : 'various';
+									
+									const name = `${member.first_name || ''} ${member.last_name || ''}`.trim() || email;
+									
+									contactsMap.set(email, {
+										id: member.user_id,
+										name: name,
+										email: email,
+										company: 'Company',
+										role: member.role,
+										type: "team_member",
+										description: `${member.role} - conducted ${typeText} interviews with you`
+									});
+
+									console.log('Debug - Added team member contact:', name);
+								}
+							}
+						}
+					}
+				}
 			}
 
-			// Add platform owner if exists
-			if (ownerUser) {
-				combined.push({
-					id: ownerUser.id,
-					name: ownerUser.email || "Platform Owner",
-					email: ownerUser.email,
-					company: "Platform",
-					type: "owner"
-				});
+			// Fallback: If no team member contacts found from created_by, get employer team members from applications
+			const teamMemberContacts = Array.from(contactsMap.values()).filter(c => c.type === "team_member");
+			if (teamMemberContacts.length === 0) {
+				console.log('Debug - No created_by contacts found, checking fallback team members...');
+				
+				// Get applications with job details
+				const { data: appsWithJobs, error: appJobsError } = await supabase
+					.from("applications")
+					.select("jobs(employer_id)")
+					.eq("talent_id", talent.id);
+
+				if (!appJobsError && appsWithJobs?.length > 0) {
+					const employerIds = [...new Set(appsWithJobs.map((app: any) => app.jobs?.employer_id).filter(Boolean))];
+					console.log('Debug - Employer IDs from applications:', employerIds);
+
+					const { data: fallbackTeamMembers, error: fbError } = await supabase
+						.from("employer_team_members")
+						.select(`
+							id, first_name, last_name, role, user_id,
+							users(email),
+							employers(company_name)
+						`)
+						.in("employer_id", employerIds)
+						.eq("is_active", true)
+						.in("role", ["admin", "recruiter", "hiring-manager"])
+						.limit(5);
+
+					console.log('Debug - Fallback team members:', fallbackTeamMembers);
+
+					if (!fbError && fallbackTeamMembers) {
+						fallbackTeamMembers.forEach((member: any) => {
+							if (member.users?.email && !contactsMap.has(member.users.email)) {
+								const name = `${member.first_name || ''} ${member.last_name || ''}`.trim() || 
+											 member.users.email;
+								contactsMap.set(member.users.email, {
+									id: member.user_id,
+									name: name,
+									email: member.users.email,
+									company: member.employers?.company_name || 'Company',
+									role: member.role,
+									type: "team_member",
+									description: `${member.role} from company you applied to`
+								});
+							}
+						});
+					}
+				}
 			}
 
-			setAssignees(combined);
+			const combined = Array.from(contactsMap.values());
+			console.log('Debug - Final combined contacts:', combined);
+
+			setContacts(combined);
 			
-			// Auto-select first assignee as default
+			// Auto-select first contact as default
 			if (combined.length > 0) {
 				setForm(prev => ({ ...prev, assignedTo: combined[0].id }));
+			} else {
+				// Clear assignedTo if no contacts available
+				setForm(prev => ({ ...prev, assignedTo: "" }));
 			}
 		} catch (error) {
 			console.error("Error loading talent data:", error);
@@ -152,451 +285,343 @@ const TalentSupportTickets = () => {
 		}
 	}
 
-	function handleInput(e) {
-		setForm({ ...form, [e.target.name]: e.target.value });
-	}
-
-	async function handleSubmit(e) {
+	async function submitTicket(e: React.FormEvent) {
 		e.preventDefault();
-		if (!form.subject || !form.message || !form.type || !form.assignedTo) {
-			setError("All fields are required.");
+
+		if (contacts.length === 0) {
+			toast({
+				title: "No Recipients Available",
+				description: "You need to apply to companies to have available support contacts.",
+				variant: "destructive",
+			});
+			return;
+		}
+
+		if (!form.subject || !form.message || !form.assignedTo) {
+			setError("Please fill in all required fields");
 			return;
 		}
 
 		try {
-			// Get sender name from talents table
-			const { data: talent } = await supabase
-				.from("talents")
-				.select("full_name")
-				.eq("user_id", user.id)
-				.maybeSingle();
-
-			const senderName = talent?.full_name || "Talent";
-
-			const { error: insertError } = await supabase
+			setError("");
+			const { error } = await supabase
 				.from("tickets")
 				.insert({
-					user_id: user.id,
-					sender_name: senderName,
+					user_id: user?.id,
 					subject: form.subject,
 					message: form.message,
-					ticket_type: form.type,
+					type: form.type,
 					priority: form.priority,
 					assigned_to: form.assignedTo,
-					status: "open"
+					status: "open",
 				});
 
-			if (insertError) throw insertError;
+			if (error) throw error;
 
 			toast({
-				title: "Success",
-				description: "Ticket created successfully",
+				title: "Ticket Submitted",
+				description: "Your support ticket has been submitted successfully.",
 			});
 
-			setForm({ subject: "", message: "", type: "Technical", priority: "medium", assignedTo: assignees[0]?.id || "" });
-			setError("");
+			setForm({ subject: "", message: "", type: "Technical", priority: "medium", assignedTo: contacts[0]?.id || "" });
 			setShowForm(false);
 			loadTickets();
 		} catch (error) {
-			console.error("Error creating ticket:", error);
-			toast({
-				title: "Error",
-				description: "Failed to create ticket",
-				variant: "destructive",
-			});
+			console.error("Error submitting ticket:", error);
+			setError("Failed to submit ticket. Please try again.");
 		}
 	}
 
-	async function handleDelete(ticketId: string) {
-		try {
-			const { error } = await supabase
-				.from("tickets")
-				.delete()
-				.eq("id", ticketId);
+	const filteredTickets = tickets.filter(ticket => 
+		filterType === "All" || ticket.type === filterType
+	);
 
-			if (error) throw error;
-
-			toast({ title: "Success", description: "Ticket deleted successfully" });
-			loadTickets();
-		} catch (error) {
-			console.error("Error deleting ticket:", error);
-			toast({ title: "Error", description: "Failed to delete ticket", variant: "destructive" });
-		}
+	if (loading) {
+		return (
+			<TalentLayout>
+				<div className="flex items-center justify-center min-h-[400px]">
+					<div className="flex items-center gap-3 text-blue-600">
+						<Loader2 className="w-6 h-6 animate-spin" />
+						<span className="text-lg font-medium">Loading support tickets...</span>
+					</div>
+				</div>
+			</TalentLayout>
+		);
 	}
-
-	async function handleClose(ticketId: string) {
-		try {
-			const { error } = await supabase
-				.from("tickets")
-				.update({ status: "closed", resolved_at: new Date().toISOString() })
-				.eq("id", ticketId);
-
-			if (error) throw error;
-
-			toast({ title: "Success", description: "Ticket closed successfully" });
-			loadTickets();
-		} catch (error) {
-			console.error("Error closing ticket:", error);
-			toast({ title: "Error", description: "Failed to close ticket", variant: "destructive" });
-		}
-	}
-
-	function getTicketTypeConfig(type: string) {
-		return ticketTypes.find(t => t.value === type) || ticketTypes[0];
-	}
-
-	const filteredTickets = tickets.filter(ticket => {
-		return filterType === "All" || ticket.ticket_type === filterType;
-	});
 
 	return (
 		<TalentLayout>
-			<div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-gray-50 p-6">
-				<div className="max-w-7xl mx-auto space-y-6">
-					{/* Header */}
-					<div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-2xl shadow-xl p-8 text-white">
-						<h1 className="text-3xl font-bold mb-2">Support Tickets</h1>
-						<p className="text-blue-100">Get help from our support team</p>
-						<div className="flex gap-2 mt-4">
-							<button
-								onClick={() => setView("sent")}
-								className={view === "sent"
-									? "px-6 py-2 rounded-lg font-semibold transition-all bg-white text-blue-600 shadow-lg"
-									: "px-6 py-2 rounded-lg font-semibold transition-all bg-blue-400 text-white hover:bg-blue-300"
-								}
-							>
-								📤 Sent
-							</button>
-							<button
-								onClick={() => setView("inbox")}
-								className={view === "inbox"
-									? "px-6 py-2 rounded-lg font-semibold transition-all bg-white text-blue-600 shadow-lg"
-									: "px-6 py-2 rounded-lg font-semibold transition-all bg-blue-400 text-white hover:bg-blue-300"
-								}
-							>
-								📥 Inbox
-							</button>
-						</div>
+			<div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+				{/* Header */}
+				<div className="mb-8">
+					<h1 className="text-3xl font-bold text-gray-900 mb-2">Support Tickets</h1>
+					<p className="text-gray-600">Get help with your questions and concerns</p>
+				</div>
+
+				{/* View Toggle */}
+				<div className="mb-6 flex items-center gap-2 bg-white p-1 rounded-xl border shadow-sm w-fit">
+					<button
+						onClick={() => setView("sent")}
+						className={`px-4 py-2 rounded-lg font-medium transition ${
+							view === "sent" 
+								? "bg-blue-500 text-white" 
+								: "text-gray-600 hover:bg-gray-100"
+						}`}
+					>
+						My Tickets
+					</button>
+					<button
+						onClick={() => setView("inbox")}
+						className={`px-4 py-2 rounded-lg font-medium transition ${
+							view === "inbox" 
+								? "bg-blue-500 text-white" 
+								: "text-gray-600 hover:bg-gray-100"
+						}`}
+					>
+						Inbox
+					</button>
+				</div>
+
+				{/* Controls */}
+				<div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+					{/* Filters */}
+					<div className="flex items-center gap-3">
+						<Filter className="w-5 h-5 text-gray-500" />
+						<select 
+							value={filterType} 
+							onChange={(e) => setFilterType(e.target.value)}
+							className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+						>
+							{ticketTypes.map(type => (
+								<option key={type.value} value={type.value}>{type.label}</option>
+							))}
+						</select>
 					</div>
 
 					{/* Create Ticket Button */}
 					<div>
 						{!showForm ? (
-							<button
-								className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-8 py-3 rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all flex items-center gap-2"
-								onClick={() => setShowForm(true)}
-							>
-								<Send className="w-5 h-5" />
-								Create New Ticket
-							</button>
-						) : (
-							<div className="bg-white rounded-xl shadow-lg p-8">
-								<div className="flex justify-between items-center mb-6">
-									<h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-										<Send className="w-6 h-6 text-blue-500" />
-										Create Support Ticket
-									</h2>
-									<button
-										onClick={() => {
-											setShowForm(false);
-											setError("");
-										}}
-										className="text-gray-400 hover:text-gray-600 transition"
-									>
-										<X className="w-6 h-6" />
-									</button>
-								</div>
-
-								{error && (
-									<div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded">
-										<p className="text-red-700 font-medium">{error}</p>
+							<div>
+								<button
+									className={contacts.length === 0 
+										? "bg-gray-300 text-gray-500 px-8 py-3 rounded-xl font-semibold cursor-not-allowed flex items-center gap-2"
+										: "bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-8 py-3 rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all flex items-center gap-2"
+									}
+									onClick={() => setShowForm(true)}
+									disabled={contacts.length === 0}
+								>
+									<Send className="w-5 h-5" />
+									Create New Ticket
+								</button>
+								{contacts.length === 0 && (
+									<div className="mt-3 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
+										<p className="text-sm text-yellow-700">
+											<strong>💡 No support contacts available yet</strong><br />
+											To create support tickets, you need to apply to companies on the platform:
+										</p>
+										<ul className="mt-2 text-sm text-yellow-600 list-disc list-inside space-y-1">
+											<li>Apply to job positions</li>
+											<li>Connect with company representatives</li>
+											<li>Get interviews scheduled</li>
+											<li>Then you can contact relevant people for support</li>
+										</ul>
 									</div>
 								)}
-
-								<form onSubmit={handleSubmit} className="space-y-6">
-									<div>
-										<label className="block text-sm font-semibold text-gray-700 mb-3">Subject *</label>
-										<input
-											type="text"
-											name="subject"
-											value={form.subject}
-											onChange={handleInput}
-											className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-											placeholder="Brief description of your issue"
-											required
-										/>
-									</div>
-
-									<div className="grid gap-6 md:grid-cols-2">
-										<div>
-											<label className="block text-sm font-semibold text-gray-700 mb-3">Ticket Type *</label>
-											<div className="grid grid-cols-2 gap-3">
-												{ticketTypes.slice(1).map((typeObj) => {
-													const Icon = typeObj.icon;
-													const isSelected = form.type === typeObj.value;
-													return (
-														<label
-															key={typeObj.value}
-															className={
-																isSelected
-																	? "flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-all border-blue-500 bg-blue-50 shadow-md"
-																	: "flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-all border-gray-200 hover:border-gray-300 hover:bg-gray-50"
-															}
-														>
-															<input
-																type="radio"
-																name="type"
-																value={typeObj.value}
-																checked={isSelected}
-																onChange={handleInput}
-																className="hidden"
-															/>
-															<Icon className={isSelected ? "w-5 h-5 text-blue-500" : "w-5 h-5 text-gray-400"} />
-															<span className={isSelected ? "text-sm font-medium text-blue-700" : "text-sm font-medium text-gray-700"}>
-																{typeObj.label}
-															</span>
-														</label>
-													);
-												})}
-											</div>
-										</div>
-
-										<div className="space-y-4">
-											<div>
-												<label className="block text-sm font-semibold text-gray-700 mb-3">Priority *</label>
-												<select
-													name="priority"
-													value={form.priority}
-													onChange={handleInput}
-													className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition appearance-none bg-white"
-													required
-												>
-													<option value="low">🟢 Low</option>
-													<option value="medium">🟡 Medium</option>
-													<option value="high">🟠 High</option>
-													<option value="urgent">🔴 Urgent</option>
-												</select>
-											</div>
-
-											<div>
-												<label className="block text-sm font-semibold text-gray-700 mb-3">Assign To *</label>
-												<select
-													name="assignedTo"
-													value={form.assignedTo}
-													onChange={handleInput}
-													className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition appearance-none bg-white"
-													required
-												>
-													<option value="">Select recipient...</option>
-													{assignees.map((assignee) => (
-														<option key={assignee.id} value={assignee.id}>
-															{assignee.type === "owner" ? "👑" : "🏢"} {assignee.company} - {assignee.name} ({assignee.email})
-														</option>
-													))}
-												</select>
-											</div>
-										</div>
-									</div>
-
-									<div>
-										<label className="block text-sm font-semibold text-gray-700 mb-3">Message *</label>
-										<textarea
-											name="message"
-											value={form.message}
-											onChange={handleInput}
-											className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition resize-none"
-											placeholder="Describe your issue in detail..."
-											rows={6}
-											required
-										/>
-									</div>
-
-									<div className="flex gap-3 items-center pt-2">
-										<button
-											type="submit"
-											className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-8 py-3 rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all flex items-center gap-2"
-										>
-											<Send className="w-4 h-4" />
-											Submit Ticket
-										</button>
-										<button
-											type="button"
-											onClick={() => {
-												setShowForm(false);
-												setError("");
-											}}
-											className="px-8 py-3 rounded-xl border-2 border-gray-200 font-semibold hover:bg-gray-50 transition-all"
-										>
-											Cancel
-										</button>
-									</div>
-								</form>
-							</div>
-						)}
-					</div>
-
-					{/* Filter Section */}
-					<div className="bg-white rounded-xl shadow-md p-6">
-						<div className="flex items-center gap-3 mb-4">
-							<Filter className="w-5 h-5 text-blue-500" />
-							<h2 className="text-lg font-bold text-gray-900">Filter Tickets</h2>
-						</div>
-						<div className="flex flex-wrap gap-2">
-							{ticketTypes.map((type) => {
-								const Icon = type.icon;
-								const isActive = filterType === type.value;
-								return (
-									<button
-										key={type.value}
-										onClick={() => setFilterType(type.value)}
-										className={
-											isActive
-												? "flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all border-blue-500 bg-blue-50 text-blue-700"
-												: "flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all border-gray-200 hover:border-gray-300 text-gray-600"
-										}
-									>
-										{Icon && <Icon className="w-4 h-4" />}
-										<span className="text-sm font-medium">{type.label}</span>
-									</button>
-								);
-							})}
-						</div>
-					</div>
-
-					{/* Tickets Table */}
-					<div className="bg-white rounded-xl shadow-md overflow-hidden">
-						{loading ? (
-							<div className="flex items-center justify-center py-20">
-								<Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
 							</div>
 						) : (
-							<div className="overflow-x-auto">
-								<table className="w-full">
-									<thead className="bg-gradient-to-r from-blue-500 to-blue-600 text-white">
-										<tr>
-											<th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">
-												Subject
-											</th>
-											<th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">											Sender Role
-										</th>
-										<th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">												Type
-											</th>
-											<th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">
-												Priority
-											</th>
-											<th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">
-												Message
-											</th>
-											<th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">
-												Status
-											</th>
-											<th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">
-												Actions
-											</th>
-										</tr>
-									</thead>
-									<tbody className="divide-y divide-gray-100">
-										{filteredTickets.length === 0 ? (
-											<tr>
-												<td colSpan={7} className="text-center py-12 text-gray-500">
-													<div className="flex flex-col items-center gap-3">
-														<HelpCircle className="w-12 h-12 text-gray-300" />
-														<p className="text-lg font-medium">No tickets found</p>
-														<p className="text-sm">Create a ticket to get help</p>
-													</div>
-												</td>
-											</tr>
-										) : (
-											filteredTickets.map((ticket) => {
-												const typeConfig = getTicketTypeConfig(ticket.ticket_type);
-												const Icon = typeConfig.icon;
-												return (
-													<tr
-														key={ticket.id}
-														className="hover:bg-gray-50 transition-colors"
-													>
-														<td className="px-6 py-4">
-															<div className="font-semibold text-gray-900">{ticket.subject}</div>
-															<div className="text-sm text-gray-500 mt-1">
-																{new Date(ticket.created_at).toLocaleDateString()}
-															</div>
-														</td>
-														<td className="px-6 py-4">
-															<Badge className="bg-indigo-100 text-indigo-700 capitalize">
-															{ticket.sender?.user_role || 'user'}
-															</Badge>
-														</td>
-														<td className="px-6 py-4">
-													<Badge className={
-														ticket.ticket_type === "Technical" ? "flex items-center gap-1.5 w-fit bg-blue-100 text-blue-700" :
-														ticket.ticket_type === "Bug Report" ? "flex items-center gap-1.5 w-fit bg-red-100 text-red-700" :
-														ticket.ticket_type === "Feature Request" ? "flex items-center gap-1.5 w-fit bg-purple-100 text-purple-700" :
-														ticket.ticket_type === "Billing" ? "flex items-center gap-1.5 w-fit bg-orange-100 text-orange-700" :
-														"flex items-center gap-1.5 w-fit bg-gray-100 text-gray-700"
-													}>
-																{Icon && <Icon className="w-3.5 h-3.5" />}
-																{ticket.ticket_type}
-															</Badge>
-														</td>
-														<td className="px-6 py-4">
-													<Badge className={
-														ticket.priority === "urgent" ? "bg-red-100 text-red-700" :
-														ticket.priority === "high" ? "bg-orange-100 text-orange-700" :
-														ticket.priority === "medium" ? "bg-yellow-100 text-yellow-700" :
-														"bg-green-100 text-green-700"
-													}>
-																{ticket.priority === "urgent" ? "🔴" :
-																ticket.priority === "high" ? "🟠" :
-																ticket.priority === "medium" ? "🟡" : "🟢"} {ticket.priority}
-															</Badge>
-														</td>
-														<td className="px-6 py-4">
-															<p className="text-sm text-gray-700 max-w-md truncate">
-																{ticket.message}
-															</p>
-														</td>
-														<td className="px-6 py-4">
-													<Badge className={
-														ticket.status === "solved" || ticket.status === "closed"
-															? "bg-green-100 text-green-700"
-															: ticket.status === "in-progress"
-															? "bg-blue-100 text-blue-700"
-															: ticket.status === "viewed"
-															? "bg-purple-100 text-purple-700"
-															: "bg-yellow-100 text-yellow-700"
-													}>
-																{ticket.status}
-															</Badge>
-														</td>
-														<td className="px-6 py-4">
-															<div className="flex gap-2">
-																{ticket.status !== "solved" && ticket.status !== "closed" && (
-																	<button
-																		className="flex items-center gap-1.5 bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition shadow hover:shadow-md"
-																		onClick={() => handleClose(ticket.id)}
-																	>
-																		<CheckCircle2 className="w-3.5 h-3.5" />
-																		Close
-																	</button>
-																)}
-																<button
-																	className="flex items-center gap-1.5 bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition shadow hover:shadow-md"
-																	onClick={() => handleDelete(ticket.id)}
-																>
-																	<Trash2 className="w-3.5 h-3.5" />
-																	Delete
-																</button>
-															</div>
-														</td>
-													</tr>
-												);
-											})
-										)}
-									</tbody>
-								</table>
-							</div>
+							<button
+								onClick={() => setShowForm(false)}
+								className="bg-gray-500 hover:bg-gray-600 text-white px-8 py-3 rounded-xl font-semibold flex items-center gap-2 transition"
+							>
+								<X className="w-5 h-5" />
+								Cancel
+							</button>
 						)}
 					</div>
+				</div>
+
+				{/* Create Ticket Form */}
+				{showForm && (
+					<div className="bg-white rounded-xl border border-gray-200 shadow-lg p-6 mb-8">
+						<h2 className="text-xl font-bold text-gray-900 mb-6">Create New Support Ticket</h2>
+						{error && (
+							<div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+								{error}
+							</div>
+						)}
+						<form onSubmit={submitTicket} className="space-y-6">
+							<div className="grid md:grid-cols-2 gap-6">
+								{/* Subject */}
+								<div>
+									<label className="block text-sm font-semibold text-gray-700 mb-2">Subject *</label>
+									<input
+										type="text"
+										value={form.subject}
+										onChange={(e) => setForm({...form, subject: e.target.value})}
+										placeholder="Brief description of your issue..."
+										className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+										required
+									/>
+								</div>
+
+								{/* Type */}
+								<div>
+									<label className="block text-sm font-semibold text-gray-700 mb-2">Type</label>
+									<select
+										value={form.type}
+										onChange={(e) => setForm({...form, type: e.target.value})}
+										className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition appearance-none bg-white"
+									>
+										{ticketTypes.slice(1).map(type => (
+											<option key={type.value} value={type.value}>{type.label}</option>
+										))}
+									</select>
+								</div>
+
+								{/* Priority */}
+								<div>
+									<label className="block text-sm font-semibold text-gray-700 mb-2">Priority</label>
+									<select
+										value={form.priority}
+										onChange={(e) => setForm({...form, priority: e.target.value})}
+										className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition appearance-none bg-white"
+									>
+										<option value="low">Low</option>
+										<option value="medium">Medium</option>
+										<option value="high">High</option>
+										<option value="urgent">Urgent</option>
+									</select>
+								</div>
+
+								{/* Assign To */}
+								<div>
+									<label className="block text-sm font-semibold text-gray-700 mb-2">Send To *</label>
+									<select
+										value={form.assignedTo}
+										onChange={(e) => setForm({...form, assignedTo: e.target.value})}
+										className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition appearance-none bg-white"
+										required
+									>
+										<option value="">Select recipient...</option>
+										{contacts.length === 0 ? (
+											<option disabled>No available recipients</option>
+										) : (
+											contacts.map((contact) => (
+												<option key={contact.id} value={contact.id}>
+													{contact.type === "owner" ? "👑" : "🏢"} {contact.company} - {contact.name} 
+													{contact.description && ` (${contact.description})`}
+												</option>
+											))
+										)}
+									</select>
+									{contacts.length === 0 && (
+										<div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+											<p className="text-sm text-yellow-700">
+												<strong>No recipients available.</strong><br />
+												You can send tickets to people from companies where you've applied or the platform owner. 
+												Apply to job positions to connect with company representatives.
+											</p>
+										</div>
+									)}
+								</div>
+							</div>
+
+							{/* Message */}
+							<div>
+								<label className="block text-sm font-semibold text-gray-700 mb-2">Message *</label>
+								<textarea
+									value={form.message}
+									onChange={(e) => setForm({...form, message: e.target.value})}
+									placeholder="Describe your issue or question in detail..."
+									rows={6}
+									className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition resize-none"
+									required
+								/>
+							</div>
+
+							{/* Submit */}
+							<div className="flex gap-3 items-center pt-2">
+								<button
+									type="submit"
+									disabled={contacts.length === 0}
+									className={contacts.length === 0 
+										? "bg-gray-300 text-gray-500 px-8 py-3 rounded-xl font-semibold cursor-not-allowed flex items-center gap-2"
+										: "bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-8 py-3 rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all flex items-center gap-2"
+									}
+								>
+									<Send className="w-4 h-4" />
+									Submit Ticket
+								</button>
+								<span className="text-sm text-gray-500">All fields marked with * are required</span>
+							</div>
+						</form>
+					</div>
+				)}
+
+				{/* Tickets List */}
+				<div className="bg-white rounded-xl border border-gray-200 shadow-lg p-6">
+					<div className="flex items-center justify-between mb-6">
+						<h2 className="text-xl font-bold text-gray-900">
+							{view === "sent" ? "My Tickets" : "Inbox"} ({filteredTickets.length})
+						</h2>
+					</div>
+
+					{filteredTickets.length === 0 ? (
+						<div className="text-center py-12">
+							<div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+								<HelpCircle className="w-8 h-8 text-gray-400" />
+							</div>
+							<h3 className="text-lg font-medium text-gray-900 mb-2">
+								{view === "sent" ? "No Tickets Sent" : "No Messages Received"}
+							</h3>
+							<p className="text-gray-500 mb-4">
+								{view === "sent" 
+									? "You haven't created any support tickets yet." 
+									: "You haven't received any messages yet."
+								}
+							</p>
+						</div>
+					) : (
+						<div className="space-y-4">
+							{filteredTickets.map(ticket => (
+								<div key={ticket.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition">
+									<div className="flex items-start justify-between mb-3">
+										<div>
+											<h3 className="font-semibold text-gray-900">{ticket.subject}</h3>
+											<div className="flex items-center gap-2 mt-1">
+												<Badge 
+													variant={ticket.type === "Bug Report" ? "destructive" : 
+															 ticket.type === "Feature Request" ? "secondary" : 
+															 "default"}
+												>
+													{ticket.type}
+												</Badge>
+												<Badge 
+													variant={ticket.priority === "urgent" ? "destructive" : 
+															 ticket.priority === "high" ? "secondary" : 
+															 "outline"}
+												>
+													{ticket.priority}
+												</Badge>
+												<Badge 
+													variant={ticket.status === "closed" ? "secondary" : 
+															 ticket.status === "in-progress" ? "default" : 
+															 "outline"}
+												>
+													{ticket.status === "in-progress" ? "In Progress" : 
+													 ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1)}
+												</Badge>
+											</div>
+										</div>
+										<div className="text-sm text-gray-500">
+											{new Date(ticket.created_at).toLocaleString()}
+										</div>
+									</div>
+									<p className="text-gray-600 text-sm line-clamp-2">{ticket.message}</p>
+								</div>
+							))}
+						</div>
+					)}
 				</div>
 			</div>
 		</TalentLayout>
