@@ -279,6 +279,24 @@ const TalentSignup = () => {
 
       const userId = authData.user.id;
 
+      // Insert into users table first
+      const { error: userInsertError } = await supabase
+        .from('users')
+        .insert({
+          id: userId,
+          email: signupEmail,
+          password_hash: '', // This will be handled by Supabase Auth
+          user_role: 'talent',
+          is_active: true,
+          email_verified: false,
+          profile_completed: true,
+        });
+
+      if (userInsertError) {
+        setError(`Failed to create user profile: ${userInsertError.message}`);
+        return;
+      }
+
       // Upload CV (required)
       const uploadResult = await uploadCVToStorage(cvFile, userId);
       if (uploadResult.ok === false) {
