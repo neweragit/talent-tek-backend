@@ -183,7 +183,7 @@ const Navbar = () => {
       <div className="max-w-7xl mx-auto px-3 sm:px-4">
         <div className="flex items-center justify-between h-16">
           <Link to="/" className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-            <img src="/src/logo/logo.jfif" alt="TalenTek Logo" className="h-8 w-8" />
+            <img src="/images/logo.jfif" alt="TalenTek Logo" className="h-8 w-8" />
             <span>TalenTek</span>
           </Link>
 
