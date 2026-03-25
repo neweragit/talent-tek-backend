@@ -4,6 +4,8 @@ import { Menu, X, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
+import logo from "@/logo/logo.jfif"; // adjust alias or relative path
+
 
 const Navbar = () => {
   const location = useLocation();
@@ -183,8 +185,7 @@ const Navbar = () => {
       <div className="max-w-7xl mx-auto px-3 sm:px-4">
         <div className="flex items-center justify-between h-16">
           <Link to="/" className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-            <img src="/images/logo.jfif" alt="TalenTek Logo" className="h-8 w-8" />
-            <span>TalenTek</span>
+<img src={logo} alt="TalenTek Logo" className="h-8 w-8" />            <span>TalenTek</span>
           </Link>
 
           {/* Desktop Navigation */}
