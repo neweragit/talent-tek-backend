@@ -1,0 +1,196 @@
+@keyframes gradient-pan {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+.animate-gradient-pan {
+  animation: gradient-pan 18s linear infinite;
+  background-size: 200% 200%;
+}
+/* stylelint-disable unknownAtRules */
+/* Custom orange text color for brand highlights */
+.text-orange-custom {
+  color: #e9350d;
+}
+/* Fix selection color for gradient text */
+.bg-clip-text.text-transparent::selection {
+  background: #2563eb; /* blue selection */
+  color: #fff;
+}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 12%;
+
+    /* TalenTek Brand Colors */
+    --primary: 11 90% 48%; /* Brand #e9350d */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 13 93% 50%; /* Orange #F6420D */
+    --secondary-foreground: 0 0% 100%;
+
+    --navy: 231 59% 14%; /* Deep Navy #0F1238 */
+    --navy-foreground: 0 0% 100%;
+
+    --muted: 240 5% 96%;
+    --muted-foreground: 0 0% 45%;
+
+    --accent: 9 100% 55%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 9 100% 55%;
+
+    --radius: 0.75rem;
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, hsl(9 100% 55%), hsl(13 93% 50%));
+  /* Page diagonal gradient: from orange-100 via white to orange-50 */
+  --gradient-hero: linear-gradient(135deg, hsl(24 100% 93%), hsl(0 0% 100%), hsl(24 100% 97%));
+  
+  /* Shadows */
+  --shadow-glow: 0 0 40px hsl(9 100% 55% / 0.3);
+  --shadow-card: 0 4px 20px hsl(258 50% 20% / 0.08);
+  --shadow-input-focus: 0 0 0 3px hsl(9 100% 55% / 0.1);
+  
+  /* Animations */
+  --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .dark {
+    --background: 231 59% 14%;
+    --foreground: 0 0% 100%;
+
+    --card: 231 50% 18%;
+    --card-foreground: 0 0% 100%;
+
+    --popover: 231 50% 18%;
+    --popover-foreground: 0 0% 100%;
+
+    --primary: 9 100% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 13 93% 50%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 231 40% 22%;
+    --muted-foreground: 0 0% 70%;
+
+    --accent: 9 100% 55%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 231 40% 25%;
+    --input: 231 40% 25%;
+    --ring: 9 100% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+
+    /* Firefox scrollbar */
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--primary)) hsl(24 100% 96%);
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* WebKit scrollbar (Chrome, Edge, Safari) */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: hsl(24 100% 96%);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, hsl(var(--primary)), hsl(var(--secondary)));
+  border-radius: 9999px;
+  border: 2px solid hsl(24 100% 96%);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, hsl(11 90% 44%), hsl(13 93% 46%));
+}
+
+@layer utilities {
+  .bg-gradient-primary {
+    background: var(--gradient-primary);
+  }
+  
+  .bg-gradient-hero {
+    background: var(--gradient-hero);
+  }
+  
+  .shadow-glow {
+    box-shadow: var(--shadow-glow);
+  }
+  
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+  
+  .hover-scale {
+    @apply transition-transform duration-200 hover:scale-105;
+  }
+
+  /* Floating blurred orange accents */
+  .accent-circle {
+    @apply pointer-events-none absolute rounded-full bg-orange-500/10;
+    filter: blur(40px);
+  }
+  .accent-bg {
+    @apply absolute inset-0 -z-10 overflow-hidden;
+  }
+
+  /* Animation utilities */
+  @keyframes float {
+    0%, 100% { transform: translate(0, 0); opacity: 0.9; }
+    50% { transform: translate(12px, -10px); opacity: 1; }
+  }
+  @keyframes bounceSoft {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
+  }
+  @keyframes pulseScale {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+  .animate-float { animation: float 6s ease-in-out infinite; }
+  .animate-bounce-soft { animation: bounceSoft 3s ease-in-out infinite; }
+  .animate-pulse-scale { animation: pulseScale 2.4s ease-in-out infinite; }
+}

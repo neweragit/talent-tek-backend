@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to {{company}}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #fff7ed; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol'; color: #0f172a;">
+
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #fff7ed; padding: 40px 20px;">
+        <tr>
+            <td align="center">
+                
+                <table width="100%" max-width="600" border="0" cellspacing="0" cellpadding="0" style="max-width: 600px; background-color: #ffffff; border: 1px solid #ffedd5; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.03);">
+                    
+                    <tr>
+                        <td align="center" style="padding: 24px 20px; border-bottom: 1px solid #ffedd5;">
+                            <img src="https://hkfnyrblaxabmzyleoec.supabase.co/storage/v1/object/public/companys_logo/main%20logo/logo.jfif" alt="TalenTek Logo" style="height: 32px; width: 32px; display: inline-block; vertical-align: middle; border-radius: 6px;">
+                            <span style="display: inline-block; vertical-align: middle; font-size: 20px; font-weight: bold; margin-left: 8px; color: #0f172a;">TalenTek</span>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td style="padding: 40px 30px;">
+                            <h1 style="font-size: 24px; font-weight: 800; margin-top: 0; margin-bottom: 20px; color: #0f172a; text-align: center;">Welcome Recruiter!</h1>
+                            
+                            <p style="font-size: 16px; line-height: 1.6; margin-bottom: 25px; color: #475569;">
+                                You've been invited to be a recruiter at <strong>{{company}}</strong>. We are thrilled to have you join the talent acquisition team.
+                            </p>
+
+                            <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #fffcf8; border: 1px solid #ffedd5; border-radius: 12px; margin-bottom: 30px;">
+                                <tr>
+                                    <td style="padding: 20px;">
+                                        <p style="margin-top: 0; margin-bottom: 15px; font-size: 15px;">
+                                            <span style="color: #F13A0D; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 4px;">Email</span>
+                                            <strong style="color: #0f172a;">{{email}}</strong>
+                                        </p>
+                                        <p style="margin: 0; font-size: 15px;">
+                                            <span style="color: #F13A0D; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 4px;">Temporary Password</span>
+                                            <strong style="color: #0f172a;">{{password}}</strong>
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 25px;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="http://localhost:8080/recruiter/login" style="background-color: #F13A0D; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none; padding: 12px 32px; border-radius: 50px; display: inline-block; box-shadow: 0 4px 6px -1px rgba(241, 58, 13, 0.25);">Login to Dashboard</a>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <p style="font-size: 14px; line-height: 1.6; color: #64748b; margin-bottom: 30px; text-align: center;">
+                                <em>Feel free to change your password from your profile settings after using the link above to log in.</em>
+                            </p>
+
+                            <p style="font-size: 16px; line-height: 1.6; color: #475569; margin-bottom: 0;">
+                                Best regards,<br>
+                                <strong style="color: #0f172a;">The {{company}} Team</strong>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+                
+                <p style="text-align: center; font-size: 12px; color: #94a3b8; margin-top: 20px;">
+                    Powered by TalenTek<br>
+                    © 2026 TalenTek. All rights reserved.
+                </p>
+
+            </td>
+        </tr>
+    </table>
+
+</body>
+</html>

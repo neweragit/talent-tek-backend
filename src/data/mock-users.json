@@ -1,0 +1,38 @@
+[
+  {
+    "email": "talent@talenteck.tech",
+    "role": "talent",
+    "redirect": "/talent/overview",
+    "password": "password123"
+  },
+  {
+    "email": "recruiter@talentek.tech",
+    "role": "recruiter",
+    "redirect": "/employer/overview",
+    "password": "password123"
+  },
+  {
+    "email": "superadmincompanyadmin@talenteck.tech",
+    "role": "employer-admin",
+    "redirect": "/employer-admin/overview",
+    "password": "password123"
+  },
+  {
+    "email": "technicalinterviewer@talenteck.tech",
+    "role": "technical-interviewer",
+    "redirect": "/technical-interviewer/overview",
+    "password": "password123"
+  },
+  {
+    "email": "leadershipinterviewer@talenteck.tech",
+    "role": "leadership-interviewer",
+    "redirect": "/leadership-interviewer/overview",
+    "password": "password123"
+  },
+  {
+    "email": "owner@talenteck.tech",
+    "role": "owner",
+    "redirect": "/owner/dashboard",
+    "password": "password123"
+  }
+]
