@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { MapPin, Clock, Briefcase, Award, ChevronLeft } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
+import { useToast } from "@/hooks/use-toast";
 
 interface Job {
 	id: string;
@@ -21,6 +22,7 @@ interface Job {
 	requirements?: string[];
 	positions_available?: number;
 	posted_at?: string;
+	employer_user_id?: string;
 }
 
 const formatDate = (dateString?: string): string => {
@@ -40,6 +42,8 @@ const JobDetails = () => {
 	const [job, setJob] = useState<Job | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [applying, setApplying] = useState(false);
+	const [hasApplied, setHasApplied] = useState(false);
+	const { toast } = useToast();
 
 	useEffect(() => {
 		const fetchJob = async () => {
@@ -64,7 +68,8 @@ const JobDetails = () => {
 						created_at,
 						employers (
 							company_name,
-							industry
+							industry,
+							user_id
 						)
 					`)
 					.eq('id', id)
@@ -94,9 +99,34 @@ const JobDetails = () => {
 					requirements: data.requirements || [],
 					positions_available: data.positions_available || 1,
 					posted_at: data.created_at,
+					employer_user_id: data.employers?.user_id,
 				};
 
 				setJob(formattedJob);
+
+				// Check if user has already applied
+				if (user?.role === 'talent') {
+					try {
+						const { data: talentData } = await supabase
+							.from('talents')
+							.select('id')
+							.eq('user_id', user.id)
+							.single();
+
+						if (talentData) {
+							const { data: applicationData } = await supabase
+								.from('applications')
+								.select('id')
+								.eq('talent_id', talentData.id)
+								.eq('job_id', id)
+								.limit(1);
+
+							setHasApplied(applicationData && applicationData.length > 0);
+						}
+					} catch (error) {
+						console.error('Error checking application status:', error);
+					}
+				}
 			} catch (error) {
 				console.error('Error fetching job:', error);
 				navigate('/jobs');
@@ -106,7 +136,7 @@ const JobDetails = () => {
 		};
 
 		fetchJob();
-	}, [id, navigate]);
+	}, [id, navigate, user]);
 
 	const handleApply = async () => {
 		if (user?.role !== 'talent') {
@@ -114,19 +144,74 @@ const JobDetails = () => {
 			return;
 		}
 
+		if (hasApplied) {
+			return; // Already applied
+		}
+
 		try {
 			setApplying(true);
-			// TODO: Create application record in database
-			// const { error } = await supabase
-			//   .from('applications')
-			//   .insert([{ job_id: job?.id, talent_id: user.id }]);
-			// if (error) throw error;
-			
-			alert('Application submitted successfully!');
-			navigate('/jobs');
+
+			// Get talent ID
+			const { data: talentData, error: talentError } = await supabase
+				.from('talents')
+				.select('id')
+				.eq('user_id', user.id)
+				.single();
+
+			if (talentError || !talentData) {
+				throw new Error('Talent profile not found');
+			}
+
+			// Insert application
+			const { error: appError } = await supabase
+				.from('applications')
+				.insert({
+					job_id: job?.id,
+					talent_id: talentData.id,
+					status: 'pending'
+				});
+
+			if (appError) {
+				throw appError;
+			}
+
+			// Send notification to talent
+			await supabase
+				.from('notifications')
+				.insert({
+					user_id: user.id,
+					title: 'Application Submitted Successfully!',
+					message: `Your application for "${job?.title}" at ${job?.company_name} has been submitted and is now under review. We'll notify you of any updates.`,
+					notification_type: 'application'
+				});
+
+			// Send notification to employer
+			if (job?.employer_user_id) {
+				await supabase
+					.from('notifications')
+					.insert({
+						user_id: job.employer_user_id,
+						title: 'New Job Application',
+						message: `A new application has been received for "${job.title}" from ${user.name}.`,
+						notification_type: 'application',
+						related_id: talentData.id
+					});
+			}
+
+			// Update hasApplied
+			setHasApplied(true);
+
+			toast({
+				title: "Application Submitted!",
+				description: `Your application for "${job?.title}" at ${job?.company_name} has been submitted successfully.`,
+			});
 		} catch (error) {
 			console.error('Error applying to job:', error);
-			alert('Failed to apply for this job. Please try again.');
+			toast({
+				title: "Application Failed",
+				description: "Failed to apply for this job. Please try again.",
+				variant: "destructive",
+			});
 		} finally {
 			setApplying(false);
 		}
@@ -284,13 +369,19 @@ const JobDetails = () => {
 						{/* Apply Button */}
 						<div className="border-t-2 border-orange-100 pt-6">
 							{user?.role === 'talent' ? (
-								<Button
-									onClick={handleApply}
-									disabled={applying}
-									className="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white font-bold py-4 px-6 rounded-lg hover:from-orange-500 hover:to-orange-400 transition text-lg"
-								>
-									{applying ? 'Applying...' : 'Apply Now'}
-								</Button>
+								hasApplied ? (
+									<div className="w-full bg-green-100 text-green-800 font-bold py-4 px-6 rounded-lg flex items-center justify-center text-lg border-2 border-green-300">
+										✓ Applied
+									</div>
+								) : (
+									<Button
+										onClick={handleApply}
+										disabled={applying}
+										className="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white font-bold py-4 px-6 rounded-lg hover:from-orange-500 hover:to-orange-400 transition text-lg"
+									>
+										{applying ? 'Applying...' : 'Apply Now'}
+									</Button>
+								)
 							) : user ? (
 								<div className="w-full bg-gray-100 text-gray-600 font-bold py-4 px-6 rounded-lg cursor-not-allowed flex items-center justify-center text-lg">
 									Only Talents Can Apply

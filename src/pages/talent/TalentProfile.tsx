@@ -1,12 +1,14 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import TalentLayout from "@/components/layouts/TalentLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { defaultTalentProfileDocuments } from "@/data/talentProfileDocuments";
+import bcrypt from "bcryptjs";
 import {
   User,
   Briefcase,
@@ -38,53 +40,148 @@ import {
 
 type TabType = "personal" | "professional" | "preferences" | "documents" | "security";
 
-const DEFAULT_TALENT_PROFILE = {
-  firstName: "John",
-  lastName: "Doe",
-  email: "john.doe@example.com",
-  phone: "+1 (555) 123-4567",
-  city: "New York",
-  country: "United States",
-  bio: "Passionate software developer with 5+ years of experience in building web applications.",
-  title: "Senior React Developer",
-  linkedin: "linkedin.com/in/johndoe",
-  github: "github.com/johndoe",
-  website: "johndoe.dev",
-  experience: "5+ years",
-  education: "B.S. Computer Science",
-  availability: "Immediate",
-  salaryExpectation: "$120,000 - $150,000",
-  skills: ["React", "TypeScript", "Node.js", "Python", "AWS", "Docker"],
+type TalentProfileData = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  city: string;
+  bio: string;
+  title: string;
+  linkedin: string;
+  github: string;
+  website: string;
+  experience: string;
+  education: string;
+  skills: string[];
+  resumeUrl?: string;
+};
+
+const EMPTY_TALENT_PROFILE: TalentProfileData = {
+  firstName: "",
+  lastName: "",
+  email: "",
+  phone: "",
+  city: "",
+  bio: "",
+  title: "",
+  linkedin: "",
+  github: "",
+  website: "",
+  experience: "",
+  education: "",
+  skills: [],
 };
 
 const TalentProfile = () => {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>("personal");
   const [isEditing, setIsEditing] = useState(false);
   const [hasEntrepreneurCard, setHasEntrepreneurCard] = useState(false);
-
-  const [profile, setProfile] = useState(() => {
-    const storedProfile = localStorage.getItem("talentProfile");
-    if (!storedProfile) {
-      return DEFAULT_TALENT_PROFILE;
-    }
-
-    try {
-      return {
-        ...DEFAULT_TALENT_PROFILE,
-        ...JSON.parse(storedProfile),
-      };
-    } catch {
-      return DEFAULT_TALENT_PROFILE;
-    }
-  });
+  const [profile, setProfile] = useState<TalentProfileData>(EMPTY_TALENT_PROFILE);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [talentId, setTalentId] = useState<string | null>(null);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [resumeUrl, setResumeUrl] = useState<string>("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordMessage, setPasswordMessage] = useState("");
+  const [emailVerificationMessage, setEmailVerificationMessage] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [cvMessage, setCvMessage] = useState("");
+  const [uploadingCv, setUploadingCv] = useState(false);
+  const cvFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const tabs = [
     { key: "personal" as TabType, label: "Personal Info", icon: User },
     { key: "professional" as TabType, label: "Professional", icon: Briefcase },
-    { key: "preferences" as TabType, label: "Preferences", icon: Settings },
     { key: "documents" as TabType, label: "Documents", icon: FileText },
     { key: "security" as TabType, label: "Security", icon: Shield },
   ];
+
+  useEffect(() => {
+    const loadTalentProfile = async () => {
+      setLoadingProfile(true);
+
+      if (!user) {
+        setProfile(EMPTY_TALENT_PROFILE);
+        setLoadingProfile(false);
+        return;
+      }
+
+      try {
+        const { data: talent, error } = await supabase
+          .from("talents")
+          .select(
+            "id, full_name, phone_number, city, current_position, years_of_experience, education_level, short_bio, linkedin_url, github_url, portfolio_url, skills, has_carte_entrepreneur, resume_url"
+          )
+          .eq("user_id", user.id)
+          .single();
+
+        if (error) {
+          throw error;
+        }
+
+        if (talent) {
+          const [firstName = "", ...rest] = (talent.full_name || "").split(" ");
+          const lastName = rest.join(" ");
+
+          setProfile({
+            firstName: firstName || "",
+            lastName: lastName || "",
+            email: user.email || "",
+            phone: talent.phone_number || "",
+            city: talent.city || "",
+            bio: talent.short_bio || "",
+            title: talent.current_position || "",
+            linkedin: talent.linkedin_url || "",
+            github: talent.github_url || "",
+            website: talent.portfolio_url || "",
+            experience: talent.years_of_experience || "",
+            education: talent.education_level || "",
+            skills: (talent.skills as string[]) || [],
+            resumeUrl: talent.resume_url || "",
+          });
+          setResumeUrl(talent.resume_url || "");
+          setHasEntrepreneurCard(Boolean(talent.has_carte_entrepreneur));
+
+          setTalentId(talent.id);
+        } else {
+          setProfile(EMPTY_TALENT_PROFILE);
+        }
+      } catch (error) {
+        console.error("Failed to load talent profile", error);
+          setProfile(EMPTY_TALENT_PROFILE);
+      } finally {
+        setLoadingProfile(false);
+      }
+    };
+
+    const loadEmailVerification = async () => {
+      if (!user) {
+        setEmailVerified(false);
+        return;
+      }
+
+      try {
+        const { data: userRecord, error } = await supabase
+          .from("users")
+          .select("email_verified")
+          .eq("id", user.id)
+          .single();
+
+        if (!error && userRecord) {
+          setEmailVerified(Boolean(userRecord.email_verified));
+        }
+      } catch (error) {
+        console.error("Failed to load email verification", error);
+      }
+    };
+
+    loadTalentProfile();
+    loadEmailVerification();
+  }, [user]);
 
   const profileInitials = `${profile.firstName?.[0] ?? "T"}${profile.lastName?.[0] ?? "T"}`.toUpperCase();
 
@@ -95,7 +192,6 @@ const TalentProfile = () => {
       profile.email,
       profile.phone,
       profile.city,
-      profile.country,
       profile.title,
       profile.experience,
       profile.education,
@@ -103,8 +199,6 @@ const TalentProfile = () => {
       profile.linkedin,
       profile.github,
       profile.website,
-      profile.availability,
-      profile.salaryExpectation,
       profile.skills.length > 0 ? "skills" : "",
     ];
 
@@ -112,9 +206,54 @@ const TalentProfile = () => {
     return Math.round((completed / checkpoints.length) * 100);
   }, [profile]);
 
-  const handleToggleEdit = () => {
+  const handleToggleEdit = async () => {
     if (isEditing) {
-      localStorage.setItem("talentProfile", JSON.stringify(profile));
+      const fullName = `${profile.firstName} ${profile.lastName}`.trim();
+
+      const profilePayload: Partial<any> = {
+        full_name: fullName,
+        phone_number: profile.phone,
+        city: profile.city,
+        current_position: profile.title,
+        years_of_experience: profile.experience,
+        education_level: profile.education,
+        short_bio: profile.bio,
+        linkedin_url: profile.linkedin,
+        github_url: profile.github,
+        portfolio_url: profile.website,
+        skills: profile.skills,
+        has_carte_entrepreneur: hasEntrepreneurCard,
+      };
+
+      if (talentId) {
+        try {
+          const { error } = await supabase
+            .from("talents")
+            .update(profilePayload)
+            .eq("id", talentId);
+
+          if (error) {
+            throw error;
+          }
+        } catch (error) {
+          console.error("Failed to save talent profile", error);
+        }
+      }
+
+      if (user?.email) {
+        try {
+          const { error } = await supabase
+            .from("users")
+            .update({ email: profile.email })
+            .eq("id", user.id);
+
+          if (error) {
+            throw error;
+          }
+        } catch (error) {
+          console.error("Failed to update user email", error);
+        }
+      }
     }
 
     setIsEditing(!isEditing);
@@ -139,7 +278,7 @@ const TalentProfile = () => {
               <p className="mt-1 text-sm font-semibold text-orange-600">{profile.title}</p>
               <p className="mt-2 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-orange-700">
                 <MapPin className="h-3.5 w-3.5" />
-                {profile.city}, {profile.country}
+                {profile.city || "Unknown location"}
               </p>
             </div>
           </div>
@@ -213,18 +352,6 @@ const TalentProfile = () => {
               />
             </div>
           </div>
-          <div className="space-y-2">
-            <Label className="text-sm font-semibold text-slate-700">Country</Label>
-            <div className="relative">
-              <Globe className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-orange-400" />
-              <Input
-                value={profile.country}
-                onChange={(e) => setProfile({ ...profile, country: e.target.value })}
-                disabled={!isEditing}
-                className="h-11 rounded-xl border-orange-200 bg-orange-50/30 pl-10 focus:border-orange-400 focus:ring-orange-400"
-              />
-            </div>
-          </div>
         </div>
       </section>
 
@@ -240,7 +367,11 @@ const TalentProfile = () => {
           <span className="text-sm font-medium text-slate-700">I have an Entrepreneur Card (Carte Entrepreneur)</span>
           <Switch
             checked={hasEntrepreneurCard}
-            onCheckedChange={setHasEntrepreneurCard}
+            disabled={!isEditing}
+            onCheckedChange={(checked) => {
+              if (!isEditing) return;
+              setHasEntrepreneurCard(checked);
+            }}
             className="data-[state=checked]:bg-orange-500"
           />
         </div>
@@ -310,15 +441,6 @@ const TalentProfile = () => {
                 className="h-11 rounded-xl border-orange-200 bg-orange-50/30 pl-10 focus:border-orange-400 focus:ring-orange-400"
               />
             </div>
-          </div>
-          <div className="space-y-2">
-            <Label className="text-sm font-semibold text-slate-700">Salary Expectation</Label>
-            <Input
-              value={profile.salaryExpectation}
-              onChange={(e) => setProfile({ ...profile, salaryExpectation: e.target.value })}
-              disabled={!isEditing}
-              className="h-11 rounded-xl border-orange-200 bg-orange-50/30 focus:border-orange-400 focus:ring-orange-400"
-            />
           </div>
         </div>
       </section>
@@ -399,7 +521,168 @@ const TalentProfile = () => {
     </div>
   );
 
-  const renderPreferences = () => (
+  const updatePassword = async () => {
+    if (!user?.id) {
+      setPasswordMessage("You must be logged in to change your password.");
+      return;
+    }
+
+    setPasswordMessage("");
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordMessage("Current password, new password, and confirmation are required.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage("New password and confirmation must match.");
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      const { data: userRow, error: fetchError } = await supabase
+        .from("users")
+        .select("password_hash")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (fetchError || !userRow?.password_hash) {
+        setPasswordMessage("Unable to verify current password.");
+        console.error(fetchError);
+        return;
+      }
+
+      const isCurrentPasswordValid = await bcrypt.compare(currentPassword, userRow.password_hash);
+
+      if (!isCurrentPasswordValid) {
+        setPasswordMessage("Current password is incorrect.");
+        return;
+      }
+
+      const newHash = await bcrypt.hash(newPassword, 10);
+
+      const { error: updateError } = await supabase
+        .from("users")
+        .update({ password_hash: newHash })
+        .eq("id", user.id);
+
+      if (updateError) {
+        setPasswordMessage(`Password update failed: ${updateError.message}`);
+        return;
+      } else {
+        setPasswordMessage("Password updated successfully.");
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
+      }
+    } catch (error) {
+      setPasswordMessage("Password update failed.");
+      console.error("Password update error", error);
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  const emailToCvFolder = (email: string) => {
+    // Match the logic used during signup so we can reliably upload/delete inside the same folder.
+    return email
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  };
+
+  const uploadCvToStorage = async (file: File) => {
+    if (!user?.id) {
+      setCvMessage("You must be logged in to upload a CV.");
+      return;
+    }
+    if (!talentId) {
+      setCvMessage("Talent profile not ready yet. Please try again.");
+      return;
+    }
+
+    setUploadingCv(true);
+    setCvMessage("");
+
+    try {
+      const fileExt = file.name.split(".").pop();
+      const safeExt = fileExt ? String(fileExt).toLowerCase() : "pdf";
+      const fileName = `${user.id}_cv_${Date.now()}.${safeExt}`;
+
+      const emailFolder = emailToCvFolder(profile.email || user.email || "");
+      const folder = emailFolder || "user";
+      const objectPath = `resumes/${folder}/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage.from("cvs").upload(objectPath, file);
+      if (uploadError) throw uploadError;
+
+      const { data: publicData } = supabase.storage.from("cvs").getPublicUrl(objectPath);
+      const url = publicData?.publicUrl;
+      if (!url) throw new Error("Could not get public URL for the uploaded CV.");
+
+      const { error: talentUpdateError } = await supabase
+        .from("talents")
+        .update({ resume_url: url })
+        .eq("id", talentId);
+
+      if (talentUpdateError) throw talentUpdateError;
+
+      setResumeUrl(url);
+      setCvMessage("CV updated successfully.");
+    } catch (err) {
+      console.error("CV upload failed:", err);
+      setCvMessage(err instanceof Error ? err.message : "CV upload failed.");
+    } finally {
+      setUploadingCv(false);
+      if (cvFileInputRef.current) cvFileInputRef.current.value = "";
+    }
+  };
+
+  const removeCvFromStorage = async () => {
+    setCvMessage("");
+    if (!user?.id) {
+      setCvMessage("You must be logged in to remove your CV.");
+      return;
+    }
+    if (!talentId) {
+      setCvMessage("Talent profile not ready yet. Please try again.");
+      return;
+    }
+    if (!resumeUrl) {
+      setCvMessage("No CV found to remove.");
+      return;
+    }
+
+    // Public URL is expected to contain `/resumes/<folder>/<file>`.
+    const match = resumeUrl.match(/\/resumes\/(.+)$/);
+    if (!match) {
+      setCvMessage("Unable to determine CV file path for deletion.");
+      return;
+    }
+
+    const objectPath = `resumes/${match[1]}`;
+
+    try {
+      const { error: removeError } = await supabase.storage.from("cvs").remove([objectPath]);
+      if (removeError) throw removeError;
+
+      const { error: talentUpdateError } = await supabase
+        .from("talents")
+        .update({ resume_url: null })
+        .eq("id", talentId);
+      if (talentUpdateError) throw talentUpdateError;
+
+      setResumeUrl("");
+      setCvMessage("CV removed successfully.");
+    } catch (err) {
+      console.error("CV remove failed:", err);
+      setCvMessage(err instanceof Error ? err.message : "Failed to remove CV.");
+    }
+  };
+
+  const renderEmailVerification = () => (
     <div className="space-y-6">
       <section className="rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">
         <div className="mb-5 flex items-center gap-3">
@@ -486,59 +769,96 @@ const TalentProfile = () => {
       <section className="rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">
         <div className="mb-5 flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md">
-            <Upload className="h-5 w-5" />
+            <FileText className="h-5 w-5" />
           </div>
-          <h4 className="text-lg font-bold text-slate-900">Upload Documents</h4>
+          <h4 className="text-lg font-bold text-slate-900">Resume / CV</h4>
         </div>
 
-        <div className="rounded-2xl border-2 border-dashed border-orange-300 bg-orange-50/60 p-8 text-center">
-          <Upload className="mx-auto mb-4 h-12 w-12 text-orange-400" />
-          <p className="mb-2 text-lg font-semibold text-slate-900">Drop files here or browse</p>
-          <p className="mb-4 text-sm text-gray-500">PDF, DOC, and DOCX files are supported</p>
-          <Button className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-lg hover:from-orange-700 hover:to-orange-600">
-            <Upload className="h-4 w-4" />
-            Browse Files
-          </Button>
-        </div>
+        {resumeUrl ? (
+          <div className="flex items-center justify-between rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
+            <div>
+              <p className="font-semibold text-slate-900">Uploaded CV</p>
+              <p className="text-sm text-gray-500">Linked from your talent profile</p>
+            </div>
+            <div className="flex gap-2">
+              <a
+                href={resumeUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-full border border-orange-200 px-3 py-2 text-sm font-semibold text-orange-700"
+              >
+                View
+              </a>
+              <a
+                href={resumeUrl}
+                target="_blank"
+                rel="noreferrer"
+                download
+                className="rounded-full bg-gradient-to-r from-orange-600 to-orange-500 px-3 py-2 text-sm font-semibold text-white"
+              >
+                Download
+              </a>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4 text-center">
+            <p className="text-sm text-slate-700">No CV uploaded yet. Upload a PDF/DOCX to complete your profile.</p>
+          </div>
+        )}
       </section>
 
       <section className="rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">
-        <div className="mb-5 flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md">
-            <FileText className="h-5 w-5" />
-          </div>
-          <h4 className="text-lg font-bold text-slate-900">Your Documents</h4>
-        </div>
+        <input
+          ref={cvFileInputRef}
+          className="hidden"
+          type="file"
+          accept=".pdf,.doc,.docx"
+          onChange={(e) => {
+            setCvMessage("");
+            const file = e.target.files?.[0];
+            if (file) void uploadCvToStorage(file);
+          }}
+        />
+
+        <div className="mb-3 text-sm font-semibold text-slate-700">CV Actions</div>
 
         <div className="space-y-3">
-          {defaultTalentProfileDocuments.map((doc) => (
-            <article
-              key={doc.id}
-              className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-orange-100 bg-orange-50/50 p-4"
-            >
-              <div className="flex items-center gap-4">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-orange-600 shadow-sm">
-                  <FileText className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="font-semibold text-slate-900">{doc.name}</p>
-                  <p className="text-sm text-gray-500">{doc.size} • Uploaded {doc.date}</p>
-                </div>
-              </div>
+          {resumeUrl ? (
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                size="sm"
+                disabled={uploadingCv}
+                onClick={() => cvFileInputRef.current?.click()}
+                className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-sm hover:from-orange-700 hover:to-orange-600"
+              >
+                <Upload className="h-4 w-4" />
+                {uploadingCv ? "Uploading..." : "Edit CV"}
+              </Button>
 
-              <div className="flex items-center gap-2">
-                <button type="button" className="rounded-full p-2 text-orange-600 hover:bg-orange-50" aria-label="View document">
-                  <Eye className="h-4 w-4" />
-                </button>
-                <button type="button" className="rounded-full p-2 text-orange-600 hover:bg-orange-50" aria-label="Download document">
-                  <Download className="h-4 w-4" />
-                </button>
-                <button type="button" className="rounded-full p-2 text-orange-600 hover:bg-orange-50" aria-label="Delete document">
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            </article>
-          ))}
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={uploadingCv}
+                onClick={() => void removeCvFromStorage()}
+                className="gap-2 rounded-full border-orange-200 bg-white text-orange-700 hover:bg-orange-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                Remove
+              </Button>
+            </div>
+          ) : (
+            <Button
+              size="sm"
+              disabled={uploadingCv}
+              onClick={() => cvFileInputRef.current?.click()}
+              className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-sm hover:from-orange-700 hover:to-orange-600"
+            >
+              <Upload className="h-4 w-4" />
+              {uploadingCv ? "Uploading..." : "Upload Resume/CV"}
+            </Button>
+          )}
+
+          {cvMessage && <p className="text-sm font-semibold text-orange-700">{cvMessage}</p>}
         </div>
       </section>
     </div>
@@ -546,6 +866,56 @@ const TalentProfile = () => {
 
   const renderSecurity = () => (
     <div className="space-y-6">
+      <section className="rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">
+        <div className="mb-5 flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md">
+            <Mail className="h-5 w-5" />
+          </div>
+          <h4 className="text-lg font-bold text-slate-900">Email Verification</h4>
+        </div>
+
+        {emailVerified ? (
+          <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+            <div>
+              <p className="font-semibold text-slate-900">Verified</p>
+              <p className="text-sm text-slate-600">Your email is verified.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-orange-100 bg-orange-50/60 p-4">
+              <p className="font-semibold text-slate-900">Not verified</p>
+              <p className="text-sm text-slate-600">Verify your email to access all account features.</p>
+            </div>
+
+            <Button
+              onClick={async () => {
+                setEmailVerificationMessage("");
+                try {
+                  const { error } = await supabase.auth.api.sendVerificationEmail(profile.email);
+                  if (error) throw error;
+                  setEmailVerificationMessage("Verification email sent. Check your inbox.");
+                  // We keep the message "static" here; email_verified will update after the user verifies.
+                } catch (err) {
+                  console.error(err);
+                  setEmailVerificationMessage("Unable to send verification email at the moment.");
+                }
+              }}
+              disabled={!profile.email}
+              className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-lg hover:from-orange-700 hover:to-orange-600"
+            >
+              <Mail className="h-4 w-4" />
+              Send verification email
+            </Button>
+
+            {emailVerificationMessage && (
+              <p className="text-sm font-semibold text-orange-700">{emailVerificationMessage}</p>
+            )}
+          </div>
+        )}
+      </section>
+
       <section className="rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">
         <div className="mb-5 flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md">
@@ -559,6 +929,8 @@ const TalentProfile = () => {
             <Label className="text-sm font-semibold text-slate-700">Current Password</Label>
             <Input
               type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
               placeholder="Enter current password"
               className="h-11 rounded-xl border-orange-200 bg-orange-50/30 focus:border-orange-400 focus:ring-orange-400"
             />
@@ -567,6 +939,8 @@ const TalentProfile = () => {
             <Label className="text-sm font-semibold text-slate-700">New Password</Label>
             <Input
               type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
               placeholder="Enter new password"
               className="h-11 rounded-xl border-orange-200 bg-orange-50/30 focus:border-orange-400 focus:ring-orange-400"
             />
@@ -575,72 +949,26 @@ const TalentProfile = () => {
             <Label className="text-sm font-semibold text-slate-700">Confirm New Password</Label>
             <Input
               type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Confirm new password"
               className="h-11 rounded-xl border-orange-200 bg-orange-50/30 focus:border-orange-400 focus:ring-orange-400"
             />
           </div>
-          <Button className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-lg hover:from-orange-700 hover:to-orange-600">
+          {passwordMessage && <p className="text-sm text-red-600">{passwordMessage}</p>}
+          <Button
+            onClick={updatePassword}
+            disabled={changingPassword}
+            className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-lg hover:from-orange-700 hover:to-orange-600"
+          >
             <Shield className="w-4 h-4" />
-            Update Password
+            {changingPassword ? "Updating..." : "Update Password"}
           </Button>
         </div>
       </section>
 
-      <section className="rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md">
-            <Shield className="h-5 w-5" />
-          </div>
-          <h4 className="text-lg font-bold text-slate-900">Two-Factor Authentication</h4>
-        </div>
-
-        <div className="flex items-center justify-between rounded-2xl border border-orange-100 bg-orange-50/60 p-4">
-          <div>
-            <p className="font-semibold text-slate-900">Enable 2FA</p>
-            <p className="text-sm text-gray-500">Add an extra layer of security to your account</p>
-          </div>
-          <Switch className="data-[state=checked]:bg-orange-500" />
-        </div>
-      </section>
-
-      <section className="rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md">
-            <Globe className="h-5 w-5" />
-          </div>
-          <h4 className="text-lg font-bold text-slate-900">Active Sessions</h4>
-        </div>
-
-        <div className="mb-4 rounded-2xl border border-orange-100 bg-orange-50/60 p-4">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-orange-600 shadow-sm">
-                <Globe className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="font-semibold text-slate-900">Chrome on Windows</p>
-                <p className="text-sm text-gray-500">New York, US • Current session</p>
-              </div>
-            </div>
-            <Badge className="border border-orange-200 bg-orange-50 text-orange-700">Active</Badge>
-          </div>
-        </div>
-
-        <Button className="w-full gap-2 rounded-full bg-gradient-to-r from-orange-500 to-orange-400 text-white shadow-lg hover:from-orange-600 hover:to-orange-500">
-          Sign Out All Other Sessions
-        </Button>
-      </section>
-
-      <section className="rounded-3xl border border-orange-200 bg-orange-50/60 p-6 shadow-sm">
-        <h4 className="text-lg font-bold text-slate-900">Account Actions</h4>
-        <p className="mt-2 text-sm text-slate-600">
-          If you need to leave the platform, you can permanently remove your account.
-        </p>
-        <Button className="mt-4 gap-2 rounded-full bg-gradient-to-r from-orange-500 to-orange-400 text-white shadow-lg hover:from-orange-600 hover:to-orange-500">
-          <Trash2 className="w-4 h-4" />
-          Delete Account
-        </Button>
-      </section>
+     
+     
     </div>
   );
 
@@ -650,8 +978,6 @@ const TalentProfile = () => {
         return renderPersonalInfo();
       case "professional":
         return renderProfessional();
-      case "preferences":
-        return renderPreferences();
       case "documents":
         return renderDocuments();
       case "security":
@@ -660,6 +986,30 @@ const TalentProfile = () => {
         return renderPersonalInfo();
     }
   };
+
+  if (loadingProfile) {
+    return (
+      <TalentLayout>
+        <div className="relative z-10 max-w-7xl mx-auto px-3 sm:px-4 py-12 sm:py-20">
+          <div className="rounded-[2rem] border border-orange-100 bg-white p-6 shadow-xl sm:p-8">
+            <p className="text-sm font-semibold text-slate-600">Loading your profile...</p>
+          </div>
+        </div>
+      </TalentLayout>
+    );
+  }
+
+  if (!user) {
+    return (
+      <TalentLayout>
+        <div className="relative z-10 max-w-7xl mx-auto px-3 sm:px-4 py-12 sm:py-20">
+          <div className="rounded-[2rem] border border-orange-100 bg-white p-6 shadow-xl sm:p-8">
+            <p className="text-sm font-semibold text-slate-600">Please log in to view your profile.</p>
+          </div>
+        </div>
+      </TalentLayout>
+    );
+  }
 
   return (
     <TalentLayout>
@@ -677,8 +1027,13 @@ const TalentProfile = () => {
               <p className="max-w-2xl text-base font-medium leading-7 text-slate-600 sm:text-lg">
                 Manage your professional profile, documents, and account settings in one unified workspace.
               </p>
-              <div className="mt-6 inline-flex rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-700 shadow-sm">
-                Profile completion: {profileCompletion}%
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                <div className="inline-flex rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-700 shadow-sm">
+                  Profile completion: {profileCompletion}%
+                </div>
+                <div className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold ${emailVerified ? "bg-emerald-100 text-emerald-700 border border-emerald-200" : "bg-orange-100 text-orange-700 border border-orange-200"}`}>
+                  <span>{emailVerified ? "Verified email" : "Email not verified"}</span>
+                </div>
               </div>
             </div>
 
@@ -731,7 +1086,7 @@ const TalentProfile = () => {
         </section>
 
         <div className="mb-8 flex items-center overflow-x-auto rounded-3xl border border-orange-100 bg-white p-4 shadow-lg">
-          <div className="grid h-12 min-w-[760px] w-full grid-cols-5 gap-2">
+          <div className="grid h-12 min-w-[640px] w-full gap-2 grid-cols-4">
             {tabs.map((tab) => (
               <button
                 key={tab.key}

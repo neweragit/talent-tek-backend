@@ -15,4 +15,10 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  optimizeDeps: {
+    exclude: [
+      "@syncfusion/ej2-react-pdfviewer",
+      "@syncfusion/ej2-react-navigations"
+    ],
+  },
 }));

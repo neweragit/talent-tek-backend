@@ -1,4 +1,4 @@
-export type ApplicationStatus = "interview" | "in-progress" | "rejected";
+export type ApplicationStatus = "pending" | "interview" | "in-progress" | "rejected";
 
 export interface TalentApplication {
   id: number;

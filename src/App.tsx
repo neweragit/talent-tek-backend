@@ -15,10 +15,10 @@ import GetStarted from "./pages/GetStarted";
 import TalentSignup from "./pages/signup/TalentSignup";
 import RecruiterSignup from "./pages/signup/RecruiterSignup";
 import TalentOverview from "./pages/talent/TalentOverview";
-import TalentJobs from "./pages/talent/TalentJobs";
 import TalentApplications from "./pages/talent/TalentApplications";
-import TalentJobApplication from "./pages/talent/TalentJobApplication";
+import TalentOffers from "./pages/talent/TalentOffers";
 import TalentProfile from "./pages/talent/TalentProfile";
+import TalentServices from "./pages/talent/TalentServices";
 import TalentSupportTickets from "./pages/talent/TalentSupportTickets";
 import RecruiterOverview from "./pages/recruiter/RecruiterOverview";
 import RecruiterJobs from "./pages/recruiter/RecruiterJobs";
@@ -32,11 +32,6 @@ import CompanyProfile from "@/pages/recruiterAdmin/CompanyProfile";
 import RecruiterProfile from "./pages/recruiter/RecruiterProfile";
 import Jobs from "./pages/Jobs";
 import JobDetails from "./pages/JobDetails";
-import TalentOnboarding from "./pages/talent/TalentOnboarding";
-import TalentOffers from "./pages/talent/TalentOffers";
-import TAInterviews from "./pages/talent/interviews/TAInterviews";
-import ITInterviews from "./pages/talent/interviews/ITInterviews";
-import LeadershipInterviews from "./pages/talent/interviews/LeadershipInterviews";
 import TechnicalInterviewLogin from "./pages/technicalInterview/TechnicalInterviewLogin";
 import TechnicalInterviewOverview from "./pages/technicalInterview/TechnicalInterviewOverview";
 import TechnicalInterviewInterviews from "./pages/technicalInterview/TechnicalInterviewInterviews";
@@ -47,8 +42,9 @@ import LeadershipInterviewInterviews from "./pages/leadershipInterview/Leadershi
 // (removed LeadershipInterviewReview import)
 import LeadershipInterviewProfile from "./pages/leadershipInterview/LeadershipInterviewProfile";
 // (removed LeadershipInterviewSettings import)
-import TalentServices from "./pages/talent/TalentServices";
-import TalentNotifications from "./pages/talent/TalentNotifications";
+import TAInterviews from "./pages/talent/interviews/TAInterviews";
+import ITInterviews from "./pages/talent/interviews/ITInterviews";
+import LeadershipInterviews from "./pages/talent/interviews/LeadershipInterviews";
 import Services from "./pages/Services";
 import ServiceDetails from "./pages/ServiceDetails";
 import OwnerLogin from "./pages/owner/OwnerLogin";
@@ -95,17 +91,9 @@ const App = () => {
               
               {/* Talent Routes - Protected */}
               <Route
-                path="/talent/onboarding"
-                element={
-                  <ProtectedRoute allowedRoles={["talent"]}>
-                    <TalentOnboarding />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
                 path="/talent/overview"
                 element={
-                  <ProtectedRoute allowedRoles={["talent"]}>
+                  <ProtectedRoute allowedRoles={['talent']}>
                     <TalentOverview />
                   </ProtectedRoute>
                 }
@@ -113,7 +101,7 @@ const App = () => {
               <Route
                 path="/talent/interviews/ta"
                 element={
-                  <ProtectedRoute allowedRoles={["talent"]}>
+                  <ProtectedRoute allowedRoles={['talent']}>
                     <TAInterviews />
                   </ProtectedRoute>
                 }
@@ -121,7 +109,7 @@ const App = () => {
               <Route
                 path="/talent/interviews/it"
                 element={
-                  <ProtectedRoute allowedRoles={["talent"]}>
+                  <ProtectedRoute allowedRoles={['talent']}>
                     <ITInterviews />
                   </ProtectedRoute>
                 }
@@ -129,7 +117,7 @@ const App = () => {
               <Route
                 path="/talent/interviews/leadership"
                 element={
-                  <ProtectedRoute allowedRoles={["talent"]}>
+                  <ProtectedRoute allowedRoles={['talent']}>
                     <LeadershipInterviews />
                   </ProtectedRoute>
                 }
@@ -137,7 +125,7 @@ const App = () => {
               <Route
                 path="/talent/applications"
                 element={
-                  <ProtectedRoute allowedRoles={["talent"]}>
+                  <ProtectedRoute allowedRoles={['talent']}>
                     <TalentApplications />
                   </ProtectedRoute>
                 }
@@ -145,39 +133,23 @@ const App = () => {
               <Route
                 path="/talent/offers"
                 element={
-                  <ProtectedRoute allowedRoles={["talent"]}>
+                  <ProtectedRoute allowedRoles={['talent']}>
                     <TalentOffers />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/talent/jobs"
-                element={
-                  <ProtectedRoute allowedRoles={["talent"]}>
-                    <TalentJobs />
                   </ProtectedRoute>
                 }
               />
               <Route
                 path="/talent/profile"
                 element={
-                  <ProtectedRoute allowedRoles={["talent"]}>
+                  <ProtectedRoute allowedRoles={['talent']}>
                     <TalentProfile />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/talent/messages"
-                element={
-                  <ProtectedRoute allowedRoles={["talent"]}>
-                    <TalentSupportTickets />
                   </ProtectedRoute>
                 }
               />
               <Route
                 path="/talent/support-tickets"
                 element={
-                  <ProtectedRoute allowedRoles={["talent"]}>
+                  <ProtectedRoute allowedRoles={['talent']}>
                     <TalentSupportTickets />
                   </ProtectedRoute>
                 }
@@ -185,36 +157,20 @@ const App = () => {
               <Route
                 path="/talent/services"
                 element={
-                  <ProtectedRoute allowedRoles={["talent"]}>
+                  <ProtectedRoute allowedRoles={['talent']}>
                     <TalentServices />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/talent/notifications"
-                element={
-                  <ProtectedRoute allowedRoles={["talent"]}>
-                    <TalentNotifications />
                   </ProtectedRoute>
                 }
               />
               <Route
                 path="/talent/job/:id"
                 element={
-                  <ProtectedRoute allowedRoles={["talent"]}>
+                  <ProtectedRoute allowedRoles={['talent']}>
                     <JobDetails />
                   </ProtectedRoute>
                 }
               />
-              <Route
-                path="/talent/job/:id/apply"
-                element={
-                  <ProtectedRoute allowedRoles={["talent"]}>
-                    <TalentJobApplication />
-                  </ProtectedRoute>
-                }
-              />
-              
+
               {/* Recruiter Routes - Protected */}
               <Route
                 path="/recruiter/overview"

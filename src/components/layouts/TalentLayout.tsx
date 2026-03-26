@@ -18,11 +18,16 @@ const TalentLayout = ({ children }: TalentLayoutProps) => {
 
   const navLinks = [
     { name: "Overview", path: "/talent/overview", icon: Home },
-    { name: "Interviews", path: null, icon: Video, subItems: [
-      { name: "TA Interviews", path: "/talent/interviews/ta" },
-      { name: "Technical Interviews", path: "/talent/interviews/it" },
-      { name: "Leadership Interviews", path: "/talent/interviews/leadership" },
-    ]},
+    {
+      name: "Interviews",
+      path: null,
+      icon: Video,
+      subItems: [
+        { name: "TA Interviews", path: "/talent/interviews/ta" },
+        { name: "Technical Interviews", path: "/talent/interviews/it" },
+        { name: "Leadership Interviews", path: "/talent/interviews/leadership" },
+      ],
+    },
     { name: "Applications", path: "/talent/applications", icon: FileText },
     { name: "Offers", path: "/talent/offers", icon: Gift },
     { name: "Profile", path: "/talent/profile", icon: User },
@@ -31,7 +36,8 @@ const TalentLayout = ({ children }: TalentLayoutProps) => {
   ];
 
   const isActive = (path: string | null) => path && location.pathname === path;
-  const isInterviewActive = navLinks.find(l => l.name === "Interviews")?.subItems?.some(sub => location.pathname === sub.path);
+  const isInterviewActive =
+    navLinks.find((l) => l.name === "Interviews")?.subItems?.some((sub) => location.pathname === sub.path);
 
   const getInitials = (name: string) =>
     name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
@@ -122,23 +128,7 @@ const TalentLayout = ({ children }: TalentLayoutProps) => {
               <p className="text-sm font-semibold text-slate-900 truncate">{user?.name}</p>
               <p className="text-xs text-gray-500 truncate">{user?.email}</p>
             </div>
-            <Link
-              to="/talent/notifications"
-              aria-label="Open notifications"
-              className={`relative rounded-full border p-2 transition-colors ${
-                location.pathname === "/talent/notifications"
-                  ? "border-orange-500 bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-sm"
-                  : "border-orange-200 bg-white text-orange-600 hover:bg-orange-50 hover:text-orange-700"
-              }`}
-            >
-              <Bell className="h-4 w-4" />
-              <span
-                aria-hidden="true"
-                className={`absolute right-1 top-1 h-1.5 w-1.5 rounded-full ${
-                  location.pathname === "/talent/notifications" ? "bg-white" : "bg-orange-500"
-                }`}
-              />
-            </Link>
+
           </div>
           <Button
             variant="ghost"

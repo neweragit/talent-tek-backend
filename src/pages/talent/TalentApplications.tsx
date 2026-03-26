@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import TalentLayout from "@/components/layouts/TalentLayout";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +11,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getAllTalentApplications, type ApplicationStatus } from "@/lib/talentApplications";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
+import { type ApplicationStatus } from "@/lib/talentApplications";
 import {
   Briefcase,
   CalendarDays,
@@ -53,6 +55,12 @@ const getCompanyInitials = (company: string) => {
 
 const getStatusMeta = (status: ApplicationStatus) => {
   switch (status) {
+    case "pending":
+      return {
+        label: "Pending",
+        badgeClassName: "border border-orange-200 bg-orange-50 text-orange-700",
+        icon: Clock3,
+      };
     case "interview":
       return {
         label: "Interview Scheduled",
@@ -78,6 +86,21 @@ const getStatusMeta = (status: ApplicationStatus) => {
         icon: Briefcase,
       };
   }
+};
+
+const normalizeStatus = (status: string): ApplicationStatus => {
+  const lower = status?.toLowerCase?.() ?? "";
+  if (lower === "interview" || lower === "in-progress" || lower === "rejected" || lower === "pending") {
+    return lower as ApplicationStatus;
+  }
+  return "pending";
+};
+
+const formatDate = (dateValue: string | null | undefined) => {
+  if (!dateValue) return "Unknown";
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 };
 
 const getApplicationSummary = (application: { company: string; status: ApplicationStatus; cvName?: string }) => {
@@ -108,27 +131,51 @@ const getApplicationFooter = (status: ApplicationStatus) => {
   }
 };
 
+type TalentAppCard = {
+  id: string;
+  company: string;
+  jobTitle: string;
+  status: ApplicationStatus;
+  appliedDate: string;
+  jobId?: string;
+  contact?: string;
+  workplace?: string;
+  companyLogoUrl?: string;
+  cvName?: string;
+};
+
 const TalentApplications = () => {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | ApplicationStatus>("all");
-  const [applications] = useState(() => getAllTalentApplications());
+  const [applications, setApplications] = useState<TalentAppCard[]>([]);
+  const [loading, setLoading] = useState(true);
   const submittedApplicationId =
     typeof location.state === "object" && location.state && "submittedApplicationId" in location.state
-      ? Number(location.state.submittedApplicationId)
+      ? String(location.state.submittedApplicationId)
       : null;
 
+  const isFiltering = statusFilter !== "all" || searchQuery.trim() !== "";
+
   const filteredApplications = useMemo(() => {
+    if (!isFiltering) {
+      return applications;
+    }
+
+    const normalizedSearch = searchQuery.trim().toLowerCase();
+
     return applications.filter((application) => {
       const matchesStatus = statusFilter === "all" || application.status === statusFilter;
       const matchesSearch =
-        application.company.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        application.jobTitle.toLowerCase().includes(searchQuery.toLowerCase());
+        normalizedSearch === "" ||
+        application.company.toLowerCase().includes(normalizedSearch) ||
+        application.jobTitle.toLowerCase().includes(normalizedSearch);
 
       return matchesStatus && matchesSearch;
     });
-  }, [searchQuery, statusFilter]);
+  }, [applications, isFiltering, searchQuery, statusFilter]);
 
   const applicationStats = useMemo(() => {
     const interviewCount = applications.filter((application) => application.status === "interview").length;
@@ -162,6 +209,80 @@ const TalentApplications = () => {
       },
     ];
   }, [applications]);
+
+  useEffect(() => {
+    const loadApplications = async () => {
+      setLoading(true);
+
+      if (!user) {
+        setApplications([]);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const { data: talent, error: talentError } = await supabase
+          .from('talents')
+          .select('id')
+          .eq('user_id', user.id)
+          .single();
+
+        if (talentError) {
+          throw talentError;
+        }
+
+        if (!talent?.id) {
+          setApplications([]);
+          setLoading(false);
+          return;
+        }
+
+        const { data: records, error: appError } = await supabase
+          .from('applications')
+          .select(`
+            id,
+            status,
+            applied_at,
+            job_id,
+            jobs (
+              id,
+              title,
+              workplace,
+              employer_id,
+              employers (company_name, logo_url)
+            )
+          `)
+          .eq('talent_id', talent.id)
+          .order('applied_at', { ascending: false });
+
+        if (appError) {
+          throw appError;
+        }
+
+        const mapped = (records || []).map((record: any) => ({
+          id: record.id,
+          company: record.jobs?.employers?.company_name || record.jobs?.title || 'Unknown Company',
+          jobTitle: record.jobs?.title || 'Unknown Role',
+          workplace: record.jobs?.workplace || 'Not specified',
+          status: normalizeStatus(record.status),
+          appliedDate: formatDate(record.applied_at),
+          jobId: record.job_id,
+          contact: record.jobs?.employers?.company_name || 'N/A',
+          companyLogoUrl: record.jobs?.employers?.logo_url || '',
+          cvName: '',
+        }));
+
+        setApplications(mapped);
+      } catch (error) {
+        console.error('Failed to load applications', error);
+        setApplications([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadApplications();
+  }, [user]);
 
   const resultsLabel =
     filteredApplications.length === applications.length
@@ -231,7 +352,9 @@ const TalentApplications = () => {
           </Select>
         </div>
 
-        {filteredApplications.length > 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center py-16 text-orange-700">Loading applications...</div>
+        ) : filteredApplications.length > 0 ? (
           <div className="grid gap-5 xl:grid-cols-2">
             {filteredApplications.map((application) => {
               const statusMeta = getStatusMeta(application.status);
@@ -253,8 +376,18 @@ const TalentApplications = () => {
 
                   <div className="mb-6 flex items-start justify-between gap-4">
                     <div className="flex items-start gap-4">
-                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-lg font-bold text-white shadow-lg">
-                        {getCompanyInitials(application.company)}
+                      <div className="h-14 w-14 overflow-hidden rounded-2xl bg-white shadow-lg">
+                        {application.companyLogoUrl ? (
+                          <img
+                            src={application.companyLogoUrl}
+                            alt={`${application.company} logo`}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-lg font-bold text-white">
+                            {getCompanyInitials(application.company)}
+                          </div>
+                        )}
                       </div>
                       <div>
                         {isNewSubmission ? (
@@ -285,8 +418,8 @@ const TalentApplications = () => {
                     <div className="flex items-center gap-2">
                       <Mail className="h-4 w-4 text-orange-600" />
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Contact</p>
-                        <p className="mt-1 break-all text-sm font-semibold text-slate-900">{application.contact}</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Company</p>
+                        <p className="mt-1 break-all text-sm font-semibold text-slate-900">{application.company}</p>
                       </div>
                     </div>
 
@@ -301,27 +434,13 @@ const TalentApplications = () => {
                     <div className="flex items-center gap-2">
                       <Briefcase className="h-4 w-4 text-orange-600" />
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Application Type</p>
-                        <p className="mt-1 text-sm font-semibold text-slate-900">
-                          {application.cvName ? "Direct Candidacy" : "Profile Submission"}
-                        </p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Workplace</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">{application.workplace || 'Not specified'}</p>
                       </div>
                     </div>
                   </div>
 
-                  <div className="mb-5 flex flex-wrap gap-2">
-                    <Badge className="border border-orange-200 bg-orange-50 text-orange-700">{application.company}</Badge>
-                    <Badge className="border border-orange-200 bg-orange-50 text-orange-700">{statusMeta.label}</Badge>
-                    {application.cvName ? (
-                      <Badge variant="outline" className="border-orange-200 bg-white text-orange-700">
-                        CV: {application.cvName}
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="border-orange-200 bg-white text-orange-700">
-                        Profile CV on file
-                      </Badge>
-                    )}
-                  </div>
+
 
                   <div className="flex flex-col gap-4 border-t border-orange-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
                     <p className="max-w-xl text-sm leading-6 text-slate-600">
@@ -339,6 +458,16 @@ const TalentApplications = () => {
                 </article>
               );
             })}
+          </div>
+        ) : applications.length === 0 ? (
+          <div className="rounded-[2rem] border border-dashed border-orange-200 bg-orange-50/50 px-6 py-16 text-center shadow-sm">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-white text-orange-500 shadow-md">
+              <Search className="h-7 w-7" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900">No applications yet</h2>
+            <p className="mx-auto mt-3 max-w-2xl text-base leading-7 text-slate-600">
+              You haven’t applied to any jobs yet. Browse jobs and apply to start tracking your applications here.
+            </p>
           </div>
         ) : (
           <div className="rounded-[2rem] border border-dashed border-orange-200 bg-orange-50/50 px-6 py-16 text-center shadow-sm">

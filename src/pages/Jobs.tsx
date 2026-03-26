@@ -35,6 +35,7 @@ const Jobs = () => {
 	const [selectedLevel, setSelectedLevel] = useState("all");
 	const [selectedType, setSelectedType] = useState("all");
 	const [viewCounts, setViewCounts] = useState<Record<string, number>>({});
+	const [appliedJobs, setAppliedJobs] = useState<Set<string>>(new Set());
 
 
 	useEffect(() => {
@@ -89,6 +90,29 @@ const Jobs = () => {
 					counts[job.id] = job.views_count || 0;
 				});
 				setViewCounts(counts);
+
+				// Fetch applied jobs for current user
+				if (user) {
+					try {
+						const { data: talent } = await supabase
+							.from('talents')
+							.select('id')
+							.eq('user_id', user.id)
+							.single();
+
+						if (talent) {
+							const { data: applications } = await supabase
+								.from('applications')
+								.select('job_id')
+								.eq('talent_id', talent.id);
+
+							const applied = new Set<string>((applications?.map((app: any) => String(app.job_id)) ?? []) as string[]);
+							setAppliedJobs(applied);
+						}
+					} catch (error) {
+						console.error('Error fetching applied jobs:', error);
+					}
+				}
 			} catch (error) {
 				console.error('Error fetching jobs:', error);
 				setJobs([]);
@@ -400,9 +424,14 @@ const Jobs = () => {
 												</button>
 												<button 
 													onClick={() => handleViewDetails(job)}
-													className="flex-1 border-2 border-orange-600 text-orange-600 font-bold text-sm py-3 px-4 rounded-lg hover:bg-orange-50 transition-all duration-200"
+													className={`flex-1 border-2 font-bold text-sm py-3 px-4 rounded-lg transition-all duration-200 ${
+														appliedJobs.has(job.id)
+															? 'border-gray-400 text-gray-400 bg-gray-100 cursor-not-allowed'
+															: 'border-orange-600 text-orange-600 hover:bg-orange-50'
+													}`}
+													disabled={appliedJobs.has(job.id)}
 												>
-													Apply Now
+													{appliedJobs.has(job.id) ? 'Applied' : 'Apply Now'}
 												</button>
 											</div>
 										</div>

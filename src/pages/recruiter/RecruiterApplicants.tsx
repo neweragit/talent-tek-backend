@@ -1,9 +1,18 @@
-﻿import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import RecruiterLayout from "@/components/layouts/RecruiterLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
+import CvViewer from "@/components/CvViewer";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   ArrowLeft,
   Briefcase,
@@ -19,6 +28,8 @@ import {
   UserRound,
   UserX,
 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+
 
 type ApplicantStatus = "new" | "in-review" | "pipeline" | "rejected";
 
@@ -42,190 +53,13 @@ type Applicant = {
   currentCompany: string;
   coverLetter: string;
   cvName: string;
+  cvUrl?: string;
   skills: string[];
   status: ApplicantStatus;
   matchScore: number;
 };
 
-const recruiterJobs: RecruiterJob[] = [
-  {
-    id: "job-1",
-    title: "Senior Frontend Developer",
-    department: "Engineering",
-    location: "Algiers, Algeria",
-    applicantsCount: 4,
-  },
-  {
-    id: "job-2",
-    title: "Product Manager",
-    department: "Product",
-    location: "Remote",
-    applicantsCount: 3,
-  },
-  {
-    id: "job-3",
-    title: "UX Designer",
-    department: "Design",
-    location: "Dubai, UAE",
-    applicantsCount: 2,
-  },
-];
 
-const initialApplicants: Applicant[] = [
-  {
-    id: "a-1",
-    jobId: "job-1",
-    name: "Sara Bensalem",
-    email: "sara.bensalem@email.com",
-    phone: "0666112233",
-    location: "Algiers",
-    appliedDate: "2026-03-10",
-    experience: "5 years",
-    currentCompany: "Tech Solutions",
-    coverLetter:
-      "I have led React and TypeScript projects across enterprise products and can help accelerate your frontend roadmap.",
-    cvName: "sara_bensalem_cv.pdf",
-    skills: ["React", "TypeScript", "Node.js", "Tailwind CSS"],
-    status: "new",
-    matchScore: 78,
-  },
-  {
-    id: "a-2",
-    jobId: "job-1",
-    name: "Michael Chen",
-    email: "m.chen@email.com",
-    phone: "+1 (555) 234-5678",
-    location: "New York",
-    appliedDate: "2026-03-11",
-    experience: "4 years",
-    currentCompany: "Digital Agency",
-    coverLetter:
-      "I focus on scalable UI architecture and design systems, with strong collaboration across product and engineering teams.",
-    cvName: "michael_chen_resume.pdf",
-    skills: ["React", "JavaScript", "CSS", "Design Systems"],
-    status: "in-review",
-    matchScore: 88,
-  },
-  {
-    id: "a-3",
-    jobId: "job-1",
-    name: "Emily Rodriguez",
-    email: "emily.r@email.com",
-    phone: "+1 (555) 345-6789",
-    location: "Austin",
-    appliedDate: "2026-03-12",
-    experience: "6 years",
-    currentCompany: "StartupXYZ",
-    coverLetter:
-      "I build performant, accessible web applications and mentor junior developers while owning end-to-end feature delivery.",
-    cvName: "emily_rodriguez_cv.pdf",
-    skills: ["React", "Vue", "TypeScript", "Performance"],
-    status: "new",
-    matchScore: 92,
-  },
-  {
-    id: "a-4",
-    jobId: "job-1",
-    name: "David Kim",
-    email: "david.kim@email.com",
-    phone: "+1 (555) 456-7890",
-    location: "Seattle",
-    appliedDate: "2026-03-13",
-    experience: "7 years",
-    currentCompany: "CloudTech Inc",
-    coverLetter:
-      "I enjoy leading frontend initiatives, partnering with backend teams, and shipping high-impact product experiences.",
-    cvName: "david_kim_resume.pdf",
-    skills: ["React", "Python", "AWS", "Leadership"],
-    status: "new",
-    matchScore: 85,
-  },
-  {
-    id: "a-5",
-    jobId: "job-2",
-    name: "Amanda Foster",
-    email: "a.foster@email.com",
-    phone: "+1 (555) 567-8901",
-    location: "Chicago",
-    appliedDate: "2026-03-10",
-    experience: "5 years",
-    currentCompany: "InnovateCo",
-    coverLetter:
-      "I have managed product roadmaps in SaaS and can align engineering velocity with measurable customer outcomes.",
-    cvName: "amanda_foster_cv.pdf",
-    skills: ["Roadmapping", "Stakeholder Management", "Analytics"],
-    status: "new",
-    matchScore: 81,
-  },
-  {
-    id: "a-6",
-    jobId: "job-2",
-    name: "James Wilson",
-    email: "j.wilson@email.com",
-    phone: "+1 (555) 678-9012",
-    location: "Denver",
-    appliedDate: "2026-03-09",
-    experience: "3 years",
-    currentCompany: "WebDev Studio",
-    coverLetter:
-      "I bring strong product discovery practice and experimentation habits to improve user outcomes and growth metrics.",
-    cvName: "james_wilson_cv.pdf",
-    skills: ["Product Discovery", "Experimentation", "User Research"],
-    status: "new",
-    matchScore: 72,
-  },
-  {
-    id: "a-7",
-    jobId: "job-2",
-    name: "Lisa Thompson",
-    email: "lisa.t@email.com",
-    phone: "+1 (555) 789-0123",
-    location: "Boston",
-    appliedDate: "2026-03-08",
-    experience: "4 years",
-    currentCompany: "Freelance",
-    coverLetter:
-      "I can bridge strategy and execution with strong communication, prioritization, and cross-functional product planning.",
-    cvName: "lisa_thompson_cv.pdf",
-    skills: ["Prioritization", "Communication", "Delivery"],
-    status: "new",
-    matchScore: 64,
-  },
-  {
-    id: "a-8",
-    jobId: "job-3",
-    name: "Robert Martinez",
-    email: "r.martinez@email.com",
-    phone: "+1 (555) 890-1234",
-    location: "Miami",
-    appliedDate: "2026-03-07",
-    experience: "8 years",
-    currentCompany: "Enterprise Corp",
-    coverLetter:
-      "I design products with strong visual systems and UX rationale, from discovery to polished high-fidelity interfaces.",
-    cvName: "robert_martinez_portfolio.pdf",
-    skills: ["Figma", "Interaction Design", "Design Systems"],
-    status: "new",
-    matchScore: 91,
-  },
-  {
-    id: "a-9",
-    jobId: "job-3",
-    name: "Nina Haddad",
-    email: "nina.haddad@email.com",
-    phone: "+971 55 123 4567",
-    location: "Abu Dhabi",
-    appliedDate: "2026-03-06",
-    experience: "5 years",
-    currentCompany: "UX Orbit",
-    coverLetter:
-      "My focus is user-centered design and product usability testing with measurable improvement in conversion and retention.",
-    cvName: "nina_haddad_resume.pdf",
-    skills: ["UX Research", "Prototyping", "Usability Testing"],
-    status: "new",
-    matchScore: 87,
-  },
-];
 
 const getInitials = (name: string) =>
   name
@@ -260,18 +94,58 @@ const getStatusMeta = (status: ApplicantStatus) => {
   }
 };
 
+const formatAppliedDate = (dateString: string | null | undefined) => {
+  if (!dateString) return "";
+  try {
+    return new Date(dateString).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "2-digit" });
+  } catch {
+    return "";
+  }
+};
+
+const mapDbStatusToUi = (dbStatus: string | null | undefined): ApplicantStatus => {
+  if (!dbStatus) return "new";
+  const status = String(dbStatus).toLowerCase();
+  if (status === "rejected" || status === "archived") return "rejected";
+  if (status === "pending") return "new";
+  if (status === "in-progress" || status === "interview-scheduled") return "in-review";
+  if (status === "offered" || status === "hired" || status === "maybe") return "pipeline";
+  return "new";
+};
+
+const extractCvsObjectPathFromResumeUrl = (resumeUrl: string): string | null => {
+  // Expected public URL patterns often include:
+  // .../storage/v1/object/public/cvs/resumes/<folder>/<file>
+  // We need the path *inside the bucket*, e.g. `resumes/<folder>/<file>`.
+  const match = resumeUrl.match(/\/cvs\/(resumes\/.+)$/);
+  if (match?.[1]) return match[1];
+
+  // Fallback: look for `/resumes/...` and strip leading slash.
+  const match2 = resumeUrl.match(/\/(resumes\/.+)$/);
+  if (match2?.[1]) return match2[1];
+
+  return null;
+};
+
 export default function EmployerApplicants() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedApplicantId, setSelectedApplicantId] = useState<string | null>(null);
-  const [applicants, setApplicants] = useState<Applicant[]>(initialApplicants);
+  const [loading, setLoading] = useState(true);
+  const [companyJobs, setCompanyJobs] = useState<RecruiterJob[]>([]);
+  const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [cvDialogOpen, setCvDialogOpen] = useState(false);
+  const [cvDialogUrl, setCvDialogUrl] = useState<string>("");
+  const [cvDialogTitle, setCvDialogTitle] = useState<string>("CV Preview");
+  const [cvDialogError, setCvDialogError] = useState<string>("");
+  const [cvLoading, setCvLoading] = useState<boolean>(false);
 
-  const selectedJob = useMemo(
-    () => recruiterJobs.find((job) => job.id === selectedJobId) ?? null,
-    [selectedJobId]
-  );
+  const selectedJob = useMemo(() => {
+    return companyJobs.find((job) => job.id === selectedJobId) ?? null;
+  }, [companyJobs, selectedJobId]);
 
   const filteredApplicants = useMemo(() => {
     if (!selectedJobId) {
@@ -302,45 +176,313 @@ export default function EmployerApplicants() {
     setSearchQuery("");
   };
 
-  const handleMoveToPipeline = () => {
+  const handleMoveToPipeline = async () => {
     if (!selectedApplicant) {
       return;
     }
 
-    setApplicants((current) =>
-      current.map((applicant) =>
-        applicant.id === selectedApplicant.id ? { ...applicant, status: "pipeline" } : applicant
-      )
-    );
+    // Optimistic UI update
+    setApplicants((current) => current.map((a) => (a.id === selectedApplicant.id ? { ...a, status: "pipeline" } : a)));
 
     toast({
       title: "Moved to pipeline",
       description: `${selectedApplicant.name} is now ready in your pipeline board.`,
     });
 
+    try {
+      await supabase
+        .from("applications")
+        .update({ status: "in-progress", updated_at: new Date().toISOString() })
+        .eq("id", selectedApplicant.id);
+    } catch (err) {
+      console.error("Failed to update application status:", err);
+    }
+
     navigate("/recruiter/pipeline");
   };
 
-  const handleReject = () => {
+  const handleReject = async () => {
     if (!selectedApplicant) {
       return;
     }
 
-    setApplicants((current) =>
-      current.map((applicant) =>
-        applicant.id === selectedApplicant.id ? { ...applicant, status: "rejected" } : applicant
-      )
-    );
+    // Optimistic UI update
+    setApplicants((current) => current.map((a) => (a.id === selectedApplicant.id ? { ...a, status: "rejected" } : a)));
 
     toast({
       title: "Application rejected",
       description: `${selectedApplicant.name} has been marked as rejected.`,
     });
+
+    try {
+      await supabase
+        .from("applications")
+        .update({ status: "rejected", updated_at: new Date().toISOString() })
+        .eq("id", selectedApplicant.id);
+    } catch (err) {
+      console.error("Failed to update application rejection:", err);
+    }
   };
+
+  const openCvPreview = async (applicant: Applicant) => {
+    setCvDialogError("");
+    setCvDialogTitle("CV Preview");
+    setCvLoading(true);
+
+    if (!applicant.cvUrl) {
+      setCvLoading(false);
+      setCvDialogError("No CV available for this applicant.");
+      setCvDialogUrl("");
+      setCvDialogOpen(true);
+      return;
+    }
+
+    const objectPath = extractCvsObjectPathFromResumeUrl(applicant.cvUrl);
+    if (!objectPath) {
+      setCvLoading(false);
+      setCvDialogError("Could not resolve CV storage path.");
+      setCvDialogUrl("");
+      setCvDialogOpen(true);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.storage.from("cvs").createSignedUrl(objectPath, 60);
+      if (error) throw error;
+
+      const signedUrl = data?.signedUrl;
+      if (!signedUrl) throw new Error("Signed URL was not returned.");
+
+      const response = await fetch(signedUrl);
+      if (!response.ok) throw new Error("Failed to fetch CV");
+
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
+      setCvDialogUrl(blobUrl);
+      setCvLoading(false);
+      setCvDialogOpen(true);
+    } catch (err) {
+      console.error("Failed to create CV preview:", err);
+      setCvLoading(false);
+      setCvDialogError(err instanceof Error ? err.message : "Failed to open CV preview.");
+      setCvDialogUrl("");
+      setCvDialogOpen(true);
+    }
+  };
+
+  useEffect(() => {
+    const loadCompanyApplicants = async () => {
+      if (!user?.id) {
+        setCompanyJobs([]);
+        setApplicants([]);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+
+      try {
+        let resolvedEmployerId: string | null = null;
+
+        const { data: employerByOwner } = await supabase
+          .from("employers")
+          .select("id")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (employerByOwner?.id) {
+          resolvedEmployerId = employerByOwner.id;
+        } else {
+          const { data: teamMembership } = await supabase
+            .from("employer_team_members")
+            .select("employer_id")
+            .eq("user_id", user.id)
+            .maybeSingle();
+
+          resolvedEmployerId = teamMembership?.employer_id ?? null;
+        }
+
+        if (!resolvedEmployerId) {
+          toast({
+            title: "No Company Found",
+            description: "We could not find the company linked to this recruiter account.",
+            variant: "destructive",
+          });
+          setCompanyJobs([]);
+          setApplicants([]);
+          return;
+        }
+
+        const { data: employerProfile } = await supabase
+          .from("employers")
+          .select("company_name")
+          .eq("id", resolvedEmployerId)
+          .maybeSingle();
+
+        const companyName = employerProfile?.company_name || "Company";
+
+        // Load jobs for this company
+        const { data: jobRows, error: jobsError } = await supabase
+          .from("jobs")
+          .select("id,title,profession,location,employment_type")
+          .eq("employer_id", resolvedEmployerId)
+          .order("created_at", { ascending: false });
+
+        if (jobsError) throw jobsError;
+
+        const jobs: RecruiterJob[] = (jobRows || []).map((row: any) => ({
+          id: row.id,
+          title: row.title || "Untitled Position",
+          department: row.profession || "",
+          location: row.location || "",
+          applicantsCount: 0,
+        }));
+
+        setCompanyJobs(jobs);
+
+        if (jobs.length === 0) {
+          setApplicants([]);
+          return;
+        }
+
+        const jobIds = jobs.map((j) => j.id);
+
+        // Load applications for these jobs
+        const { data: applicationRows, error: appsError } = await supabase
+          .from("applications")
+          .select("id, job_id, talent_id, status, match_score, applied_at")
+          .in("job_id", jobIds);
+
+        if (appsError) throw appsError;
+
+        const apps = applicationRows || [];
+
+        const talentIds = [...new Set(apps.map((a: any) => a.talent_id).filter(Boolean))];
+
+        // Load talent info to build applicant rows
+        const { data: talentRows, error: talentsError } = await supabase
+          .from("talents")
+          .select("id, user_id, full_name, phone_number, city, years_of_experience, short_bio, skills, resume_url")
+          .in("id", talentIds);
+
+        if (talentsError) throw talentsError;
+
+        const talentById = new Map<string, any>((talentRows || []).map((t: any) => [t.id, t]));
+
+        const userIds = [...new Set((talentRows || []).map((t: any) => t.user_id).filter(Boolean))];
+
+        const { data: userRows, error: userError } = await supabase
+          .from("users")
+          .select("id, email")
+          .in("id", userIds);
+
+        if (userError) throw userError;
+
+        const emailByUserId = new Map<string, any>((userRows || []).map((u: any) => [u.id, u.email]));
+
+        const mappedApplicants: Applicant[] = apps.map((app: any) => {
+          const talent = talentById.get(app.talent_id as string) as any | undefined;
+          const email = talent?.user_id ? (emailByUserId.get(talent.user_id as string) as string | undefined) : undefined;
+          const resumeUrl = talent?.resume_url as string | undefined;
+
+          const cvName = resumeUrl ? String(resumeUrl).split("/").pop() || "CV" : "";
+
+          return {
+            id: app.id,
+            jobId: app.job_id,
+            name: talent?.full_name || "",
+            email: email || "",
+            phone: talent?.phone_number || "",
+            location: talent?.city || "",
+            appliedDate: formatAppliedDate(app.applied_at),
+            experience: talent?.years_of_experience || "",
+            currentCompany: companyName,
+            coverLetter: talent?.short_bio || "",
+            cvName,
+            cvUrl: resumeUrl,
+            skills: (talent?.skills as string[]) || [],
+            status: mapDbStatusToUi(app.status),
+            matchScore: Number(app.match_score) || 0,
+          };
+        });
+
+        // Update job counts quickly
+        const countsByJobId = mappedApplicants.reduce<Record<string, number>>((acc, a) => {
+          acc[a.jobId] = (acc[a.jobId] || 0) + 1;
+          return acc;
+        }, {});
+
+        setCompanyJobs((prev) =>
+          prev.map((j) => ({
+            ...j,
+            applicantsCount: countsByJobId[j.id] || 0,
+          }))
+        );
+
+        setApplicants(mappedApplicants);
+      } catch (err) {
+        console.error("Failed loading recruiter applicants:", err);
+        toast({
+          title: "Failed to load applicants",
+          description: err instanceof Error ? err.message : "Please try again later.",
+          variant: "destructive",
+        });
+        setCompanyJobs([]);
+        setApplicants([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void loadCompanyApplicants();
+  }, [toast, user?.id]);
 
   return (
     <RecruiterLayout>
       <div className="relative z-10 mx-auto max-w-7xl px-3 py-12 sm:px-4 sm:py-20">
+        <Dialog
+          open={cvDialogOpen}
+          onOpenChange={(open) => {
+            setCvDialogOpen(open);
+            if (!open) {
+              // Clean up blob URL when dialog closes
+              if (cvDialogUrl && cvDialogUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(cvDialogUrl);
+              }
+              setCvDialogUrl("");
+              setCvDialogError("");
+              setCvLoading(false);
+            }
+          }}
+        >
+          <DialogContent className="max-w-2xl" aria-describedby="cv-dialog-description">
+            <DialogHeader>
+              <DialogTitle>{cvDialogTitle}</DialogTitle>
+            </DialogHeader>
+            <p id="cv-dialog-description" className="sr-only">
+              Clean PDF preview of applicant CV.
+            </p>
+
+            {cvDialogError ? (
+              <div className="rounded-lg border border-orange-200 bg-white p-4">
+                <p className="text-sm font-semibold text-orange-700">{cvDialogError}</p>
+              </div>
+            ) : cvLoading ? (
+              <div className="rounded-lg border border-orange-100 bg-white p-6 text-center">
+                <Loader2 className="mx-auto h-8 w-8 animate-spin text-orange-600 mb-4" />
+                <p className="text-sm font-semibold text-slate-600">Loading CV preview…</p>
+              </div>
+            ) : cvDialogUrl ? (
+              <CvViewer fileUrl={cvDialogUrl} />
+            ) : (
+              <div className="rounded-lg border border-orange-100 bg-white p-6 text-center">
+                <p className="text-sm font-semibold text-slate-600">Preparing CV preview…</p>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
         <section className="mb-8 overflow-hidden rounded-[2rem] border border-orange-100 bg-[radial-gradient(circle_at_top_left,_rgba(251,146,60,0.18),_transparent_35%),radial-gradient(circle_at_bottom_right,_rgba(253,186,116,0.14),_transparent_32%),linear-gradient(135deg,_#fff7ed_0%,_#ffffff_58%,_#fff1e6_100%)] p-6 shadow-xl sm:p-8">
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-end">
             <div>
@@ -362,14 +504,18 @@ export default function EmployerApplicants() {
               </div>
               <p className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">Total Active Applicants</p>
               <div className="mt-2 text-3xl font-bold text-slate-900">{applicants.filter((a) => a.status !== "rejected").length}</div>
-              <p className="mt-1 text-sm text-slate-600">Across {recruiterJobs.length} open jobs</p>
+              <p className="mt-1 text-sm text-slate-600">Across {companyJobs.length} open jobs</p>
             </div>
           </div>
         </section>
 
-        {!selectedJobId ? (
+        {loading ? (
+          <div className="rounded-[2rem] border border-dashed border-orange-200 bg-orange-50/50 px-6 py-16 text-center shadow-sm">
+            <p className="text-sm font-semibold text-orange-700">Loading applicants for your company...</p>
+          </div>
+        ) : !selectedJobId ? (
           <div className="grid gap-5 xl:grid-cols-2">
-            {recruiterJobs.map((job) => {
+            {companyJobs.map((job) => {
               const jobApplicantsCount = applicants.filter((applicant) => applicant.jobId === job.id).length;
 
               return (
@@ -501,8 +647,8 @@ export default function EmployerApplicants() {
             <div className="mt-4 rounded-2xl border border-orange-100 bg-white p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Skills</p>
               <div className="mt-3 flex flex-wrap gap-2">
-                {selectedApplicant.skills.map((skill) => (
-                  <Badge key={skill} className="border border-orange-200 bg-orange-50 text-orange-700">
+                {selectedApplicant.skills.map((skill, index) => (
+                  <Badge key={`skill-${index}`} className="border border-orange-200 bg-orange-50 text-orange-700">
                     {skill}
                   </Badge>
                 ))}
@@ -511,10 +657,29 @@ export default function EmployerApplicants() {
 
             <div className="mt-4 rounded-2xl border border-orange-100 bg-white p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Resume</p>
-              <p className="mt-2 flex items-center gap-2 text-sm font-semibold text-slate-900">
-                <FileText className="h-4 w-4 text-orange-600" />
-                {selectedApplicant.cvName}
-              </p>
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
+
+                <Button
+                  type="button"
+                  size="lg"
+                  variant="outline"
+                  disabled={!selectedApplicant.cvUrl || cvLoading}
+                  onClick={() => void openCvPreview(selectedApplicant)}
+                  className="rounded-full border-orange-200 text-orange-700 hover:bg-orange-50 px-6 py-3 text-base font-semibold"
+                >
+                  {cvLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                      Loading...
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="mr-2 h-5 w-5" />
+                      View CV
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
 
             <div className="mt-6 flex flex-wrap gap-3 border-t border-orange-100 pt-6">
@@ -613,8 +778,8 @@ export default function EmployerApplicants() {
                     </div>
 
                     <div className="mb-5 flex flex-wrap gap-2">
-                      {applicant.skills.slice(0, 3).map((skill) => (
-                        <Badge key={skill} className="border border-orange-200 bg-orange-50 text-orange-700">
+                      {applicant.skills.slice(0, 3).map((skill, index) => (
+                        <Badge key={`${applicant.id}-skill-${index}`} className="border border-orange-200 bg-orange-50 text-orange-700">
                           {skill}
                         </Badge>
                       ))}

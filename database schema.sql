@@ -21,8 +21,6 @@ CREATE TABLE public.applications (
   status text DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'in-progress'::text, 'interview-scheduled'::text, 'offered'::text, 'hired'::text, 'rejected'::text, 'maybe'::text, 'archived'::text])),
   stage text CHECK (stage IS NULL OR (stage = ANY (ARRAY['to-contact'::text, 'talent-acquisition'::text, 'technical'::text, 'leadership'::text, 'offer'::text, 'rejected-offer'::text, 'hired'::text]))),
   match_score integer,
-  cover_letter text,
-  resume_url text,
   applied_at timestamp with time zone DEFAULT now(),
   reviewed_at timestamp with time zone,
   updated_at timestamp with time zone DEFAULT now(),

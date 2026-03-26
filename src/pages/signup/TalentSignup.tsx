@@ -12,6 +12,7 @@ import { supabase } from "@/lib/supabase";
 import { normalizeEmailForAuth } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { IdCard } from "lucide-react";
+import bcrypt from "bcryptjs";
 
 const steps = [
   { title: "Account Setup", description: "Step 1 of 7" },
@@ -76,7 +77,7 @@ const TalentSignup = () => {
     setForm(prev => ({ ...prev, [field]: value }));
   };
 
-  const validateStep = (currentStep: number): boolean => {
+  const validateStep = async (currentStep: number): Promise<boolean> => {
     if (currentStep === 1) {
       const normalizedEmail = normalizeEmailForAuth(form.email);
       if (!normalizedEmail || !form.password || !form.confirmPassword) {
@@ -97,6 +98,23 @@ const TalentSignup = () => {
 
       if (form.password !== form.confirmPassword) {
         setError("Passwords do not match.");
+        return false;
+      }
+
+      // Check if email already exists
+      const { data: existingUsers, error: checkError } = await supabase
+        .from("users")
+        .select("id")
+        .eq("email", normalizedEmail)
+        .limit(1);
+
+      if (checkError) {
+        setError("Failed to verify email. Please try again.");
+        return false;
+      }
+
+      if (existingUsers && existingUsers.length > 0) {
+        setError("This email is already used. Please sign in or use another email.");
         return false;
       }
 
@@ -136,8 +154,8 @@ const TalentSignup = () => {
     return true;
   };
 
-  const handleNextStep = () => {
-    if (!validateStep(step)) return;
+  const handleNextStep = async () => {
+    if (!(await validateStep(step))) return;
     setStep(prev => Math.min(prev + 1, steps.length));
   };
 
@@ -155,15 +173,25 @@ const TalentSignup = () => {
 
   const uploadCVToStorage = async (
     file: File,
-    userId: string
+    userId: string,
+    email: string
   ): Promise<{ ok: true; url: string } | { ok: false; message: string }> => {
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `${userId}_cv_${Date.now()}.${fileExt}`;
 
+      // Use a safe folder name derived from email so we can find a user's files later.
+      const emailFolder = email
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+
+      const folder = emailFolder || "user";
+
       const { error } = await supabase.storage
         .from("cvs")
-        .upload(`resumes/${fileName}`, file);
+        .upload(`resumes/${folder}/${fileName}`, file);
 
       if (error) {
         console.error("CV upload error (bucket cvs):", error);
@@ -180,7 +208,7 @@ const TalentSignup = () => {
 
       const { data: publicData } = supabase.storage
         .from("cvs")
-        .getPublicUrl(`resumes/${fileName}`);
+        .getPublicUrl(`resumes/${folder}/${fileName}`);
 
       const url = publicData?.publicUrl;
       if (!url) return { ok: false as const, message: "Could not get a public URL for your CV." };
@@ -196,17 +224,17 @@ const TalentSignup = () => {
       setError("");
       setLoading(true);
 
-      const signupEmail = normalizeEmailForAuth(form.email);
+      const normalizedEmail = normalizeEmailForAuth(form.email);
 
       // Validation
-      if (!signupEmail || !form.password || !form.confirmPassword) {
+      if (!normalizedEmail || !form.password || !form.confirmPassword) {
         setError("Email and password are required");
         setStep(1);
         return;
       }
 
       const emailRegex = /^[^\s@]+@[^\s@]+(?:\.[^\s@]+)+$/;
-      if (!emailRegex.test(signupEmail)) {
+      if (!emailRegex.test(normalizedEmail)) {
         setError("Please enter a valid email address.");
         setStep(1);
         return;
@@ -243,62 +271,45 @@ const TalentSignup = () => {
         return;
       }
 
-      // Create user account
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: signupEmail,
-        password: form.password,
-      });
+      // Check if email already exists
+      const { data: existingUser, error: existingUserError } = await supabase
+        .from("users")
+        .select("id")
+        .eq("email", normalizedEmail)
+        .maybeSingle();
 
-      if (authError || !authData.user) {
-        const authMessage = authError?.message?.toLowerCase() || "";
-        const authCode = (authError as { code?: string })?.code;
-        const authStatus = (authError as { status?: number })?.status;
-        if (authStatus === 429 || authMessage.includes("rate") || authMessage.includes("too many")) {
-          setError("Too many signup attempts from this browser. Wait a few minutes, then try again.");
-          setStep(1);
-        } else if (
-          authMessage.includes("already registered") ||
-          authMessage.includes("already exists") ||
-          authMessage.includes("user already")
-        ) {
-          setError("This email is already used. Please sign in or use another email.");
-          setStep(1);
-        } else if (
-          authCode === "email_address_invalid" ||
-          (authMessage.includes("email address") && authMessage.includes("invalid"))
-        ) {
-          setError(
-            "That email was rejected by the server. Re-type it (no spaces). If it still fails, check Supabase → Authentication → Providers → Email for domain allow/block lists."
-          );
-          setStep(1);
-        } else {
-          setError(authError?.message || "Signup failed");
-        }
+      if (existingUserError) {
+        setError(`Signup failed: ${existingUserError.message}`);
         return;
       }
 
-      const userId = authData.user.id;
+      if (existingUser?.id) {
+        setError("Email already exists. Please use another email or sign in.");
+        return;
+      }
 
-      // Insert into users table first
-      const { error: userInsertError } = await supabase
-        .from('users')
+      const passwordHash = await bcrypt.hash(form.password, 10);
+
+      const { data: createdUser, error: userError } = await supabase
+        .from("users")
         .insert({
-          id: userId,
-          email: signupEmail,
-          password_hash: '', // This will be handled by Supabase Auth
-          user_role: 'talent',
+          email: normalizedEmail,
+          password_hash: passwordHash,
+          user_role: "talent",
           is_active: true,
           email_verified: false,
           profile_completed: true,
-        });
+        })
+        .select("id")
+        .single();
 
-      if (userInsertError) {
-        setError(`Failed to create user profile: ${userInsertError.message}`);
+      if (userError || !createdUser?.id) {
+        setError(`Signup failed: ${userError?.message || "Could not create user."}`);
         return;
       }
 
       // Upload CV (required)
-      const uploadResult = await uploadCVToStorage(cvFile, userId);
+      const uploadResult = await uploadCVToStorage(cvFile, createdUser.id, normalizedEmail);
       if (uploadResult.ok === false) {
         setError(uploadResult.message);
         setStep(2);
@@ -310,7 +321,7 @@ const TalentSignup = () => {
       const { error: talentError } = await supabase
         .from('talents')
         .insert({
-          user_id: userId,
+          user_id: createdUser.id,
           full_name: form.fullName,
           phone_number: form.phoneNumber || null,
           city: form.city || null,
@@ -335,14 +346,15 @@ const TalentSignup = () => {
 
       // Auto-login
       const newUser = {
-        id: userId,
-        email: signupEmail,
+        id: createdUser.id,
+        email: normalizedEmail,
         name: form.fullName,
         role: "talent" as const,
       };
       login(newUser);
-      
-      navigate('/talent/dashboard');
+
+      // Navigate to dashboard
+      navigate('/talent/overview');
     } catch (err) {
       setError(err instanceof Error ? err.message : "Signup failed");
     } finally {
