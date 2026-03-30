@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import TalentLayout from "@/components/layouts/TalentLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/lib/supabase";
 import {
   Banknote,
   Briefcase,
@@ -26,7 +28,8 @@ import {
 } from "lucide-react";
 
 interface Offer {
-  id: number;
+  id: string;
+  applicationId: string;
   company: string;
   companyLogo: string;
   jobTitle: string;
@@ -90,52 +93,150 @@ const getOfferSummary = (offer: Offer) => {
   }
 };
 
+const getCompanyInitials = (company: string) => {
+  const words = company
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+
+  if (words.length === 0) {
+    return "TT";
+  }
+
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+
+  return words
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
+};
+
+const toOfferStatus = (status: string | null | undefined): OfferStatus => {
+  const normalized = (status ?? "").toLowerCase();
+  if (normalized === "accepted") return "accepted";
+  if (normalized === "refused" || normalized === "rejected" || normalized === "declined") return "rejected";
+  return "pending";
+};
+
+const formatDate = (dateValue: string | null | undefined) => {
+  if (!dateValue) return "Unknown";
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+};
+
 const TalentOffers = () => {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | OfferStatus>("all");
+  const [loading, setLoading] = useState(true);
+  const [offers, setOffers] = useState<Offer[]>([]);
 
-  const [offers, setOffers] = useState<Offer[]>([
-    {
-      id: 1,
-      company: "Paystack",
-      companyLogo: "PS",
-      jobTitle: "Senior Customer Success Manager",
-      status: "pending",
-      location: "Remote",
-      sentDate: "1 day ago",
-      salary: "$42,000 - $48,000 / year",
-      employmentType: "Full-time",
-      recruiter: "Amara Okafor",
-      decisionNote: "Decision requested within 5 days.",
-    },
-    {
-      id: 2,
-      company: "Andela",
-      companyLogo: "AN",
-      jobTitle: "Frontend Engineer",
-      status: "accepted",
-      location: "Kigali, Rwanda",
-      sentDate: "6 days ago",
-      salary: "$55,000 - $62,000 / year",
-      employmentType: "Hybrid",
-      recruiter: "David Mensah",
-      decisionNote: "Accepted and onboarding scheduled for next week.",
-    },
-    {
-      id: 3,
-      company: "Flutterwave",
-      companyLogo: "FW",
-      jobTitle: "Partnerships Associate",
-      status: "rejected",
-      location: "Lagos, Nigeria",
-      sentDate: "11 days ago",
-      salary: "$30,000 - $36,000 / year",
-      employmentType: "Full-time",
-      recruiter: "Chioma Adeyemi",
-      decisionNote: "Offer was declined after compensation review.",
-    },
-  ]);
+  useEffect(() => {
+    let ignore = false;
+
+    const loadOffers = async () => {
+      setLoading(true);
+
+      if (!user) {
+        setOffers([]);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const { data: talent, error: talentError } = await supabase
+          .from("talents")
+          .select("id")
+          .eq("user_id", user.id)
+          .single();
+
+        if (talentError) {
+          throw talentError;
+        }
+
+        if (!talent?.id) {
+          if (!ignore) setOffers([]);
+          return;
+        }
+
+        const { data: records, error: offersError } = await supabase
+          .from("offers")
+          .select(
+            `
+              id,
+              status,
+              position,
+              salary,
+              start_date,
+              work_location,
+              benefits_perks,
+              created_at,
+              applications!inner (
+                id,
+                talent_id,
+                jobs (
+                  title,
+                  workplace,
+                  employers ( company_name, logo_url )
+                )
+              )
+            `,
+          )
+          .eq("applications.talent_id", talent.id)
+          .order("created_at", { ascending: false });
+
+        if (offersError) {
+          throw offersError;
+        }
+
+        const mapped = (records || []).map((record: any) => {
+          const companyName = record.applications?.jobs?.employers?.company_name || "Unknown Company";
+          const startDate = formatDate(record.start_date);
+          const createdAt = formatDate(record.created_at);
+          const applicationId = String(record.applications?.id || "");
+
+          return {
+            id: String(record.id),
+            applicationId,
+            company: companyName,
+            companyLogo: getCompanyInitials(companyName),
+            jobTitle: record.position || record.applications?.jobs?.title || "Offer",
+            status: toOfferStatus(record.status),
+            location: record.work_location || record.applications?.jobs?.workplace || "Not specified",
+            sentDate: createdAt,
+            salary: record.salary || "Not specified",
+            employmentType: startDate !== "Unknown" ? `Start date: ${startDate}` : "Start date: Not specified",
+            recruiter: "Hiring team",
+            decisionNote: record.benefits_perks ? String(record.benefits_perks) : "Review the offer details and respond when ready.",
+          } satisfies Offer;
+        });
+
+        if (!ignore) setOffers(mapped);
+      } catch (error) {
+        console.error("Failed to load offers", error);
+        if (!ignore) {
+          setOffers([]);
+          toast({
+            title: "Unable to load offers",
+            description: "Please try again later.",
+            variant: "destructive",
+          });
+        }
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    };
+
+    loadOffers();
+    return () => {
+      ignore = true;
+    };
+  }, [toast, user]);
 
   const filteredOffers = useMemo(() => {
     return offers.filter((offer) => {
@@ -156,7 +257,29 @@ const TalentOffers = () => {
       ? `Showing all ${offers.length} offers`
       : `Showing ${filteredOffers.length} of ${offers.length} offers`;
 
-  const handleOfferDecision = (offerId: number, nextStatus: OfferStatus) => {
+  const handleOfferDecision = async (offerId: string, nextStatus: OfferStatus) => {
+    const offer = offers.find((item) => item.id === offerId);
+    const dbStatus = nextStatus === "rejected" ? "refused" : nextStatus;
+    const { error } = await supabase.from("offers").update({ status: dbStatus }).eq("id", offerId);
+
+    if (error) {
+      console.error("Failed to update offer", error);
+      toast({
+        title: "Unable to update offer",
+        description: error.message ?? "Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (offer?.applicationId) {
+      const nextStage = nextStatus === "accepted" ? "hired" : "rejected-offer";
+      const { error: stageError } = await supabase.from("applications").update({ stage: nextStage }).eq("id", offer.applicationId);
+      if (stageError) {
+        console.warn("Failed to update application stage after offer decision", stageError);
+      }
+    }
+
     setOffers((currentOffers) =>
       currentOffers.map((offer) => {
         if (offer.id !== offerId) {
@@ -168,19 +291,16 @@ const TalentOffers = () => {
           status: nextStatus,
           decisionNote:
             nextStatus === "accepted"
-              ? "Offer accepted. Onboarding details will be shared shortly."
-              : "Offer declined. You can continue exploring other opportunities.",
+              ? "Accepted. The employer will follow up with onboarding details."
+              : "Declined. Keep an eye out for other opportunities that match your profile.",
         };
       }),
     );
 
     setStatusFilter(nextStatus);
     toast({
-      title: nextStatus === "accepted" ? "Offer accepted" : "Offer rejected",
-      description:
-        nextStatus === "accepted"
-          ? "The offer has been moved to Accepted."
-          : "The offer has been moved to Rejected.",
+      title: nextStatus === "accepted" ? "Offer accepted" : "Offer declined",
+      description: "Your response has been saved.",
     });
   };
 
@@ -239,7 +359,17 @@ const TalentOffers = () => {
           </Select>
         </div>
 
-        {filteredOffers.length > 0 ? (
+        {loading ? (
+          <div className="rounded-[2rem] border border-orange-100 bg-white/90 px-6 py-16 text-center shadow-sm">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-orange-50 text-orange-600 shadow-md">
+              <Clock3 className="h-7 w-7" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900">Loading offers</h2>
+            <p className="mx-auto mt-3 max-w-2xl text-base leading-7 text-slate-600">
+              Fetching your current offers from the database.
+            </p>
+          </div>
+        ) : filteredOffers.length > 0 ? (
           <div className="grid gap-5 xl:grid-cols-2">
             {filteredOffers.map((offer) => (
               <article
@@ -329,6 +459,14 @@ const TalentOffers = () => {
 
                 <div className="flex justify-end border-t border-orange-100 pt-5">
                   <div className="flex items-center gap-3">
+                    <Button
+                      type="button"
+                      onClick={() => handleViewOffer(offer)}
+                      className="gap-2 whitespace-nowrap rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md hover:from-orange-700 hover:to-orange-600"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      View Offer
+                    </Button>
                     {offer.status === "pending" ? (
                       <>
                         <Button
@@ -348,16 +486,7 @@ const TalentOffers = () => {
                           Decline
                         </Button>
                       </>
-                    ) : (
-                      <Button
-                        type="button"
-                        onClick={() => handleViewOffer(offer)}
-                        className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md hover:from-orange-700 hover:to-orange-600"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                        View Offer
-                      </Button>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               </article>

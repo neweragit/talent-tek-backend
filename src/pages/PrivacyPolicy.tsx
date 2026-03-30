@@ -72,6 +72,24 @@ const PrivacyPolicy = () => {
                 <h2 className="text-xl font-semibold text-slate-900 mb-2">8. Contact</h2>
                 <p>If you have privacy questions, contact support through the platform help center.</p>
               </section>
+
+              <section>
+                <h2 className="text-xl font-semibold text-slate-900 mb-2">9. Legal Consent (Data Sharing Law)</h2>
+                <p className="mb-4">
+                  If you are a talent on our platform, you must explicitly agree to the following:
+                </p>
+                <div className="bg-orange-50 border-l-4 border-orange-500 p-4 rounded">
+                  <p className="mb-3 text-sm">
+                    <strong>☐ Legal Agreement:</strong>
+                  </p>
+                  <p className="text-sm leading-relaxed">
+                    I hereby give my consent for the collection and processing of my personal data and contact details by TalenTek for the purpose of managing my registration process.
+                  </p>
+                  <p className="text-sm leading-relaxed mt-3">
+                    I also agree that my information may be securely stored and shared with authorized personnel for consideration in future recruitment or selection processes.
+                  </p>
+                </div>
+              </section>
             </div>
           </div>
         </div>

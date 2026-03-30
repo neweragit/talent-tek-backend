@@ -10,7 +10,6 @@ import ForRecruiters from "./pages/ForRecruiters";
 import ForTalents from "./pages/ForTalents";
 import Pricing from "./pages/Pricing";
 import Login from "./pages/Login";
-import RecruiterLogin from "./pages/RecruiterLogin";
 import GetStarted from "./pages/GetStarted";
 import TalentSignup from "./pages/signup/TalentSignup";
 import RecruiterSignup from "./pages/signup/RecruiterSignup";
@@ -27,6 +26,7 @@ import RecruiterInterviewers from "./pages/recruiter/RecruiterInterviewers";
 import RecruiterInterviews from "./pages/recruiter/RecruiterInterviews";
 import RecruiterPipeline from "./pages/recruiter/RecruiterPipeline";
 import RecruiterTickets from "./pages/recruiter/RecruiterTickets";
+import RecruiterLogin from "./pages/recruiter/RecruiterLogin";
 import NotFound from "./pages/NotFound";
 import CompanyProfile from "@/pages/recruiterAdmin/CompanyProfile";
 import RecruiterProfile from "./pages/recruiter/RecruiterProfile";
@@ -79,7 +79,6 @@ const App = () => {
               <Route path="/for-talents" element={<ForTalents />} />
               <Route path="/pricing" element={<Pricing />} />
               <Route path="/login" element={<Login />} />
-              <Route path="/recruiter/login" element={<RecruiterLogin />} />
               <Route path="/get-started" element={<GetStarted />} />
               <Route path="/services" element={<Services />} />
               <Route path="/services/:id" element={<ServiceDetails />} />
@@ -172,6 +171,7 @@ const App = () => {
               />
 
               {/* Recruiter Routes - Protected */}
+              <Route path="/recruiter/login" element={<RecruiterLogin />} />
               <Route
                 path="/recruiter/overview"
                 element={

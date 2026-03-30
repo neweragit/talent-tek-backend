@@ -31,7 +31,7 @@ import {
 import { Loader2 } from "lucide-react";
 
 
-type ApplicantStatus = "new" | "in-review" | "pipeline" | "rejected";
+type ApplicantStatus = "pending" | "in-progress" | "rejected" | "maybe" | "archived";
 
 type RecruiterJob = {
   id: string;
@@ -57,6 +57,7 @@ type Applicant = {
   skills: string[];
   status: ApplicantStatus;
   matchScore: number;
+  stage?: string | null;
 };
 
 
@@ -71,9 +72,9 @@ const getInitials = (name: string) =>
 
 const getStatusMeta = (status: ApplicantStatus) => {
   switch (status) {
-    case "pipeline":
+    case "in-progress":
       return {
-        label: "In Pipeline",
+        label: "In Progress",
         className: "border border-orange-200 bg-orange-100 text-orange-700",
       };
     case "rejected":
@@ -81,14 +82,20 @@ const getStatusMeta = (status: ApplicantStatus) => {
         label: "Rejected",
         className: "border border-orange-300 bg-orange-100 text-orange-800",
       };
-    case "in-review":
+    case "maybe":
       return {
-        label: "In Review",
-        className: "border border-orange-200 bg-orange-50 text-orange-700",
+        label: "Maybe",
+        className: "border border-yellow-200 bg-yellow-50 text-yellow-700",
       };
+    case "archived":
+      return {
+        label: "Archived",
+        className: "border border-slate-200 bg-slate-50 text-slate-700",
+      };
+    case "pending":
     default:
       return {
-        label: "New",
+        label: "Pending",
         className: "border border-orange-200 bg-orange-50 text-orange-700",
       };
   }
@@ -103,14 +110,21 @@ const formatAppliedDate = (dateString: string | null | undefined) => {
   }
 };
 
+const formatStageForDisplay = (stage: string | null | undefined): string => {
+  if (!stage) return "";
+  return stage
+    .split("-")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+};
+
 const mapDbStatusToUi = (dbStatus: string | null | undefined): ApplicantStatus => {
-  if (!dbStatus) return "new";
+  if (!dbStatus) return "pending";
   const status = String(dbStatus).toLowerCase();
-  if (status === "rejected" || status === "archived") return "rejected";
-  if (status === "pending") return "new";
-  if (status === "in-progress" || status === "interview-scheduled") return "in-review";
-  if (status === "offered" || status === "hired" || status === "maybe") return "pipeline";
-  return "new";
+  if (status === "in-progress" || status === "pending" || status === "rejected" || status === "maybe" || status === "archived") {
+    return status as ApplicantStatus;
+  }
+  return "pending";
 };
 
 const extractCvsObjectPathFromResumeUrl = (resumeUrl: string): string | null => {
@@ -181,8 +195,18 @@ export default function EmployerApplicants() {
       return;
     }
 
+    // Prevent moving to pipeline if already in a stage
+    if (selectedApplicant.stage) {
+      toast({
+        title: "Cannot move to pipeline",
+        description: `${selectedApplicant.name} is already in stage: ${formatStageForDisplay(selectedApplicant.stage)}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     // Optimistic UI update
-    setApplicants((current) => current.map((a) => (a.id === selectedApplicant.id ? { ...a, status: "pipeline" } : a)));
+    setApplicants((current) => current.map((a) => (a.id === selectedApplicant.id ? { ...a, status: "in-progress" } : a)));
 
     toast({
       title: "Moved to pipeline",
@@ -192,7 +216,7 @@ export default function EmployerApplicants() {
     try {
       await supabase
         .from("applications")
-        .update({ status: "in-progress", updated_at: new Date().toISOString() })
+        .update({ status: "in-progress", stage: "to-contact", updated_at: new Date().toISOString() })
         .eq("id", selectedApplicant.id);
     } catch (err) {
       console.error("Failed to update application status:", err);
@@ -217,10 +241,66 @@ export default function EmployerApplicants() {
     try {
       await supabase
         .from("applications")
-        .update({ status: "rejected", updated_at: new Date().toISOString() })
+        .update({ status: "rejected", stage: "to-contact", updated_at: new Date().toISOString() })
         .eq("id", selectedApplicant.id);
     } catch (err) {
       console.error("Failed to update application rejection:", err);
+    }
+  };
+
+  const handleMaybe = async () => {
+    if (!selectedApplicant) {
+      return;
+    }
+
+    // Prevent marking as maybe if already in a stage
+    if (selectedApplicant.stage) {
+      toast({
+        title: "Cannot mark as maybe",
+        description: `${selectedApplicant.name} is already in stage: ${formatStageForDisplay(selectedApplicant.stage)}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Optimistic UI update
+    setApplicants((current) => current.map((a) => (a.id === selectedApplicant.id ? { ...a, status: "maybe" } : a)));
+
+    toast({
+      title: "Added to maybe list",
+      description: `${selectedApplicant.name} has been added to your maybe list.`,
+    });
+
+    try {
+      await supabase
+        .from("applications")
+        .update({ status: "maybe", stage: "to-contact", updated_at: new Date().toISOString() })
+        .eq("id", selectedApplicant.id);
+    } catch (err) {
+      console.error("Failed to update application to maybe:", err);
+    }
+  };
+
+  const handleArchive = async () => {
+    if (!selectedApplicant) {
+      return;
+    }
+
+    // Optimistic UI update
+    setApplicants((current) => current.map((a) => (a.id === selectedApplicant.id ? { ...a, status: "rejected" } : a)));
+
+    toast({
+      title: "Application archived",
+      description: `${selectedApplicant.name} has been archived.`,
+    });
+
+    try {
+      await supabase
+        .from("applications")
+        .update({ status: "archived", stage: "to-contact", updated_at: new Date().toISOString() })
+        .eq("id", selectedApplicant.id);
+    } catch (err) {
+      console.error("Failed to archive application:", err);
     }
   };
 
@@ -351,7 +431,7 @@ export default function EmployerApplicants() {
         // Load applications for these jobs
         const { data: applicationRows, error: appsError } = await supabase
           .from("applications")
-          .select("id, job_id, talent_id, status, match_score, applied_at")
+          .select("id, job_id, talent_id, status, match_score, applied_at, stage")
           .in("job_id", jobIds);
 
         if (appsError) throw appsError;
@@ -404,6 +484,7 @@ export default function EmployerApplicants() {
             skills: (talent?.skills as string[]) || [],
             status: mapDbStatusToUi(app.status),
             matchScore: Number(app.match_score) || 0,
+            stage: app.stage || null,
           };
         });
 
@@ -570,7 +651,7 @@ export default function EmployerApplicants() {
                 type="button"
                 variant="outline"
                 onClick={() => setSelectedApplicantId(null)}
-                className="rounded-full border-orange-200 text-orange-700 hover:bg-orange-50"
+                className="rounded-full border-orange-200 bg-white text-orange-700 hover:bg-orange-50 hover:text-orange-800"
               >
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Back to Applicants
@@ -665,7 +746,7 @@ export default function EmployerApplicants() {
                   variant="outline"
                   disabled={!selectedApplicant.cvUrl || cvLoading}
                   onClick={() => void openCvPreview(selectedApplicant)}
-                  className="rounded-full border-orange-200 text-orange-700 hover:bg-orange-50 px-6 py-3 text-base font-semibold"
+                  className="rounded-full border-orange-200 bg-white text-orange-700 hover:bg-orange-50 hover:text-orange-800 px-6 py-3 text-base font-semibold"
                 >
                   {cvLoading ? (
                     <>
@@ -686,16 +767,33 @@ export default function EmployerApplicants() {
               <Button
                 type="button"
                 onClick={handleReject}
-                variant="outline"
-                className="rounded-full border-orange-200 text-orange-700 hover:bg-orange-50"
+                className="rounded-full bg-orange-600 text-white hover:bg-orange-700"
               >
                 <UserX className="mr-2 h-4 w-4" />
                 Reject
               </Button>
               <Button
                 type="button"
+                onClick={handleMaybe}
+                disabled={!!selectedApplicant?.stage}
+                className="rounded-full bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Clock3 className="mr-2 h-4 w-4" />
+                Maybe
+              </Button>
+              <Button
+                type="button"
+                onClick={handleArchive}
+                className="rounded-full bg-orange-600 text-white hover:bg-orange-700"
+              >
+                <Briefcase className="mr-2 h-4 w-4" />
+                Archive
+              </Button>
+              <Button
+                type="button"
                 onClick={handleMoveToPipeline}
-                className="rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white hover:from-orange-700 hover:to-orange-600"
+                disabled={!!selectedApplicant?.stage}
+                className="rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white hover:from-orange-700 hover:to-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <CheckCircle2 className="mr-2 h-4 w-4" />
                 Move to Pipeline
@@ -815,4 +913,3 @@ export default function EmployerApplicants() {
     </RecruiterLayout>
   );
 }
-

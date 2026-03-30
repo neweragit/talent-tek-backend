@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import RecruiterLayout from "@/components/layouts/RecruiterLayout";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +26,9 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
+import { useToast } from "@/hooks/use-toast";
 
 type TeamFilter = "all" | "Engineering" | "Product" | "Operations" | "Growth" | "Customer Success";
 type PriorityFilter = "all" | "Urgent" | "Steady" | "New";
@@ -38,7 +41,7 @@ type RecruiterStat = {
 };
 
 type ApplicationOpening = {
-  id: number;
+  id: string;
   role: string;
   team: Exclude<TeamFilter, "all">;
   location: string;
@@ -50,7 +53,7 @@ type ApplicationOpening = {
 };
 
 type HiringRateItem = {
-  id: number;
+  id: string;
   role: string;
   team: Exclude<TeamFilter, "all">;
   fillRate: number;
@@ -61,150 +64,53 @@ type HiringRateItem = {
   priority: Exclude<PriorityFilter, "all">;
 };
 
-const stats: RecruiterStat[] = [
-  { label: "Active Jobs", value: 18, desc: "Roles live across teams", icon: Briefcase },
-  { label: "Applications", value: 284, desc: "Candidates this month", icon: Users },
-  { label: "Interviews", value: 41, desc: "Upcoming conversations", icon: CalendarDays },
-  { label: "Offer Rate", value: "24%", desc: "Shortlist to offer", icon: TrendingUp },
-];
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 
-const applicationOpenings: ApplicationOpening[] = [
-  {
-    id: 1,
-    role: "Senior Frontend Engineer",
-    team: "Engineering",
-    location: "Remote, Africa",
-    monthlyApplications: 54,
-    newThisWeek: 12,
-    recruiter: "Nadia",
-    priority: "Urgent",
-    applicants: ["Sarah Kim", "Daniel James", "Rita Mensah"],
-  },
-  {
-    id: 2,
-    role: "Product Designer",
-    team: "Product",
-    location: "Lagos, Nigeria",
-    monthlyApplications: 38,
-    newThisWeek: 7,
-    recruiter: "Ibrahim",
-    priority: "Steady",
-    applicants: ["Maya Cole", "Omar Ali", "Jane Okafor"],
-  },
-  {
-    id: 3,
-    role: "Talent Operations Analyst",
-    team: "Operations",
-    location: "Hybrid, Nairobi",
-    monthlyApplications: 46,
-    newThisWeek: 9,
-    recruiter: "Samira",
-    priority: "New",
-    applicants: ["Amina Yusuf", "Chris Doe", "Leila Noor"],
-  },
-  {
-    id: 4,
-    role: "Growth Marketing Lead",
-    team: "Growth",
-    location: "Remote, EMEA",
-    monthlyApplications: 27,
-    newThisWeek: 5,
-    recruiter: "Nadia",
-    priority: "Steady",
-    applicants: ["Tina West", "Joseph Reed", "Abel Grant"],
-  },
-  {
-    id: 5,
-    role: "Customer Success Manager",
-    team: "Customer Success",
-    location: "Accra, Ghana",
-    monthlyApplications: 33,
-    newThisWeek: 6,
-    recruiter: "Ibrahim",
-    priority: "Urgent",
-    applicants: ["Martha Bell", "Idris Kane", "Yasmin Noor"],
-  },
-  {
-    id: 6,
-    role: "Backend Engineer",
-    team: "Engineering",
-    location: "Kigali, Rwanda",
-    monthlyApplications: 49,
-    newThisWeek: 11,
-    recruiter: "Samira",
-    priority: "Urgent",
-    applicants: ["David Hall", "Joy Adebayo", "Kelvin Obi"],
-  },
-];
+const asString = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  if (typeof value === "boolean") return String(value);
+  return value ? String(value) : "";
+};
 
-const hiringRateItems: HiringRateItem[] = [
-  {
-    id: 1,
-    role: "Senior Frontend Engineer",
-    team: "Engineering",
-    fillRate: 82,
-    hired: 3,
-    interviewing: 5,
-    avgDays: 18,
-    openSeats: 1,
-    priority: "Urgent",
-  },
-  {
-    id: 2,
-    role: "Product Designer",
-    team: "Product",
-    fillRate: 67,
-    hired: 2,
-    interviewing: 4,
-    avgDays: 22,
-    openSeats: 1,
-    priority: "Steady",
-  },
-  {
-    id: 3,
-    role: "Talent Operations Analyst",
-    team: "Operations",
-    fillRate: 74,
-    hired: 2,
-    interviewing: 3,
-    avgDays: 15,
-    openSeats: 2,
-    priority: "New",
-  },
-  {
-    id: 4,
-    role: "Growth Marketing Lead",
-    team: "Growth",
-    fillRate: 58,
-    hired: 1,
-    interviewing: 4,
-    avgDays: 27,
-    openSeats: 1,
-    priority: "Steady",
-  },
-  {
-    id: 5,
-    role: "Customer Success Manager",
-    team: "Customer Success",
-    fillRate: 79,
-    hired: 2,
-    interviewing: 2,
-    avgDays: 14,
-    openSeats: 1,
-    priority: "Urgent",
-  },
-  {
-    id: 6,
-    role: "Backend Engineer",
-    team: "Engineering",
-    fillRate: 71,
-    hired: 2,
-    interviewing: 6,
-    avgDays: 20,
-    openSeats: 2,
-    priority: "Urgent",
-  },
-];
+const asNullableString = (value: unknown): string | null => {
+  const str = asString(value).trim();
+  return str.length > 0 ? str : null;
+};
+
+const toTeamFilter = (profession: string | null | undefined, title: string | null | undefined): Exclude<TeamFilter, "all"> => {
+  const haystack = `${profession ?? ""} ${title ?? ""}`.toLowerCase();
+  if (/(frontend|backend|full[- ]?stack|engineer|developer|devops|software|data|qa|mobile)/.test(haystack)) {
+    return "Engineering";
+  }
+  if (/(product|designer|ux|ui|research)/.test(haystack)) {
+    return "Product";
+  }
+  if (/(growth|marketing|seo|brand|content)/.test(haystack)) {
+    return "Growth";
+  }
+  if (/(customer|support|success|account)/.test(haystack)) {
+    return "Customer Success";
+  }
+  return "Operations";
+};
+
+const toPriority = (monthlyApplications: number, newThisWeek: number, createdAt: string | null | undefined): Exclude<PriorityFilter, "all"> => {
+  const created = createdAt ? new Date(createdAt) : null;
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 7);
+
+  if (created && !Number.isNaN(created.getTime()) && created >= weekAgo && newThisWeek > 0) {
+    return "New";
+  }
+
+  if (monthlyApplications <= 5) {
+    return "Urgent";
+  }
+
+  return "Steady";
+};
 
 const getPriorityClasses = (priority: PriorityFilter) => {
   switch (priority) {
@@ -227,9 +133,329 @@ const getInitials = (name: string) =>
 
 export default function EmployerOverview() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [teamFilter, setTeamFilter] = useState<TeamFilter>("all");
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all");
+  const [loadingOverview, setLoadingOverview] = useState(true);
+  const [stats, setStats] = useState<RecruiterStat[]>([
+    { label: "Active Jobs", value: 0, desc: "Roles live across teams", icon: Briefcase },
+    { label: "Applications", value: 0, desc: "Candidates this month", icon: Users },
+    { label: "Interviews", value: 0, desc: "Upcoming conversations", icon: CalendarDays },
+    { label: "Offer Rate", value: "0%", desc: "Shortlist to offer", icon: TrendingUp },
+  ]);
+  const [applicationOpenings, setApplicationOpenings] = useState<ApplicationOpening[]>([]);
+  const [hiringRateItems, setHiringRateItems] = useState<HiringRateItem[]>([]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    const loadOverview = async () => {
+      setLoadingOverview(true);
+
+      if (!user?.id) {
+        if (!ignore) {
+          setApplicationOpenings([]);
+          setHiringRateItems([]);
+          setStats((previous) =>
+            previous.map((stat) =>
+              stat.label === "Offer Rate" ? { ...stat, value: "0%" } : { ...stat, value: 0 },
+            ),
+          );
+          setLoadingOverview(false);
+        }
+        return;
+      }
+
+      try {
+        const { data: membership, error: membershipError } = await supabase
+          .from("employer_team_members")
+          .select("employer_id, first_name, last_name")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (membershipError) {
+          throw membershipError;
+        }
+
+        const memberRecord = asRecord(membership);
+        const employerId = asNullableString(memberRecord.employer_id);
+        const recruiterName =
+          [asNullableString(memberRecord.first_name), asNullableString(memberRecord.last_name)]
+            .filter(Boolean)
+            .join(" ")
+            .trim() ||
+          user.name ||
+          "Recruiter";
+
+        if (!employerId) {
+          if (!ignore) {
+            setApplicationOpenings([]);
+            setHiringRateItems([]);
+          }
+          return;
+        }
+
+        const { data: jobRows, error: jobsError } = await supabase
+          .from("jobs")
+          .select("id, title, profession, location, positions_available, status, created_at")
+          .eq("employer_id", employerId)
+          .order("created_at", { ascending: false });
+
+        if (jobsError) {
+          throw jobsError;
+        }
+
+        const jobs = (jobRows || []).map((row) => asRecord(row));
+        const activeJobs = jobs.filter((job) => asNullableString(job.status) === "published");
+        const jobIds = jobs.map((job) => asNullableString(job.id)).filter(Boolean) as string[];
+
+        const { data: appRows, error: appsError } = jobIds.length
+          ? await supabase
+              .from("applications")
+              .select("id, job_id, talent_id, stage, applied_at")
+              .in("job_id", jobIds)
+          : { data: [], error: null };
+
+        if (appsError) {
+          throw appsError;
+        }
+
+        const applications = (appRows || []).map((row) => asRecord(row));
+        const applicationIds = applications.map((app) => asNullableString(app.id)).filter(Boolean) as string[];
+        const talentIds = Array.from(
+          new Set(applications.map((app) => asNullableString(app.talent_id)).filter(Boolean) as string[]),
+        );
+
+        const [talentsResult, offersResult, interviewsResult] = await Promise.all([
+          talentIds.length ? supabase.from("talents").select("id, full_name").in("id", talentIds) : { data: [], error: null },
+          applicationIds.length
+            ? supabase
+                .from("offers")
+                .select("application_id, status, updated_at")
+                .in("application_id", applicationIds)
+                .order("updated_at", { ascending: false })
+            : { data: [], error: null },
+          applicationIds.length
+            ? supabase.from("interviews").select("application_id, scheduled_date, status").in("application_id", applicationIds)
+            : { data: [], error: null },
+        ]);
+
+        if (talentsResult.error) {
+          throw talentsResult.error;
+        }
+
+        const talentNameById = new Map<string, string>(
+          (talentsResult.data || [])
+            .map((row) => {
+              const record = asRecord(row);
+              const id = asNullableString(record.id);
+              const name = asNullableString(record.full_name);
+              if (!id || !name) return null;
+              return [id, name] as const;
+            })
+            .filter(Boolean) as Array<readonly [string, string]>,
+        );
+
+        const offerStatusByApplicationId = new Map<string, string>();
+        if (!offersResult.error && offersResult.data) {
+          for (const row of offersResult.data as unknown[]) {
+            const record = asRecord(row);
+            const appId = asNullableString(record.application_id);
+            const status = asNullableString(record.status);
+            if (!appId || !status) continue;
+            if (!offerStatusByApplicationId.has(appId)) {
+              offerStatusByApplicationId.set(appId, status);
+            }
+          }
+        }
+
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const weekAgo = new Date(now);
+        weekAgo.setDate(weekAgo.getDate() - 7);
+
+        const toEffectiveStage = (app: Record<string, unknown>) => {
+          const appId = asNullableString(app.id);
+          const offerStatus = appId ? offerStatusByApplicationId.get(appId) : undefined;
+          if (offerStatus === "accepted") return "hired";
+          if (offerStatus === "refused" || offerStatus === "rejected") return "rejected-offer";
+          return asNullableString(app.stage);
+        };
+
+        const applicationsThisMonth = applications.filter((app) => {
+          const appliedAt = asNullableString(app.applied_at);
+          if (!appliedAt) return false;
+          const date = new Date(appliedAt);
+          return !Number.isNaN(date.getTime()) && date >= startOfMonth;
+        });
+
+        const interviews = (interviewsResult.data || []).map((row) => asRecord(row));
+        const upcomingInterviews = interviews.filter((row) => {
+          const scheduled = asNullableString(row.scheduled_date);
+          const status = asNullableString(row.status)?.toLowerCase();
+          if (!scheduled) return false;
+          const date = new Date(scheduled);
+          if (Number.isNaN(date.getTime()) || date < now) return false;
+          return status === "scheduled" || status === "confirmed" || status === "rescheduled";
+        });
+
+        const totalOffers = (offersResult.data || []).length;
+        const offerRateValue =
+          applications.length > 0 ? `${Math.round((totalOffers / applications.length) * 100)}%` : "0%";
+
+        const appsByJobId = new Map<string, Record<string, unknown>[]>(jobIds.map((id) => [id, []]));
+        for (const app of applications) {
+          const jobId = asNullableString(app.job_id);
+          if (!jobId) continue;
+          const list = appsByJobId.get(jobId) ?? [];
+          list.push(app);
+          appsByJobId.set(jobId, list);
+        }
+
+        const computedOpenings: ApplicationOpening[] = activeJobs.map((job) => {
+          const jobId = asString(job.id);
+          const title = asString(job.title) || "Open role";
+          const profession = asNullableString(job.profession);
+          const location = asString(job.location) || "Remote";
+          const createdAt = asNullableString(job.created_at);
+          const team = toTeamFilter(profession, title);
+          const appsForJob = appsByJobId.get(jobId) ?? [];
+
+          const monthlyApplications = appsForJob.filter((app) => {
+            const appliedAt = asNullableString(app.applied_at);
+            if (!appliedAt) return false;
+            const date = new Date(appliedAt);
+            return !Number.isNaN(date.getTime()) && date >= startOfMonth;
+          }).length;
+
+          const newThisWeek = appsForJob.filter((app) => {
+            const appliedAt = asNullableString(app.applied_at);
+            if (!appliedAt) return false;
+            const date = new Date(appliedAt);
+            return !Number.isNaN(date.getTime()) && date >= weekAgo;
+          }).length;
+
+          const priority = toPriority(monthlyApplications, newThisWeek, createdAt);
+
+          const applicants = appsForJob
+            .slice()
+            .sort((a, b) => {
+              const aDate = new Date(asNullableString(a.applied_at) ?? 0).getTime();
+              const bDate = new Date(asNullableString(b.applied_at) ?? 0).getTime();
+              return bDate - aDate;
+            })
+            .slice(0, 3)
+            .map((app) => talentNameById.get(asString(app.talent_id)) ?? "Candidate");
+
+          return {
+            id: jobId,
+            role: title,
+            team,
+            location,
+            monthlyApplications,
+            newThisWeek,
+            recruiter: recruiterName,
+            priority,
+            applicants,
+          };
+        });
+
+        const computedHiringRates: HiringRateItem[] = activeJobs.map((job) => {
+          const jobId = asString(job.id);
+          const title = asString(job.title) || "Open role";
+          const profession = asNullableString(job.profession);
+          const team = toTeamFilter(profession, title);
+          const appsForJob = appsByJobId.get(jobId) ?? [];
+
+          const positionsAvailable = Number(asString(job.positions_available) || "1") || 1;
+          const hiredApps = appsForJob.filter((app) => toEffectiveStage(app) === "hired");
+          const hired = hiredApps.length;
+
+          const interviewing = appsForJob.filter((app) => {
+            const stage = toEffectiveStage(app);
+            return stage === "talent-acquisition" || stage === "technical" || stage === "leadership";
+          }).length;
+
+          const openSeats = Math.max(positionsAvailable - hired, 0);
+          const fillRate = Math.max(0, Math.min(100, Math.round((hired / positionsAvailable) * 100)));
+
+          const avgDays = (() => {
+            const durations = hiredApps
+              .map((app) => {
+                const appliedAt = asNullableString(app.applied_at);
+                if (!appliedAt) return null;
+                const applied = new Date(appliedAt);
+                if (Number.isNaN(applied.getTime())) return null;
+                return Math.max(0, Math.round((now.getTime() - applied.getTime()) / (1000 * 60 * 60 * 24)));
+              })
+              .filter((value): value is number => typeof value === "number");
+
+            if (durations.length === 0) return 0;
+            return Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length);
+          })();
+
+          const monthlyApplications = appsForJob.filter((app) => {
+            const appliedAt = asNullableString(app.applied_at);
+            if (!appliedAt) return false;
+            const date = new Date(appliedAt);
+            return !Number.isNaN(date.getTime()) && date >= startOfMonth;
+          }).length;
+
+          const newThisWeek = appsForJob.filter((app) => {
+            const appliedAt = asNullableString(app.applied_at);
+            if (!appliedAt) return false;
+            const date = new Date(appliedAt);
+            return !Number.isNaN(date.getTime()) && date >= weekAgo;
+          }).length;
+
+          const priority = toPriority(monthlyApplications, newThisWeek, asNullableString(job.created_at));
+
+          return {
+            id: jobId,
+            role: title,
+            team,
+            fillRate,
+            hired,
+            interviewing,
+            avgDays,
+            openSeats,
+            priority,
+          };
+        });
+
+        if (!ignore) {
+          setStats([
+            { label: "Active Jobs", value: activeJobs.length, desc: "Roles live across teams", icon: Briefcase },
+            { label: "Applications", value: applicationsThisMonth.length, desc: "Candidates this month", icon: Users },
+            { label: "Interviews", value: upcomingInterviews.length, desc: "Upcoming conversations", icon: CalendarDays },
+            { label: "Offer Rate", value: offerRateValue, desc: "Shortlist to offer", icon: TrendingUp },
+          ]);
+          setApplicationOpenings(computedOpenings);
+          setHiringRateItems(computedHiringRates);
+        }
+      } catch (error) {
+        console.error("Failed to load recruiter overview", error);
+        if (!ignore) {
+          setApplicationOpenings([]);
+          setHiringRateItems([]);
+          toast({
+            title: "Unable to load overview",
+            description: "Please try again later.",
+            variant: "destructive",
+          });
+        }
+      } finally {
+        if (!ignore) setLoadingOverview(false);
+      }
+    };
+
+    void loadOverview();
+    return () => {
+      ignore = true;
+    };
+  }, [toast, user?.id, user?.name]);
 
   const filteredApplicationOpenings = useMemo(() => {
     const normalizedSearch = searchQuery.trim().toLowerCase();
@@ -245,7 +471,7 @@ export default function EmployerOverview() {
 
       return matchesSearch && matchesTeam && matchesPriority;
     });
-  }, [priorityFilter, searchQuery, teamFilter]);
+  }, [applicationOpenings, priorityFilter, searchQuery, teamFilter]);
 
   const filteredHiringRateItems = useMemo(() => {
     const normalizedSearch = searchQuery.trim().toLowerCase();
@@ -257,10 +483,11 @@ export default function EmployerOverview() {
 
       return matchesSearch && matchesTeam && matchesPriority;
     });
-  }, [priorityFilter, searchQuery, teamFilter]);
+  }, [hiringRateItems, priorityFilter, searchQuery, teamFilter]);
 
-  const overviewLabel =
-    filteredApplicationOpenings.length === applicationOpenings.length
+  const overviewLabel = loadingOverview
+    ? "Loading overview..."
+    : filteredApplicationOpenings.length === applicationOpenings.length
       ? `Showing all ${applicationOpenings.length} active openings`
       : `Showing ${filteredApplicationOpenings.length} of ${applicationOpenings.length} active openings`;
 
@@ -291,7 +518,7 @@ export default function EmployerOverview() {
                   {overviewLabel}
                 </div>
                 <Button
-                  onClick={() => navigate("/super-admin-company/pipeline")}
+                  onClick={() => navigate("/recruiter/pipeline")}
                   className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 px-5 text-white shadow-lg hover:from-orange-700 hover:to-orange-600"
                 >
                   <ArrowRight className="h-4 w-4" />

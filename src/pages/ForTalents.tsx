@@ -57,11 +57,17 @@ const ForTalents = () => {
               Get matched with verified employers, showcase your unique skills, and land opportunities that accelerate your career growth.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button asChild className="rounded-full border-2 border-orange-500 bg-white text-white font-bold px-8 py-4 hover:bg-orange-50 transition-all duration-300">
-                <Link to="/signup/talent" className="text-white hover:text-white">Create Talent Profile</Link>
+              <Button
+                asChild
+                className="rounded-full bg-orange-600 text-white font-bold px-8 py-4 hover:bg-orange-700 transition-all duration-300"
+              >
+                <Link to="/signup/talent">Create Talent Profile</Link>
               </Button>
-              <Button asChild className="rounded-full border-2 border-orange-500 bg-white text-white font-bold px-8 py-4 hover:bg-orange-50 transition-all duration-300">
-                <Link to="/pricing" className="text-white hover:text-white">View Pricing</Link>
+              <Button
+                asChild
+                className="rounded-full bg-orange-600 text-white font-bold px-8 py-4 hover:bg-orange-700 transition-all duration-300"
+              >
+                <Link to="/pricing">View Pricing</Link>
               </Button>
             </div>
           </div>

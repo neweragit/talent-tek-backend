@@ -121,7 +121,7 @@ const RecruiterLogin = () => {
                   id="recruiter-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                  placeholder="password"
                   required
                   disabled={isLoading}
                   className="h-12 border-0 bg-orange-50 focus:ring-2 focus:ring-orange-500"

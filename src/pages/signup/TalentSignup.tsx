@@ -15,13 +15,13 @@ import { IdCard } from "lucide-react";
 import bcrypt from "bcryptjs";
 
 const steps = [
-  { title: "Account Setup", description: "Step 1 of 7" },
-  { title: "Upload Your CV", description: "Step 2 of 7" },
-  { title: "Personal Information", description: "Step 3 of 7" },
-  { title: "Professional Profile", description: "Step 4 of 7" },
-  { title: "Skills & Preferences", description: "Step 5 of 7" },
-  { title: "Professional Links", description: "Step 6 of 7" },
-  { title: "Terms & Consent", description: "Step 7 of 7" },
+  { title: "Account Setup", description: "Create your account." },
+  { title: "Upload Your CV", description: "Upload your resume." },
+  { title: "Personal Information", description: "Tell us about you." },
+  { title: "Professional Profile", description: "Share your experience and profile." },
+  { title: "Skills & Preferences", description: "Select your skills and preferences." },
+  { title: "Professional Links", description: "Add your professional links." },
+  { title: "Terms & Consent", description: "Review and accept the terms." },
 ];
 
 const positionOptions = [
@@ -381,12 +381,7 @@ const TalentSignup = () => {
                 {/* Error Message */}
                 {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
 
-                {/* Stepper indicator */}
-                <div className="flex justify-center mb-6 flex-wrap gap-1">
-                  {steps.map((s, idx) => (
-                    <div key={s.title} className={`w-6 h-6 rounded-full flex items-center justify-center mx-1 text-xs font-bold border-2 ${step === idx + 1 ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-orange-500 border-orange-200'}`}>{idx + 1}</div>
-                  ))}
-                </div>
+                {/* Stepper indicator intentionally hidden */}
 
                 {/* Step 1: Account Setup */}
                 {step === 1 && (
@@ -602,7 +597,7 @@ const TalentSignup = () => {
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-semibold text-slate-900">Carte Entrepreneur</span>
+                            <span className="font-semibold text-slate-900">Auto-entrepreneur (Algérie)</span>
                             {form.hasCarteEntrepreneur && (
                               <span className="text-xs font-medium uppercase tracking-wide text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full">
                                 Selected
@@ -610,7 +605,7 @@ const TalentSignup = () => {
                             )}
                           </div>
                           <p className="text-sm text-slate-600 mt-1 leading-relaxed">
-                            I hold an Algerian <span className="font-medium text-slate-800">Carte d’entrepreneur</span> (entrepreneur card).
+                            I am registered in Algeria as an <span className="font-medium text-slate-800">auto-entrepreneur</span> (carte d’entrepreneur).
                             This helps employers know I can work as an independent contractor where it applies.
                           </p>
                         </div>
@@ -662,13 +657,13 @@ const TalentSignup = () => {
                   <form className="space-y-5">
                     <div className="text-sm text-gray-700 mb-4">
                       By signing up, you agree to our{" "}
-                      <Link to="/terms-of-service" className="text-orange-600 underline">
+                      <a href="/terms-of-service" target="_blank" rel="noreferrer" className="text-orange-600 underline">
                         Terms of Service
-                      </Link>{" "}
+                      </a>{" "}
                       and{" "}
-                      <Link to="/privacy-policy" className="text-orange-600 underline">
+                      <a href="/privacy-policy" target="_blank" rel="noreferrer" className="text-orange-600 underline">
                         Privacy Policy
-                      </Link>.
+                      </a>.
                     </div>
                     <div className="flex gap-3">
                       <Button variant="outline" type="button" onClick={() => setStep(step - 1)} className="w-full" disabled={loading}>Back</Button>

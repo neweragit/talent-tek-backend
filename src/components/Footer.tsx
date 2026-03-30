@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Github, Linkedin, Twitter, Mail } from "lucide-react";
+import logo from "@/logo/logo.jfif";
 
 const Footer = () => {
   const footerSections = [
@@ -33,8 +34,8 @@ const Footer = () => {
     {
       title: "Legal",
       links: [
-        { name: "Privacy Policy", path: "/" },
-        { name: "Terms of Service", path: "/" },
+        { name: "Privacy Policy", path: "/privacy-policy" },
+        { name: "Terms of Service", path: "/terms-of-service" },
         { name: "Cookie Policy", path: "/" },
         { name: "GDPR", path: "/" },
       ],
@@ -69,7 +70,7 @@ const Footer = () => {
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-8 mb-8">
           <div className="col-span-2 md:col-span-4 lg:col-span-1">
             <Link to="/" className="inline-flex items-center gap-2 mb-4">
-              <img src="/src/logo/logo.jfif" alt="TalenTek" className="h-10 w-10" />
+              <img src={logo} alt="TalenTek" className="h-10 w-10" />
               <span className="text-3xl font-bold text-white">TalenTek</span>
             </Link>
             <p className="text-sm text-gray-300">

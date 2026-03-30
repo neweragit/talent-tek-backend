@@ -1,17 +1,27 @@
 import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { DayPicker } from "react-day-picker";
+import { startOfDay } from "date-fns";
 
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
 
 export type CalendarProps = React.ComponentProps<typeof DayPicker>;
 
-function Calendar({ className, classNames, showOutsideDays = true, ...props }: CalendarProps) {
+function Calendar({ className, classNames, showOutsideDays = true, disabled: disabledProp, ...props }: CalendarProps) {
+  const today = startOfDay(new Date());
+  const disabled =
+    disabledProp == null
+      ? { before: today }
+      : Array.isArray(disabledProp)
+        ? [...disabledProp, { before: today }]
+        : [disabledProp, { before: today }];
+
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
       className={cn("p-3", className)}
+      disabled={disabled}
       classNames={{
         months: "flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0",
         month: "space-y-4",

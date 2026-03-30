@@ -1,40 +1,14 @@
 import { useState, useEffect } from "react";
 import TechnicalInterviewLayout from "@/components/layouts/technicalInterview/TechnicalInterviewLayout";
-import { Calendar, Users, CheckCircle, Clock, Code, TrendingUp, Award, Target } from "lucide-react";
+import { Calendar, Users, CheckCircle, Code } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 
 const TechnicalInterviewOverview = () => {
   const { user } = useAuth();
-  const [stats, setStats] = useState([
-    {
-      title: "Upcoming Interviews",
-      value: 0,
-      description: "Scheduled this week",
-      icon: Calendar,
-    },
-    {
-      title: "Pending Reviews",
-      value: 0,
-      description: "Awaiting evaluation",
-      icon: Users,
-    },
-    {
-      title: "Completed",
-      value: 0,
-      description: "This month",
-      icon: CheckCircle,
-    },
-    {
-      title: "In Progress",
-      value: 0,
-      description: "Today",
-      icon: Clock,
-    },
-  ]);
+  const [kpis, setKpis] = useState({ total: 0, upcoming: 0, pending: 0, completed: 0 });
 
   const [recentInterviews, setRecentInterviews] = useState([]);
-  const [topSkillsAssessed, setTopSkillsAssessed] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -47,138 +21,88 @@ const TechnicalInterviewOverview = () => {
     try {
       setLoading(true);
 
-      // Fetch interview statistics
-      const now = new Date();
-      const startOfWeek = new Date(now);
-      startOfWeek.setDate(now.getDate() - now.getDay());
-      startOfWeek.setHours(0, 0, 0, 0);
+      const interviewerRes = await supabase
+        .from("interviewers")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("interview_type", "technical")
+        .maybeSingle();
 
-      const endOfWeek = new Date(startOfWeek);
-      endOfWeek.setDate(startOfWeek.getDate() + 6);
-      endOfWeek.setHours(23, 59, 59, 999);
+      const interviewerId = interviewerRes.data?.id ?? null;
+      if (!interviewerId) {
+        setKpis({ total: 0, upcoming: 0, pending: 0, completed: 0 });
+        setRecentInterviews([]);
+        setLoading(false);
+        return;
+      }
 
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const startOfDay = new Date(now);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(now);
-      endOfDay.setHours(23, 59, 59, 999);
-
-      // Get interviews for this interviewer
+      // Get interviews for this interviewer (REAL DB data + review presence)
       const { data: interviews, error: interviewsError } = await supabase
-        .from('interviews')
-        .select(`
-          id,
-          status,
-          scheduled_date,
-          interview_type,
-          applications (
-            talents (
-              full_name
-            ),
-            jobs (
-              title
-            )
-          )
-        `)
-        .eq('interviewer_id', user.id)
-        .eq('interview_type', 'technical');
+        .from("interviews")
+        .select(
+          [
+            "id,",
+            "status,",
+            "scheduled_date,",
+            "duration_minutes,",
+            "interview_type,",
+            "application:applications(id,job:jobs(title),talent:talents(full_name)),",
+            "review:interview_reviews(id)",
+          ].join("")
+        )
+        .eq("interviewer_id", interviewerId)
+        .eq("interview_type", "technical");
 
       if (interviewsError) throw interviewsError;
 
-      // Calculate stats
-      const upcomingCount = interviews?.filter(interview =>
-        interview.status === 'scheduled' &&
-        new Date(interview.scheduled_date) >= startOfWeek &&
-        new Date(interview.scheduled_date) <= endOfWeek
-      ).length || 0;
+      const now = new Date();
+      const total = interviews?.length || 0;
+      const upcoming = interviews?.filter((it: any) => {
+        const status = String(it.status || "");
+        if (!["scheduled", "confirmed", "rescheduled"].includes(status)) return false;
+        const dt = it.scheduled_date ? new Date(it.scheduled_date) : null;
+        return !!dt && dt.getTime() >= now.getTime();
+      }).length || 0;
 
-      const pendingReviewsCount = interviews?.filter(interview =>
-        interview.status === 'completed'
-      ).length || 0;
+      const pending = interviews?.filter((it: any) => {
+        if (String(it.status) !== "completed") return false;
+        const review = Array.isArray(it.review) ? it.review[0] : it.review;
+        return !review;
+      }).length || 0;
 
-      const completedThisMonthCount = interviews?.filter(interview =>
-        interview.status === 'completed' &&
-        new Date(interview.scheduled_date) >= startOfMonth
-      ).length || 0;
+      const completed = interviews?.filter((it: any) => {
+        if (String(it.status) !== "completed") return false;
+        const review = Array.isArray(it.review) ? it.review[0] : it.review;
+        return !!review;
+      }).length || 0;
 
-      const inProgressTodayCount = interviews?.filter(interview =>
-        (interview.status === 'confirmed' || interview.status === 'scheduled') &&
-        new Date(interview.scheduled_date) >= startOfDay &&
-        new Date(interview.scheduled_date) <= endOfDay
-      ).length || 0;
-
-      setStats([
-        {
-          title: "Upcoming Interviews",
-          value: upcomingCount,
-          description: "Scheduled this week",
-          icon: Calendar,
-        },
-        {
-          title: "Pending Reviews",
-          value: pendingReviewsCount,
-          description: "Awaiting evaluation",
-          icon: Users,
-        },
-        {
-          title: "Completed",
-          value: completedThisMonthCount,
-          description: "This month",
-          icon: CheckCircle,
-        },
-        {
-          title: "In Progress",
-          value: inProgressTodayCount,
-          description: "Today",
-          icon: Clock,
-        },
-      ]);
+      setKpis({ total, upcoming, pending, completed });
 
       // Get recent interviews (last 5)
       const recentOnes = interviews
         ?.sort((a, b) => new Date(b.scheduled_date) - new Date(a.scheduled_date))
         .slice(0, 5)
-        .map(interview => ({
-          id: interview.id,
-          candidate: interview.applications?.talents?.full_name || 'Unknown',
-          role: interview.applications?.jobs?.title || 'Unknown Position',
-          status: interview.status === 'completed' ? 'Completed' :
-                  interview.status === 'scheduled' ? 'Scheduled' : 'Pending Review',
-          score: interview.status === 'completed' ? Math.floor(Math.random() * 30) + 70 : null, // Mock score
-          date: new Date(interview.scheduled_date).toLocaleDateString()
-        })) || [];
+        .map((interview: any) => {
+          const application = Array.isArray(interview.application) ? interview.application[0] : interview.application;
+          const talent = Array.isArray(application?.talent) ? application?.talent?.[0] : application?.talent;
+          const job = Array.isArray(application?.job) ? application?.job?.[0] : application?.job;
+          const review = Array.isArray(interview.review) ? interview.review[0] : interview.review;
+
+          return {
+            id: interview.id,
+            candidate: talent?.full_name || "Unknown",
+            role: job?.title || "Unknown Position",
+            status: (() => {
+              if (interview.status === "completed") return review ? "Completed" : "Pending Review";
+              if (interview.status === "scheduled" || interview.status === "confirmed" || interview.status === "rescheduled") return "Scheduled";
+              return String(interview.status || "Scheduled");
+            })(),
+            score: interview.status === "completed" ? Math.floor(Math.random() * 30) + 70 : null, // Mock score
+            date: new Date(interview.scheduled_date).toLocaleDateString(),
+          };
+        }) || [];
 
       setRecentInterviews(recentOnes);
-
-      // Get top skills from interviewer expertise
-      const { data: interviewer, error: interviewerError } = await supabase
-        .from('interviewers')
-        .select('expertise')
-        .eq('user_id', user.id)
-        .single();
-
-      if (!interviewerError && interviewer?.expertise) {
-        const skillCounts = {};
-        interviewer.expertise.forEach(skill => {
-          skillCounts[skill] = (skillCounts[skill] || 0) + 1;
-        });
-
-        const topSkills = Object.entries(skillCounts)
-          .sort(([,a], [,b]) => b - a)
-          .slice(0, 5)
-          .map(([skill, count]) => ({ skill, count }));
-
-        setTopSkillsAssessed(topSkills);
-      } else {
-        // Fallback skills if no expertise data
-        setTopSkillsAssessed([
-          { skill: "Algorithms & Data Structures", count: 25 },
-          { skill: "System Design", count: 22 },
-          { skill: "Problem Solving", count: 20 },
-          { skill: "Coding Best Practices", count: 18 },
-          { skill: "Database Design", count: 15 },
-        ]);
-      }
 
     } catch (error) {
       console.error('Error fetching overview data:', error);
@@ -203,62 +127,32 @@ const TechnicalInterviewOverview = () => {
           </p>
         </div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
-          {stats.map((stat) => {
-            const Icon = stat.icon;
+        {/* KPIs (moved from Interviews page) */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10">
+          {[
+            { title: "Total", value: kpis.total, icon: Code },
+            { title: "Upcoming", value: kpis.upcoming, icon: Calendar },
+            { title: "Pending", value: kpis.pending, icon: Users },
+            { title: "Completed", value: kpis.completed, icon: CheckCircle },
+          ].map((item) => {
+            const Icon = item.icon;
             return (
-              <div key={stat.title} className="bg-white rounded-3xl border border-orange-100 shadow-xl p-6 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300">
+              <div
+                key={item.title}
+                className="bg-white rounded-3xl border border-orange-100 shadow-xl p-6 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300"
+              >
                 <div className="flex items-center gap-4">
                   <div className="w-14 h-14 rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 flex items-center justify-center shadow-lg">
                     <Icon className="w-7 h-7 text-white" />
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500 font-medium">{stat.title}</p>
-                    <p className="text-2xl font-bold text-slate-900">{stat.value}</p>
-                    <p className="text-xs text-gray-400">{stat.description}</p>
+                    <p className="text-sm text-gray-500 font-medium">{item.title}</p>
+                    <p className="text-2xl font-bold text-slate-900">{item.value}</p>
                   </div>
                 </div>
               </div>
             );
           })}
-        </div>
-
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">
-          {/* Interview Status Chart - Coming Soon */}
-          <div className="bg-white rounded-3xl border border-orange-100 shadow-xl p-6">
-            <h2 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-orange-600" />
-              Interview Status Distribution
-            </h2>
-            <div className="h-64 flex items-center justify-center bg-orange-50/50 rounded-2xl border border-orange-100">
-              <div className="text-center">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 flex items-center justify-center mx-auto mb-4 shadow-lg">
-                  <TrendingUp className="w-8 h-8 text-white" />
-                </div>
-                <p className="text-lg font-bold text-slate-900">Coming Soon</p>
-                <p className="text-sm text-gray-500">Analytics dashboard in development</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Skills Assessed - Coming Soon */}
-          <div className="bg-white rounded-3xl border border-orange-100 shadow-xl p-6">
-            <h2 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
-              <Award className="w-5 h-5 text-orange-600" />
-              Technical Skills Assessed
-            </h2>
-            <div className="h-64 flex items-center justify-center bg-orange-50/50 rounded-2xl border border-orange-100">
-              <div className="text-center">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 flex items-center justify-center mx-auto mb-4 shadow-lg">
-                  <Award className="w-8 h-8 text-white" />
-                </div>
-                <p className="text-lg font-bold text-slate-900">Coming Soon</p>
-                <p className="text-sm text-gray-500">Skills breakdown in development</p>
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Recent Interviews */}
@@ -297,22 +191,6 @@ const TechnicalInterviewOverview = () => {
                     {interview.status}
                   </span>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Top Skills Assessed */}
-        <div className="bg-white rounded-3xl border border-orange-100 shadow-xl p-6 sm:p-8">
-          <h2 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-            <Target className="w-5 h-5 text-orange-600" />
-            Top Skills Assessed This Month
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-            {topSkillsAssessed.map((item, idx) => (
-              <div key={idx} className="bg-orange-50/50 rounded-2xl p-4 text-center hover:bg-orange-50 transition-colors">
-                <p className="text-2xl font-bold text-orange-600">{item.count}</p>
-                <p className="text-sm text-gray-700 font-medium">{item.skill}</p>
               </div>
             ))}
           </div>

@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import TalentLayout from "@/components/layouts/TalentLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
 import {
   CalendarDays,
   CheckCircle2,
@@ -21,7 +23,7 @@ type InterviewType = "video" | "phone" | "in-person";
 type InterviewStatus = "upcoming" | "completed" | "cancelled";
 
 interface Interview {
-  id: number;
+  id: string;
   company: string;
   companyLogo: string;
   jobTitle: string;
@@ -36,38 +38,43 @@ interface Interview {
   notes?: string;
 }
 
-const technicalInterviewsSeed: Interview[] = [
-  {
-    id: 1,
-    company: "Andela",
-    companyLogo: "AN",
-    jobTitle: "Senior Frontend Engineer",
-    interviewerName: "Nora Mensah",
-    interviewerRole: "Engineering Manager",
-    date: "24/11/2025",
-    time: "03:30 PM",
-    duration: "60 mins",
-    type: "video",
-    meetingLink: "https://meet.google.com/it-demo-room",
-    status: "upcoming",
-    notes: "Deep-dive session focused on React architecture, testing decisions, and real-world debugging trade-offs.",
-  },
-  {
-    id: 2,
-    company: "Moniepoint",
-    companyLogo: "MP",
-    jobTitle: "Platform Engineer",
-    interviewerName: "Tolu Adebayo",
-    interviewerRole: "Principal Engineer",
-    date: "16/11/2025",
-    time: "11:00 AM",
-    duration: "75 mins",
-    type: "video",
-    meetingLink: "https://zoom.us/j/technical-review",
-    status: "completed",
-    notes: "Covered API reliability, observability strategy, and production incident response process with the platform team.",
-  },
-];
+const getCompanyInitials = (company: string) => {
+  const words = company
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+
+  if (words.length === 0) {
+    return "TT";
+  }
+
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+
+  return words
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
+};
+
+const toInterviewStatus = (status: string | null | undefined): InterviewStatus => {
+  const normalized = (status ?? "").toLowerCase();
+  if (normalized === "completed") return "completed";
+  if (normalized === "cancelled" || normalized === "no-show") return "cancelled";
+  return "upcoming";
+};
+
+const formatDateTime = (scheduledDate: string | null | undefined) => {
+  if (!scheduledDate) return { date: "Unknown", time: "Unknown" };
+  const date = new Date(scheduledDate);
+  if (Number.isNaN(date.getTime())) return { date: "Unknown", time: "Unknown" };
+  return {
+    date: date.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit", year: "numeric" }),
+    time: date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
+  };
+};
 
 const getInterviewTypeMeta = (type: InterviewType) => {
   switch (type) {
@@ -128,10 +135,121 @@ const getInterviewSummary = (interview: Interview) => {
 };
 
 const ITInterviews = () => {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<"upcoming" | "completed">("upcoming");
   const [searchQuery, setSearchQuery] = useState("");
-  const [interviews] = useState<Interview[]>(technicalInterviewsSeed);
+  const [loading, setLoading] = useState(true);
+  const [interviews, setInterviews] = useState<Interview[]>([]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    const loadInterviews = async () => {
+      setLoading(true);
+
+      if (!user) {
+        setInterviews([]);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const { data: talent, error: talentError } = await supabase
+          .from("talents")
+          .select("id")
+          .eq("user_id", user.id)
+          .single();
+
+        if (talentError) {
+          throw talentError;
+        }
+
+        if (!talent?.id) {
+          if (!ignore) setInterviews([]);
+          return;
+        }
+
+        const { data: records, error: interviewError } = await supabase
+          .from("interviews")
+          .select(
+            `
+              id,
+              status,
+              scheduled_date,
+              duration_minutes,
+              meet_link,
+              interview_type,
+              applications!inner (
+                id,
+                talent_id,
+                jobs (
+                  title,
+                  employers ( company_name, logo_url )
+                )
+              ),
+              interviewers (
+                full_name,
+                role
+              )
+            `,
+          )
+          .eq("interview_type", "technical")
+          .eq("applications.talent_id", talent.id);
+
+        if (interviewError) {
+          throw interviewError;
+        }
+
+        const sortedRecords = [...(records || [])].sort((a: any, b: any) => {
+          const aTime = new Date(a?.scheduled_date ?? 0).getTime();
+          const bTime = new Date(b?.scheduled_date ?? 0).getTime();
+          return bTime - aTime;
+        });
+
+        const mapped = sortedRecords.map((record: any) => {
+          const companyName = record.applications?.jobs?.employers?.company_name || "Unknown Company";
+          const { date, time } = formatDateTime(record.scheduled_date);
+          const meetingLink = record.meet_link || undefined;
+
+          return {
+            id: String(record.id),
+            company: companyName,
+            companyLogo: getCompanyInitials(companyName),
+            jobTitle: record.applications?.jobs?.title || "Unknown Role",
+            interviewerName: record.interviewers?.full_name || "Interviewer",
+            interviewerRole: record.interviewers?.role || "Interviewer",
+            date,
+            time,
+            duration: `${record.duration_minutes ?? 60} mins`,
+            type: meetingLink ? "video" : "in-person",
+            meetingLink,
+            status: toInterviewStatus(record.status),
+            notes: undefined,
+          } satisfies Interview;
+        });
+
+        if (!ignore) setInterviews(mapped);
+      } catch (error) {
+        console.error("Failed to load technical interviews", error);
+        if (!ignore) {
+          setInterviews([]);
+          toast({
+            title: "Unable to load interviews",
+            description: "Please try again later.",
+            variant: "destructive",
+          });
+        }
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    };
+
+    loadInterviews();
+    return () => {
+      ignore = true;
+    };
+  }, [toast, user]);
 
   const filteredInterviews = useMemo(() => {
     return interviews.filter((interview) => {
@@ -174,13 +292,6 @@ const ITInterviews = () => {
     });
   };
 
-  const handleViewFeedback = () => {
-    toast({
-      title: "Feedback unavailable",
-      description: "Detailed interviewer feedback is not attached yet.",
-    });
-  };
-
   return (
     <TalentLayout>
       <div className="relative z-10 mx-auto max-w-7xl px-3 py-12 sm:px-4 sm:py-20">
@@ -202,7 +313,7 @@ const ITInterviews = () => {
           </div>
         </section>
 
-        <div className="mb-8 grid items-center gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="relative z-[999] mb-8 grid items-center gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="rounded-3xl border border-orange-100 bg-white p-4 shadow-lg">
             <div className="relative">
               <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-orange-400" />
@@ -215,12 +326,12 @@ const ITInterviews = () => {
             </div>
           </div>
 
-          <div className="flex w-full items-center rounded-3xl border border-orange-100 bg-white p-4 shadow-lg lg:max-w-[360px] lg:justify-self-end">
+          <div className="relative z-[999] isolate flex w-full items-center rounded-3xl border border-orange-100 bg-white p-4 shadow-lg pointer-events-auto lg:max-w-[360px] lg:justify-self-end">
             <div className="grid h-12 w-full grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setActiveTab("upcoming")}
-                className={`flex h-full items-center justify-center gap-2 whitespace-nowrap rounded-full px-4 text-sm font-semibold transition-all ${
+                className={`relative flex h-full items-center justify-center gap-2 whitespace-nowrap rounded-full px-4 text-sm font-semibold transition-all pointer-events-auto ${
                   activeTab === "upcoming"
                     ? "bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md"
                     : "text-orange-700 hover:bg-orange-50"
@@ -232,7 +343,7 @@ const ITInterviews = () => {
               <button
                 type="button"
                 onClick={() => setActiveTab("completed")}
-                className={`flex h-full items-center justify-center gap-2 whitespace-nowrap rounded-full px-4 text-sm font-semibold transition-all ${
+                className={`relative flex h-full items-center justify-center gap-2 whitespace-nowrap rounded-full px-4 text-sm font-semibold transition-all pointer-events-auto ${
                   activeTab === "completed"
                     ? "bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md"
                     : "text-orange-700 hover:bg-orange-50"
@@ -245,7 +356,17 @@ const ITInterviews = () => {
           </div>
         </div>
 
-        {filteredInterviews.length > 0 ? (
+        {loading ? (
+          <div className="rounded-[2rem] border border-orange-100 bg-white/90 px-6 py-16 text-center shadow-sm">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-orange-50 text-orange-600 shadow-md">
+              <Clock3 className="h-7 w-7" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900">Loading interviews</h2>
+            <p className="mx-auto mt-3 max-w-2xl text-base leading-7 text-slate-600">
+              Fetching your current technical interviews from the database.
+            </p>
+          </div>
+        ) : filteredInterviews.length > 0 ? (
           <div className="grid gap-5 xl:grid-cols-2">
             {filteredInterviews.map((interview) => {
               const statusMeta = getInterviewStatusMeta(interview.status);
@@ -339,18 +460,7 @@ const ITInterviews = () => {
                           Materials
                         </Button>
                       </div>
-                    ) : (
-                      <div className="ml-auto flex flex-wrap gap-3">
-                        <Button
-                          type="button"
-                          onClick={handleViewFeedback}
-                          className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md hover:from-orange-700 hover:to-orange-600"
-                        >
-                          <CheckCircle2 className="h-4 w-4" />
-                          View Feedback
-                        </Button>
-                      </div>
-                    )}
+                    ) : null}
                   </div>
                 </article>
               );

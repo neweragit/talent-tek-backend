@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import logo from "@/logo/logo.jfif";
 
 interface RecruiterLayoutProps {
   children: React.ReactNode;
@@ -41,7 +42,7 @@ const RecruiterLayout = ({ children }: RecruiterLayoutProps) => {
       <aside className="hidden xl:flex xl:flex-col xl:fixed xl:inset-y-0 xl:left-0 xl:w-72 bg-white/95 backdrop-blur-md border-r border-orange-100 shadow-[0_0_0_1px_rgba(251,146,60,0.08)] z-50">
         <div className="border-b border-orange-100 px-5 py-5">
           <Link to="/recruiter/overview" className="flex items-center gap-2 text-xl font-bold text-slate-900">
-            <img src="/src/logo/logo.jfif" alt="TalenTek Logo" className="h-8 w-8 rounded" />
+            <img src={logo} alt="TalenTek Logo" className="h-8 w-8 rounded" />
             <span>TalenTek</span>
           </Link>
         </div>
@@ -97,10 +98,10 @@ const RecruiterLayout = ({ children }: RecruiterLayoutProps) => {
           <Button
             variant="ghost"
             size="sm"
-            className="w-full justify-start gap-2 rounded-xl border border-orange-100 bg-white text-orange-600 hover:bg-orange-50 hover:text-orange-700"
+            className="w-full justify-start gap-2 rounded-xl border border-orange-200 bg-orange-50/60 !text-orange-600 hover:bg-orange-100 hover:!text-orange-700"
             onClick={handleLogout}
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-4 h-4 text-orange-600" />
             Log Out
           </Button>
         </div>
@@ -108,7 +109,7 @@ const RecruiterLayout = ({ children }: RecruiterLayoutProps) => {
 
       <div className="xl:hidden fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-b border-orange-100 flex items-center justify-between px-4 h-14 shadow-sm">
         <Link to="/recruiter/overview" className="flex items-center gap-2 text-lg font-bold text-slate-900">
-          <img src="/src/logo/logo.jfif" alt="TalenTek Logo" className="h-7 w-7 rounded" />
+          <img src={logo} alt="TalenTek Logo" className="h-7 w-7 rounded" />
           <span>TalenTek</span>
         </Link>
         <button
@@ -146,13 +147,13 @@ const RecruiterLayout = ({ children }: RecruiterLayoutProps) => {
               <Button
                 variant="ghost"
                 size="sm"
-                className="w-full justify-start gap-2 rounded-xl border border-orange-100 bg-white text-orange-600 hover:bg-orange-50 hover:text-orange-700"
+                className="w-full justify-start gap-2 rounded-xl border border-orange-200 bg-orange-50/60 !text-orange-600 hover:bg-orange-100 hover:!text-orange-700"
                 onClick={() => {
                   setMobileMenuOpen(false);
                   handleLogout();
                 }}
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-4 h-4 text-orange-600" />
                 Log Out
               </Button>
             </div>

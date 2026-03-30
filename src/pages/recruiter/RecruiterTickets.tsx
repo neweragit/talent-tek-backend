@@ -25,6 +25,7 @@ import {
   Settings,
   Sparkles,
   Ticket,
+  User,
   X,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -43,6 +44,8 @@ interface SupportTicket {
   createdAt: string;
   status: string;
   priority: TicketPriority;
+  senderName?: string | null;
+  senderEmail?: string | null;
 }
 
 const ticketPriorityOptions: Array<{ value: TicketPriority; label: string }> = [
@@ -117,6 +120,8 @@ const mapDbTicket = (row: {
   created_at: string;
   status: string;
   priority: string;
+  sender_name?: string | null;
+  users?: { email?: string | null } | null;
 }): SupportTicket => {
   const type = row.ticket_type as TicketType;
   const priority = (row.priority as TicketPriority) || "medium";
@@ -129,6 +134,8 @@ const mapDbTicket = (row: {
     createdAt: new Date(row.created_at).toLocaleDateString("en-GB"),
     status: row.status,
     priority,
+    senderName: row.sender_name ?? null,
+    senderEmail: row.users?.email ?? null,
   };
 };
 
@@ -186,9 +193,16 @@ const RecruiterTickets = () => {
         .trim();
       setSenderName(fullName || user.name || "Recruiter");
 
+      const inboxResult = await supabase
+        .from("tickets")
+        .select("id, subject, message, ticket_type, created_at, status, priority, sender_name, users ( email )")
+        .eq("assigned_to", user.id)
+        .order("created_at", { ascending: false });
+
+      setInboxTickets((inboxResult.data || []).map(mapDbTicket));
+
       if (!invitedBy) {
         setMyTickets([]);
-        setInboxTickets([]);
         setLoading(false);
         return;
       }
@@ -217,23 +231,22 @@ const RecruiterTickets = () => {
       setSupervisorName(repName || "Supervisor");
       setSupervisorEmail(supervisorUserResult.data?.email || "");
 
-      const [myResult, inboxResult] = await Promise.all([
+      const [myResultFinal, inboxResultFinal] = await Promise.all([
         supabase
           .from("tickets")
-          .select("id, subject, message, ticket_type, created_at, status, priority")
+          .select("id, subject, message, ticket_type, created_at, status, priority, sender_name, users ( email )")
           .eq("user_id", user.id)
           .eq("assigned_to", invitedBy)
           .order("created_at", { ascending: false }),
         supabase
           .from("tickets")
-          .select("id, subject, message, ticket_type, created_at, status, priority")
-          .eq("user_id", invitedBy)
+          .select("id, subject, message, ticket_type, created_at, status, priority, sender_name, users ( email )")
           .eq("assigned_to", user.id)
           .order("created_at", { ascending: false }),
       ]);
 
-      setMyTickets((myResult.data || []).map(mapDbTicket));
-      setInboxTickets((inboxResult.data || []).map(mapDbTicket));
+      setMyTickets((myResultFinal.data || []).map(mapDbTicket));
+      setInboxTickets((inboxResultFinal.data || []).map(mapDbTicket));
       setLoading(false);
     };
 
@@ -310,7 +323,9 @@ const RecruiterTickets = () => {
           ticket.subject.toLowerCase().includes(normalizedSearch) ||
           ticket.message.toLowerCase().includes(normalizedSearch) ||
           ticket.type.toLowerCase().includes(normalizedSearch) ||
-          ticket.createdAt.toLowerCase().includes(normalizedSearch)
+          ticket.createdAt.toLowerCase().includes(normalizedSearch) ||
+          (ticket.senderName ?? "").toLowerCase().includes(normalizedSearch) ||
+          (ticket.senderEmail ?? "").toLowerCase().includes(normalizedSearch)
         );
       });
     }
@@ -329,7 +344,9 @@ const RecruiterTickets = () => {
         ticket.subject.toLowerCase().includes(normalizedSearch) ||
         ticket.message.toLowerCase().includes(normalizedSearch) ||
         ticket.type.toLowerCase().includes(normalizedSearch) ||
-        ticket.createdAt.toLowerCase().includes(normalizedSearch)
+        ticket.createdAt.toLowerCase().includes(normalizedSearch) ||
+        (ticket.senderName ?? "").toLowerCase().includes(normalizedSearch) ||
+        (ticket.senderEmail ?? "").toLowerCase().includes(normalizedSearch)
       );
     });
   }, [filterType, searchQuery, sourceTickets]);
@@ -357,9 +374,9 @@ const RecruiterTickets = () => {
               <p className="max-w-2xl text-base font-medium leading-7 text-slate-600 sm:text-lg">
                 Communicate directly with your supervisor and keep ticket history in one place.
               </p>
-              {supervisorId && (
+              {activeMailbox === "my" && supervisorId && (
                 <div className="mt-4 rounded-2xl border border-orange-200 bg-white/90 px-4 py-3 text-sm text-slate-700 shadow-sm">
-                  <p className="font-semibold text-orange-700">Receiver: Your Supervisor</p>
+                  <p className="font-semibold text-orange-700">Receiver</p>
                   <p className="mt-1">{supervisorName || "Supervisor"}</p>
                   <p className="text-slate-500">{supervisorEmail || "No email available"}</p>
                 </div>
@@ -444,6 +461,11 @@ const RecruiterTickets = () => {
             {filteredTickets.map((ticket) => {
               const typeMeta = getTicketTypeMeta(ticket.type);
               const TypeIcon = typeMeta.icon;
+              const directionLabel = activeMailbox === "my" ? "To" : "From";
+              const directionName =
+                activeMailbox === "my" ? supervisorName || "Supervisor" : ticket.senderName || "Sender";
+              const directionEmail =
+                activeMailbox === "my" ? supervisorEmail || null : ticket.senderEmail || null;
 
               return (
                 <article
@@ -498,6 +520,17 @@ const RecruiterTickets = () => {
                     </div>
 
                     <div className="flex items-center gap-2">
+                      <User className="h-4 w-4 text-orange-600" />
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                          {directionLabel}
+                        </p>
+                        <p className="mt-1 truncate text-sm font-semibold text-slate-900">{directionName}</p>
+                        {directionEmail ? <p className="truncate text-xs text-slate-500">{directionEmail}</p> : null}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
                       <Badge className={getPriorityBadgeClassName(ticket.priority)}>
                         Priority: {ticket.priority}
                       </Badge>
@@ -519,7 +552,7 @@ const RecruiterTickets = () => {
               <>
                 <Inbox className="mx-auto mb-4 h-16 w-16 text-orange-300" />
                 <p className="mb-2 text-xl font-semibold text-slate-900">Inbox is empty</p>
-                <p className="text-gray-600">Replies from your supervisor will appear here.</p>
+                <p className="text-gray-600">Tickets sent to you will appear here.</p>
               </>
             )}
           </div>

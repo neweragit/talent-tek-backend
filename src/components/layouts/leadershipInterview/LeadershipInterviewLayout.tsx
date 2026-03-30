@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Bell, Home, User, LogOut, Menu, X, Video } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import logo from "@/logo/logo.jfif";
 
 const LeadershipInterviewLayout = ({ children }: { children: React.ReactNode }) => {
   const location = useLocation();
@@ -34,7 +35,7 @@ const LeadershipInterviewLayout = ({ children }: { children: React.ReactNode }) 
       <aside className="hidden xl:flex xl:fixed xl:inset-y-0 xl:left-0 xl:z-50 xl:w-72 xl:flex-col border-r border-orange-100 bg-white/95 shadow-[0_0_0_1px_rgba(251,146,60,0.08)] backdrop-blur-md">
         <div className="border-b border-orange-100 px-5 py-5">
           <Link to="/leadership-interviewer/overview" className="flex items-center gap-2 text-xl font-bold text-slate-900">
-            <img src="/src/logo/logo.jfif" alt="TalenTek Logo" className="h-8 w-8 rounded" />
+            <img src={logo} alt="TalenTek Logo" className="h-8 w-8 rounded" />
             <span>TalenTek</span>
           </Link>
         </div>
@@ -90,10 +91,10 @@ const LeadershipInterviewLayout = ({ children }: { children: React.ReactNode }) 
           <Button
             variant="ghost"
             size="sm"
-            className="w-full justify-start gap-2 rounded-xl border border-orange-100 bg-white text-orange-600 hover:bg-orange-50 hover:text-orange-700"
+            className="w-full justify-start gap-2 rounded-xl border border-orange-200 bg-orange-50/60 !text-orange-600 hover:bg-orange-100 hover:!text-orange-700"
             onClick={handleLogout}
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-4 h-4 text-orange-600" />
             Log Out
           </Button>
         </div>
@@ -102,7 +103,7 @@ const LeadershipInterviewLayout = ({ children }: { children: React.ReactNode }) 
       {/* â”€â”€ Mobile top bar â”€â”€ */}
       <div className="fixed left-0 right-0 top-0 z-50 flex h-14 items-center justify-between border-b border-orange-100 bg-white/95 px-4 shadow-sm backdrop-blur-md xl:hidden">
         <Link to="/leadership-interviewer/overview" className="flex items-center gap-2 text-lg font-bold text-slate-900">
-          <img src="/src/logo/logo.jfif" alt="TalenTek Logo" className="h-7 w-7 rounded" />
+          <img src={logo} alt="TalenTek Logo" className="h-7 w-7 rounded" />
           <span>TalenTek</span>
         </Link>
         <button
@@ -141,10 +142,10 @@ const LeadershipInterviewLayout = ({ children }: { children: React.ReactNode }) 
               <Button
                 variant="ghost"
                 size="sm"
-                className="w-full justify-start gap-2 rounded-xl border border-orange-100 bg-white text-orange-600 hover:bg-orange-50 hover:text-orange-700"
+                className="w-full justify-start gap-2 rounded-xl border border-orange-200 bg-orange-50/60 !text-orange-600 hover:bg-orange-100 hover:!text-orange-700"
                 onClick={() => { setMobileMenuOpen(false); handleLogout(); }}
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-4 h-4 text-orange-600" />
                 Log Out
               </Button>
             </div>
@@ -165,4 +166,3 @@ const LeadershipInterviewLayout = ({ children }: { children: React.ReactNode }) 
 };
 
 export default LeadershipInterviewLayout;
-
