@@ -54,6 +54,8 @@ import OwnerStatistics from "./pages/owner/OwnerStatistics";
 import OwnerSettings from "./pages/owner/OwnerSettings";
 import OwnerAddRecruiter from "./pages/owner/OwnerAddRecruiter";
 import OwnerSubscriptions from "./pages/owner/OwnerSubscriptions";
+import OwnerEmployers from "./pages/owner/OwnerEmployers";
+import OwnerSupportTickets from "./pages/owner/OwnerSupportTickets";
 import RecruiterAdminOverview from "./pages/recruiterAdmin/RecruiterAdminOverview";
 import RecruiterAdminUsers from "./pages/recruiterAdmin/RecruiterAdminUsers";
 import RecruiterAdminPayment from "./pages/recruiterAdmin/RecruiterAdminPayment";
@@ -334,7 +336,7 @@ const App = () => {
               <Route
                 path="/owner/dashboard"
                 element={
-                  <ProtectedRoute allowedRoles={["owner", "superadmin"]}>
+                  <ProtectedRoute allowedRoles={["owner", "superadmin"]} fallbackPath="/owner/login">
                     <OwnerDashboard />
                   </ProtectedRoute>
                 }
@@ -342,15 +344,23 @@ const App = () => {
               <Route
                 path="/owner/users"
                 element={
-                  <ProtectedRoute allowedRoles={["owner", "superadmin"]}>
+                  <ProtectedRoute allowedRoles={["owner", "superadmin"]} fallbackPath="/owner/login">
                     <OwnerUsers />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/owner/employers"
+                element={
+                  <ProtectedRoute allowedRoles={["owner", "superadmin"]} fallbackPath="/owner/login">
+                    <OwnerEmployers />
                   </ProtectedRoute>
                 }
               />
               <Route
                 path="/owner/users/add-recruiter"
                 element={
-                  <ProtectedRoute allowedRoles={["owner", "superadmin"]}>
+                  <ProtectedRoute allowedRoles={["owner", "superadmin"]} fallbackPath="/owner/login">
                     <OwnerAddRecruiter />
                   </ProtectedRoute>
                 }
@@ -358,7 +368,7 @@ const App = () => {
               <Route
                 path="/owner/recruiters"
                 element={
-                  <ProtectedRoute allowedRoles={["owner", "superadmin"]}>
+                  <ProtectedRoute allowedRoles={["owner", "superadmin"]} fallbackPath="/owner/login">
                     <OwnerUsers />
                   </ProtectedRoute>
                 }
@@ -366,7 +376,7 @@ const App = () => {
               <Route
                 path="/owner/talents"
                 element={
-                  <ProtectedRoute allowedRoles={["owner", "superadmin"]}>
+                  <ProtectedRoute allowedRoles={["owner", "superadmin"]} fallbackPath="/owner/login">
                     <OwnerUsers />
                   </ProtectedRoute>
                 }
@@ -374,7 +384,7 @@ const App = () => {
               <Route
                 path="/owner/interviewers"
                 element={
-                  <ProtectedRoute allowedRoles={["owner", "superadmin"]}>
+                  <ProtectedRoute allowedRoles={["owner", "superadmin"]} fallbackPath="/owner/login">
                     <OwnerUsers />
                   </ProtectedRoute>
                 }
@@ -382,7 +392,7 @@ const App = () => {
               <Route
                 path="/owner/subscriptions"
                 element={
-                  <ProtectedRoute allowedRoles={["owner", "superadmin"]}>
+                  <ProtectedRoute allowedRoles={["owner", "superadmin"]} fallbackPath="/owner/login">
                     <OwnerSubscriptions />
                   </ProtectedRoute>
                 }
@@ -390,7 +400,7 @@ const App = () => {
               <Route
                 path="/owner/statistics"
                 element={
-                  <ProtectedRoute allowedRoles={["owner", "superadmin"]}>
+                  <ProtectedRoute allowedRoles={["owner", "superadmin"]} fallbackPath="/owner/login">
                     <OwnerStatistics />
                   </ProtectedRoute>
                 }
@@ -398,8 +408,16 @@ const App = () => {
               <Route
                 path="/owner/settings"
                 element={
-                  <ProtectedRoute allowedRoles={["owner", "superadmin"]}>
+                  <ProtectedRoute allowedRoles={["owner", "superadmin"]} fallbackPath="/owner/login">
                     <OwnerSettings />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/owner/support-tickets"
+                element={
+                  <ProtectedRoute allowedRoles={["owner", "superadmin"]} fallbackPath="/owner/login">
+                    <OwnerSupportTickets />
                   </ProtectedRoute>
                 }
               />

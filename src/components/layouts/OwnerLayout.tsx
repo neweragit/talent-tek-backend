@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Home, Users, Building2, BarChart3, Bell, CreditCard, LogOut, Menu, MessageSquare, Settings, X } from "lucide-react";
+import { Home, Users, Building2, BarChart3, CreditCard, LogOut, Menu, MessageSquare, Settings, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import logo from "@/logo/logo.jfif";
@@ -84,23 +84,6 @@ const OwnerLayout = ({ children }: OwnerLayoutProps) => {
               <p className="text-sm font-semibold text-slate-900 truncate">{user?.name ?? "Platform Owner"}</p>
               <p className="text-xs text-gray-500 truncate">{user?.email ?? "owner@talentshub.com"}</p>
             </div>
-            <Link
-              to="/owner/notifications"
-              aria-label="Open notifications"
-              className={`relative rounded-full border p-2 transition-colors ${
-                location.pathname === "/owner/notifications"
-                  ? "border-orange-500 bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-sm"
-                  : "border-orange-200 bg-white text-orange-600 hover:bg-orange-50 hover:text-orange-700"
-              }`}
-            >
-              <Bell className="h-4 w-4" />
-              <span
-                aria-hidden="true"
-                className={`absolute right-1 top-1 h-1.5 w-1.5 rounded-full ${
-                  location.pathname === "/owner/notifications" ? "bg-white" : "bg-orange-500"
-                }`}
-              />
-            </Link>
           </div>
           <Button
             variant="ghost"

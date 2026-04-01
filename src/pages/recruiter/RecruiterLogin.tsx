@@ -31,7 +31,7 @@ const RecruiterLogin = () => {
 
       const { data: user, error: userError } = await supabase
         .from("users")
-        .select("id,email,password_hash,user_role")
+        .select("id,email,password_hash,user_role,is_active")
         .eq("email", normalizedEmail)
         .maybeSingle();
 
@@ -54,7 +54,16 @@ const RecruiterLogin = () => {
         return;
       }
 
-      if (user.user_role !== "recruiter") {
+      if (user.is_active === false) {
+        toast({
+          title: "Account suspended",
+          description: "Your account is currently suspended. Please contact support.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (user.user_role !== "recruiter" && user.user_role !== "employer") {
         toast({
           title: "Login failed",
           description: "Invalid credentials",
@@ -67,7 +76,7 @@ const RecruiterLogin = () => {
         id: user.id,
         email: user.email,
         name: user.email.split("@")[0],
-        role: user.user_role as any,
+        role: "recruiter" as any,
       });
 
       toast({

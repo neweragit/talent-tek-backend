@@ -34,6 +34,12 @@ const ProtectedRoute = ({
       return <Navigate to="/talent/overview" replace />;
     } else if (user.role === "recruiter") {
       return <Navigate to="/recruiter/overview" replace />;
+    } else if (user.role === "owner") {
+      return <Navigate to="/owner/dashboard" replace />;
+    } else if (user.role === "technical-interviewer") {
+      return <Navigate to="/technical-interviewer/overview" replace />;
+    } else if (user.role === "leadership-interviewer") {
+      return <Navigate to="/leadership-interviewer/overview" replace />;
     }
     return <Navigate to="/" replace />;
   }

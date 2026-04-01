@@ -176,6 +176,33 @@ const Login = () => {
         return;
       }
 
+      // Only track login attempts for existing users.
+      const { data: existingUser, error: existingUserError } = await supabase
+        .from("users")
+        .select("id")
+        .eq("email", normalizedEmail)
+        .maybeSingle();
+
+      if (existingUserError || !existingUser?.id) {
+        toast({
+          title: "Login failed",
+          description: "Invalid credentials.",
+        });
+        return;
+      }
+
+      // Best-effort cleanup: remove stale attempt rows (older than 7 days) for this email.
+      try {
+        const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        await supabase
+          .from("login_attempts")
+          .delete()
+          .eq("email", normalizedEmail)
+          .lt("last_attempt_at", cutoff);
+      } catch {
+        // ignore (RLS/policies may block deletes)
+      }
+
       // Debug only: print hash comparison details in browser console.
       // NOTE: This is for troubleshooting and should be removed in production.
       try {
@@ -268,6 +295,14 @@ const Login = () => {
       const redirect = redirectFromState ?? getDefaultRedirectByRole(role);
 
       login({ id: dbUser.id, email: dbUser.email, name: dbUser.email.split("@")[0], role });
+
+      // Best-effort: clear attempt state after a successful login.
+      try {
+        await supabase.from("login_attempts").delete().eq("email", normalizedEmail);
+      } catch {
+        // ignore (RLS/policies may block deletes)
+      }
+
       toast({ title: "Logged in successfully", description: "Welcome back!" });
       navigate(redirect);
     } catch (err) {
