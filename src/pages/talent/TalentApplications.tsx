@@ -29,7 +29,7 @@ const statusOptions: Array<{ value: "all" | ApplicationStatus; label: string }> 
   { value: "all", label: "All Status" },
   { value: "interview", label: "Interview Scheduled" },
   { value: "in-progress", label: "In Progress" },
-  { value: "rejected", label: "Rejected" },
+  { value: "rejected", label: "Updates" },
 ];
 
 const getCompanyInitials = (company: string) => {
@@ -75,7 +75,7 @@ const getStatusMeta = (status: ApplicationStatus) => {
       };
     case "rejected":
       return {
-        label: "Closed",
+        label: "Update",
         badgeClassName: "border border-orange-300 bg-orange-100 text-orange-800",
         icon: XCircle,
       };
@@ -110,7 +110,7 @@ const getApplicationSummary = (application: { company: string; status: Applicati
     case "in-progress":
       return `Your candidacy is still under active review at ${application.company}. Stay ready in case the hiring team reaches out quickly.`;
     case "rejected":
-      return `This opportunity has closed, but keeping the record visible helps you track outcomes and refine your next application.`;
+      return `Thanks for applying to ${application.company}. This role won’t move forward for now — good luck on the next one.`;
     default:
       return application.cvName
         ? `Your direct candidacy is on file and ready for review by ${application.company}.`
@@ -125,7 +125,7 @@ const getApplicationFooter = (status: ApplicationStatus) => {
     case "in-progress":
       return "Keep this role warm by reviewing the job page and preparing for the next step if the hiring team reaches out.";
     case "rejected":
-      return "Use this outcome as signal, then revisit similar open roles that match your profile more closely.";
+      return "Keep applying to similar roles — each application improves your signal and your next match.";
     default:
       return "Keep your documents polished so you can move fast if the employer responds.";
   }
@@ -202,9 +202,9 @@ const TalentApplications = () => {
         icon: CheckCircle2,
       },
       {
-        label: "Closed",
+        label: "Updates",
         value: closedCount,
-        detail: "Completed outcomes",
+        detail: "Application updates",
         icon: XCircle,
       },
     ];

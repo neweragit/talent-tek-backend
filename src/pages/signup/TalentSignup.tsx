@@ -336,7 +336,8 @@ const TalentSignup = () => {
           github_url: form.githubUrl || null,
           portfolio_url: form.portfolioUrl || null,
           has_carte_entrepreneur: form.hasCarteEntrepreneur,
-          resume_url: resumeUrl,
+          // DB requires exactly 3 CV slots (text[])
+          resume_url: [resumeUrl, "", ""],
         });
 
       if (talentError) {

@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useState } from "react";
@@ -124,6 +124,7 @@ const mapDbRoleToAppRole = async (user: DbUserRow): Promise<AppUserRole> => {
 };
 
 const Login = () => {
+  const location = useLocation();
   const navigate = useNavigate();
   const { login } = useAuth();
   const { toast } = useToast();
@@ -162,7 +163,8 @@ const Login = () => {
           return;
         }
 
-        const redirect = getDefaultRedirectByRole(mockRole);
+        const redirectFromState = (location.state as { redirectTo?: string } | null)?.redirectTo;
+        const redirect = redirectFromState ?? getDefaultRedirectByRole(mockRole);
         login({
           id: `mock-${normalizedEmail}`,
           email: normalizedEmail,
@@ -262,7 +264,8 @@ const Login = () => {
         return;
       }
 
-      const redirect = getDefaultRedirectByRole(role);
+      const redirectFromState = (location.state as { redirectTo?: string } | null)?.redirectTo;
+      const redirect = redirectFromState ?? getDefaultRedirectByRole(role);
 
       login({ id: dbUser.id, email: dbUser.email, name: dbUser.email.split("@")[0], role });
       toast({ title: "Logged in successfully", description: "Welcome back!" });

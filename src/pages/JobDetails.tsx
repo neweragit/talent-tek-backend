@@ -37,13 +37,12 @@ const formatDate = (dateString?: string): string => {
 
 const JobDetails = () => {
 	const { user } = useAuth();
-	const navigate = useNavigate();
-	const { id } = useParams();
-	const [job, setJob] = useState<Job | null>(null);
-	const [loading, setLoading] = useState(true);
-	const [applying, setApplying] = useState(false);
-	const [hasApplied, setHasApplied] = useState(false);
-	const { toast } = useToast();
+		const navigate = useNavigate();
+		const { id } = useParams();
+		const [job, setJob] = useState<Job | null>(null);
+		const [loading, setLoading] = useState(true);
+		const [hasApplied, setHasApplied] = useState(false);
+		const { toast } = useToast();
 
 	useEffect(() => {
 		const fetchJob = async () => {
@@ -138,84 +137,28 @@ const JobDetails = () => {
 		fetchJob();
 	}, [id, navigate, user]);
 
-	const handleApply = async () => {
-		if (user?.role !== 'talent') {
-			navigate('/login');
-			return;
-		}
+		const handleApply = () => {
+			if (!id) return;
+			if (hasApplied) return;
 
-		if (hasApplied) {
-			return; // Already applied
-		}
+			const redirectTo = `/talent/overview?jobId=${id}&apply=1`;
 
-		try {
-			setApplying(true);
-
-			// Get talent ID
-			const { data: talentData, error: talentError } = await supabase
-				.from('talents')
-				.select('id')
-				.eq('user_id', user.id)
-				.single();
-
-			if (talentError || !talentData) {
-				throw new Error('Talent profile not found');
+			if (!user) {
+				navigate('/login', { state: { redirectTo } });
+				return;
 			}
 
-			// Insert application
-			const { error: appError } = await supabase
-				.from('applications')
-				.insert({
-					job_id: job?.id,
-					talent_id: talentData.id,
-					status: 'pending'
+			if (user.role !== 'talent') {
+				toast({
+					title: "Only talents can apply",
+					description: "Please sign in with a talent account to apply for this role.",
+					variant: "destructive",
 				});
-
-			if (appError) {
-				throw appError;
+				return;
 			}
 
-			// Send notification to talent
-			await supabase
-				.from('notifications')
-				.insert({
-					user_id: user.id,
-					title: 'Application Submitted Successfully!',
-					message: `Your application for "${job?.title}" at ${job?.company_name} has been submitted and is now under review. We'll notify you of any updates.`,
-					notification_type: 'application'
-				});
-
-			// Send notification to employer
-			if (job?.employer_user_id) {
-				await supabase
-					.from('notifications')
-					.insert({
-						user_id: job.employer_user_id,
-						title: 'New Job Application',
-						message: `A new application has been received for "${job.title}" from ${user.name}.`,
-						notification_type: 'application',
-						related_id: talentData.id
-					});
-			}
-
-			// Update hasApplied
-			setHasApplied(true);
-
-			toast({
-				title: "Application Submitted!",
-				description: `Your application for "${job?.title}" at ${job?.company_name} has been submitted successfully.`,
-			});
-		} catch (error) {
-			console.error('Error applying to job:', error);
-			toast({
-				title: "Application Failed",
-				description: "Failed to apply for this job. Please try again.",
-				variant: "destructive",
-			});
-		} finally {
-			setApplying(false);
-		}
-	};
+			navigate(redirectTo);
+		};
 
 	if (loading) {
 		return (
@@ -373,26 +316,25 @@ const JobDetails = () => {
 									<div className="w-full bg-green-100 text-green-800 font-bold py-4 px-6 rounded-lg flex items-center justify-center text-lg border-2 border-green-300">
 										✓ Applied
 									</div>
-								) : (
-									<Button
-										onClick={handleApply}
-										disabled={applying}
-										className="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white font-bold py-4 px-6 rounded-lg hover:from-orange-500 hover:to-orange-400 transition text-lg"
-									>
-										{applying ? 'Applying...' : 'Apply Now'}
-									</Button>
-								)
-							) : user ? (
+									) : (
+										<Button
+											onClick={handleApply}
+											className="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white font-bold py-4 px-6 rounded-lg hover:from-orange-500 hover:to-orange-400 transition text-lg"
+										>
+											Apply Now
+										</Button>
+									)
+								) : user ? (
 								<div className="w-full bg-gray-100 text-gray-600 font-bold py-4 px-6 rounded-lg cursor-not-allowed flex items-center justify-center text-lg">
 									Only Talents Can Apply
 								</div>
-							) : (
-								<Button
-									onClick={() => navigate('/login')}
-									className="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white font-bold py-4 px-6 rounded-lg hover:from-orange-500 hover:to-orange-400 transition text-lg"
-								>
-									Login to Apply
-								</Button>
+								) : (
+									<Button
+										onClick={() => id && navigate('/login', { state: { redirectTo: `/talent/overview?jobId=${id}&apply=1` } })}
+										className="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white font-bold py-4 px-6 rounded-lg hover:from-orange-500 hover:to-orange-400 transition text-lg"
+									>
+										Login to Apply
+									</Button>
 							)}
 						</div>
 					</CardContent>

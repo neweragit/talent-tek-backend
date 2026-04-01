@@ -8,6 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import CvViewer from "@/components/CvViewer";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import bcrypt from "bcryptjs";
 import {
   User,
@@ -54,7 +57,7 @@ type TalentProfileData = {
   experience: string;
   education: string;
   skills: string[];
-  resumeUrl?: string;
+  resumeUrls?: string[];
 };
 
 const EMPTY_TALENT_PROFILE: TalentProfileData = {
@@ -73,6 +76,25 @@ const EMPTY_TALENT_PROFILE: TalentProfileData = {
   skills: [],
 };
 
+const toFixed3ResumeUrls = (value: unknown): [string, string, string] => {
+  if (Array.isArray(value)) {
+    const a = value.map((v) => (typeof v === "string" ? v : "")).slice(0, 3);
+    return [(a[0] ?? "").trim(), (a[1] ?? "").trim(), (a[2] ?? "").trim()];
+  }
+  if (typeof value === "string" && value.trim()) {
+    const trimmed = value.trim();
+    return [trimmed, "", ""];
+  }
+  return ["", "", ""];
+};
+
+const getStoragePathFromPublicUrl = (url: string) => {
+  // Public URL is expected to contain `/resumes/<folder>/<file>`.
+  const match = url.match(/\/resumes\/(.+)$/);
+  if (!match) return null;
+  return `resumes/${match[1]}`;
+};
+
 const TalentProfile = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>("personal");
@@ -82,7 +104,11 @@ const TalentProfile = () => {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [talentId, setTalentId] = useState<string | null>(null);
   const [emailVerified, setEmailVerified] = useState(false);
-  const [resumeUrl, setResumeUrl] = useState<string>("");
+  const [resumeUrls, setResumeUrls] = useState<[string, string, string]>(["", "", ""]);
+  const [selectedCvSlot, setSelectedCvSlot] = useState(0);
+  const [cvAction, setCvAction] = useState<{ mode: "upload" | "replace"; slot: number } | null>(null);
+  const [cvPreviewUrl, setCvPreviewUrl] = useState("");
+  const [cvPreviewOpen, setCvPreviewOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -126,6 +152,7 @@ const TalentProfile = () => {
         if (talent) {
           const [firstName = "", ...rest] = (talent.full_name || "").split(" ");
           const lastName = rest.join(" ");
+          const fixedResumeUrls = toFixed3ResumeUrls(talent.resume_url);
 
           setProfile({
             firstName: firstName || "",
@@ -141,9 +168,13 @@ const TalentProfile = () => {
             experience: talent.years_of_experience || "",
             education: talent.education_level || "",
             skills: (talent.skills as string[]) || [],
-            resumeUrl: talent.resume_url || "",
+            resumeUrls: fixedResumeUrls,
           });
-          setResumeUrl(talent.resume_url || "");
+          setResumeUrls(fixedResumeUrls);
+          setSelectedCvSlot(() => {
+            const idx = fixedResumeUrls.findIndex((u) => String(u).trim());
+            return idx >= 0 ? idx : 0;
+          });
           setHasEntrepreneurCard(Boolean(talent.has_carte_entrepreneur));
 
           setTalentId(talent.id);
@@ -593,7 +624,7 @@ const TalentProfile = () => {
       .replace(/^_+|_+$/g, "");
   };
 
-  const uploadCvToStorage = async (file: File) => {
+  const uploadCvToStorage = async (file: File, slotIndex: number) => {
     if (!user?.id) {
       setCvMessage("You must be logged in to upload a CV.");
       return;
@@ -622,25 +653,41 @@ const TalentProfile = () => {
       const url = publicData?.publicUrl;
       if (!url) throw new Error("Could not get public URL for the uploaded CV.");
 
+      const next = [...resumeUrls] as [string, string, string];
+      const oldUrl = next[slotIndex] || "";
+      next[slotIndex] = url;
+
       const { error: talentUpdateError } = await supabase
         .from("talents")
-        .update({ resume_url: url })
+        .update({ resume_url: next })
         .eq("id", talentId);
 
       if (talentUpdateError) throw talentUpdateError;
 
-      setResumeUrl(url);
+      if (oldUrl) {
+        const oldPath = getStoragePathFromPublicUrl(oldUrl);
+        if (oldPath) {
+          const { error: removeOldError } = await supabase.storage.from("cvs").remove([oldPath]);
+          if (removeOldError) {
+            console.warn("Failed to remove old CV from storage:", removeOldError.message);
+          }
+        }
+      }
+
+      setResumeUrls(next);
+      setSelectedCvSlot(slotIndex);
       setCvMessage("CV updated successfully.");
     } catch (err) {
       console.error("CV upload failed:", err);
       setCvMessage(err instanceof Error ? err.message : "CV upload failed.");
     } finally {
       setUploadingCv(false);
+      setCvAction(null);
       if (cvFileInputRef.current) cvFileInputRef.current.value = "";
     }
   };
 
-  const removeCvFromStorage = async () => {
+  const removeCvFromStorage = async (slotIndex: number) => {
     setCvMessage("");
     if (!user?.id) {
       setCvMessage("You must be logged in to remove your CV.");
@@ -650,31 +697,41 @@ const TalentProfile = () => {
       setCvMessage("Talent profile not ready yet. Please try again.");
       return;
     }
-    if (!resumeUrl) {
+    const url = resumeUrls[slotIndex] || "";
+    if (!url) {
       setCvMessage("No CV found to remove.");
       return;
     }
 
-    // Public URL is expected to contain `/resumes/<folder>/<file>`.
-    const match = resumeUrl.match(/\/resumes\/(.+)$/);
-    if (!match) {
+    const objectPath = getStoragePathFromPublicUrl(url);
+    if (!objectPath) {
       setCvMessage("Unable to determine CV file path for deletion.");
       return;
     }
-
-    const objectPath = `resumes/${match[1]}`;
 
     try {
       const { error: removeError } = await supabase.storage.from("cvs").remove([objectPath]);
       if (removeError) throw removeError;
 
+      const next = [...resumeUrls] as [string, string, string];
+      next[slotIndex] = "";
+
       const { error: talentUpdateError } = await supabase
         .from("talents")
-        .update({ resume_url: null })
+        .update({ resume_url: next })
         .eq("id", talentId);
       if (talentUpdateError) throw talentUpdateError;
 
-      setResumeUrl("");
+      setResumeUrls(next);
+      setSelectedCvSlot((current) => {
+        if (current !== slotIndex) return current;
+        const nextSlot = next.findIndex((u) => String(u).trim());
+        return nextSlot >= 0 ? nextSlot : 0;
+      });
+      if (cvPreviewUrl === url) {
+        setCvPreviewOpen(false);
+        setCvPreviewUrl("");
+      }
       setCvMessage("CV removed successfully.");
     } catch (err) {
       console.error("CV remove failed:", err);
@@ -766,6 +823,15 @@ const TalentProfile = () => {
 
   const renderDocuments = () => (
     <div className="space-y-6">
+      <Dialog open={cvPreviewOpen} onOpenChange={setCvPreviewOpen}>
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>CV Preview</DialogTitle>
+          </DialogHeader>
+          {cvPreviewUrl ? <CvViewer fileUrl={cvPreviewUrl} /> : null}
+        </DialogContent>
+      </Dialog>
+
       <section className="rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">
         <div className="mb-5 flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md">
@@ -774,40 +840,8 @@ const TalentProfile = () => {
           <h4 className="text-lg font-bold text-slate-900">Resume / CV</h4>
         </div>
 
-        {resumeUrl ? (
-          <div className="flex items-center justify-between rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
-            <div>
-              <p className="font-semibold text-slate-900">Uploaded CV</p>
-              <p className="text-sm text-gray-500">Linked from your talent profile</p>
-            </div>
-            <div className="flex gap-2">
-              <a
-                href={resumeUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-full border border-orange-200 px-3 py-2 text-sm font-semibold text-orange-700"
-              >
-                View
-              </a>
-              <a
-                href={resumeUrl}
-                target="_blank"
-                rel="noreferrer"
-                download
-                className="rounded-full bg-gradient-to-r from-orange-600 to-orange-500 px-3 py-2 text-sm font-semibold text-white"
-              >
-                Download
-              </a>
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4 text-center">
-            <p className="text-sm text-slate-700">No CV uploaded yet. Upload a PDF/DOCX to complete your profile.</p>
-          </div>
-        )}
-      </section>
+        <p className="mt-1 text-sm font-semibold text-slate-600">Choose an existing CV from your profile documents or upload a new version.</p>
 
-      <section className="rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">
         <input
           ref={cvFileInputRef}
           className="hidden"
@@ -816,50 +850,129 @@ const TalentProfile = () => {
           onChange={(e) => {
             setCvMessage("");
             const file = e.target.files?.[0];
-            if (file) void uploadCvToStorage(file);
+            e.target.value = "";
+            if (!file) return;
+            if (!cvAction) {
+              setCvMessage("Click Upload or Edit first.");
+              return;
+            }
+            void uploadCvToStorage(file, cvAction.slot);
           }}
         />
 
-        <div className="mb-3 text-sm font-semibold text-slate-700">CV Actions</div>
+        {(() => {
+          const selectedUrl = String(resumeUrls[selectedCvSlot] ?? "").trim();
+          const hasSelected = Boolean(selectedUrl);
+          const firstEmptySlot = resumeUrls.findIndex((u) => !String(u).trim());
+          const hasFreeSlot = firstEmptySlot >= 0;
+          const existingSlots = resumeUrls
+            .map((u, i) => ({ slot: i, has: Boolean(String(u).trim()) }))
+            .filter((x) => x.has);
 
-        <div className="space-y-3">
-          {resumeUrl ? (
-            <div className="flex gap-2 flex-wrap">
-              <Button
-                size="sm"
-                disabled={uploadingCv}
-                onClick={() => cvFileInputRef.current?.click()}
-                className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-sm hover:from-orange-700 hover:to-orange-600"
-              >
-                <Upload className="h-4 w-4" />
-                {uploadingCv ? "Uploading..." : "Edit CV"}
-              </Button>
+          return (
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <div className="rounded-[1.75rem] border border-orange-200 bg-white p-5">
+                <div className="flex items-start gap-3">
+                  <input type="radio" checked readOnly className="mt-1 h-4 w-4 accent-orange-600" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-slate-900">Select CV from profile</p>
+                    <p className="mt-1 text-xs font-semibold text-slate-600">Pick one of your saved CV slots. Filenames are hidden.</p>
+                  </div>
+                </div>
 
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={uploadingCv}
-                onClick={() => void removeCvFromStorage()}
-                className="gap-2 rounded-full border-orange-200 bg-white text-orange-700 hover:bg-orange-50"
-              >
-                <Trash2 className="h-4 w-4" />
-                Remove
-              </Button>
+                <div className="mt-4">
+                  <Select value={String(selectedCvSlot)} onValueChange={(v) => setSelectedCvSlot(Number(v))}>
+                    <SelectTrigger className="h-11 rounded-2xl border-orange-200">
+                      <SelectValue placeholder={existingSlots.length ? "Choose a CV" : "No CVs yet"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {existingSlots.map(({ slot }) => (
+                        <SelectItem key={`cv-option-${slot}`} value={String(slot)}>
+                          CV {slot + 1}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {hasSelected ? (
+                  <div className="mt-4 rounded-2xl border border-orange-100 bg-orange-50/40 p-4">
+                    <p className="text-sm font-semibold text-slate-900">CV {selectedCvSlot + 1}</p>
+                    <p className="mt-1 text-xs font-semibold text-slate-600">Use View to preview in-app, or Edit/Delete to update this slot.</p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setCvPreviewUrl(selectedUrl);
+                          setCvPreviewOpen(true);
+                        }}
+                        className="h-9 rounded-full border-orange-200 px-4 text-xs font-semibold text-orange-700 hover:bg-orange-50"
+                      >
+                        <Eye className="mr-2 h-4 w-4" />
+                        View
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={uploadingCv}
+                        onClick={() => {
+                          setCvAction({ mode: "replace", slot: selectedCvSlot });
+                          cvFileInputRef.current?.click();
+                        }}
+                        className="h-9 rounded-full border-orange-200 px-4 text-xs font-semibold text-orange-700 hover:bg-orange-50"
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={uploadingCv}
+                        onClick={() => void removeCvFromStorage(selectedCvSlot)}
+                        className="h-9 rounded-full border-orange-200 px-4 text-xs font-semibold text-orange-700 hover:bg-orange-50"
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-2xl border border-orange-100 bg-orange-50 p-4 text-center text-sm text-slate-700">
+                    No CV selected yet.
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-[1.75rem] border border-orange-200 bg-white p-5">
+                <div className="flex items-start gap-3">
+                  <input type="radio" disabled className="mt-1 h-4 w-4 accent-orange-600" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-slate-900">Upload a new CV</p>
+                    <p className="mt-1 text-xs font-semibold text-slate-600">Adds to the next available empty slot (max 3).</p>
+                  </div>
+                </div>
+
+                <div className="mt-5 rounded-[1.5rem] border-2 border-dashed border-orange-300 bg-orange-50/40 p-6 text-center">
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      if (!hasFreeSlot) return;
+                      setCvAction({ mode: "upload", slot: firstEmptySlot });
+                      cvFileInputRef.current?.click();
+                    }}
+                    disabled={!hasFreeSlot || uploadingCv}
+                    className="h-12 w-full rounded-full bg-orange-600 text-base font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
+                  >
+                    <Upload className="mr-2 h-5 w-5" />
+                    {hasFreeSlot ? "Upload your CV" : "3 CVs saved"}
+                  </Button>
+                  <p className="mt-3 text-xs font-semibold text-slate-600">PDF, DOC, or DOCX up to 5 MB</p>
+                </div>
+              </div>
             </div>
-          ) : (
-            <Button
-              size="sm"
-              disabled={uploadingCv}
-              onClick={() => cvFileInputRef.current?.click()}
-              className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-sm hover:from-orange-700 hover:to-orange-600"
-            >
-              <Upload className="h-4 w-4" />
-              {uploadingCv ? "Uploading..." : "Upload Resume/CV"}
-            </Button>
-          )}
+          );
+        })()}
 
-          {cvMessage && <p className="text-sm font-semibold text-orange-700">{cvMessage}</p>}
-        </div>
+        {cvMessage && <p className="mt-3 text-sm font-semibold text-orange-700">{cvMessage}</p>}
       </section>
     </div>
   );

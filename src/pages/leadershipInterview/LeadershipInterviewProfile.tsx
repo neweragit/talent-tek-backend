@@ -4,49 +4,35 @@ import LeadershipInterviewLayout from "@/components/layouts/leadershipInterview/
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
   User,
-  Settings,
   Shield,
   Edit3,
   Camera,
   Mail,
-  Phone,
-  Globe,
-  Linkedin,
   Save,
   Briefcase,
-  Code,
-  Award,
-  Trash2,
-  MapPin,
   CheckCircle2,
   Sparkles,
-  Plus,
-  X,
   Loader2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 
-type TabType = "profile" | "expertise" | "security";
+type TabType = "profile" | "security";
 
 type LeadershipInterviewerProfileState = {
   fullName: string;
   email: string;
   role: string;
-  expertise: string[];
 };
 
 const DEFAULT_LEADERSHIP_INTERVIEWER_PROFILE: LeadershipInterviewerProfileState = {
   fullName: "",
   email: "",
   role: "",
-  expertise: [],
 };
 
 const LeadershipInterviewProfile = () => {
@@ -57,7 +43,6 @@ const LeadershipInterviewProfile = () => {
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState<LeadershipInterviewerProfileState>(DEFAULT_LEADERSHIP_INTERVIEWER_PROFILE);
   const [profileId, setProfileId] = useState<string | null>(null);
-  const [newExpertise, setNewExpertise] = useState("");
   const [passwordForm, setPasswordForm] = useState({ current: "", next: "", confirm: "" });
   const [savingPassword, setSavingPassword] = useState(false);
 
@@ -68,7 +53,7 @@ const LeadershipInterviewProfile = () => {
       setLoading(true);
       const { data, error } = await supabase
         .from("interviewers")
-        .select("id, full_name, email, role, expertise, interview_type")
+        .select("id, full_name, email, role, interview_type")
         .eq("user_id", user.id)
         .eq("interview_type", "leadership")
         .maybeSingle();
@@ -82,7 +67,6 @@ const LeadershipInterviewProfile = () => {
           fullName: data.full_name || "",
           email: data.email || "",
           role: data.role || "",
-          expertise: Array.isArray(data.expertise) ? data.expertise : [],
         });
         setProfileId(data.id);
       }
@@ -94,7 +78,6 @@ const LeadershipInterviewProfile = () => {
 
   const tabs = [
     { key: "profile" as TabType, label: "Profile", icon: User },
-    { key: "expertise" as TabType, label: "Expertise", icon: Code },
     { key: "security" as TabType, label: "Security", icon: Shield },
   ];
 
@@ -105,7 +88,6 @@ const LeadershipInterviewProfile = () => {
       profile.fullName,
       profile.email,
       profile.role,
-      profile.expertise.length > 0 ? "expertise" : "",
     ];
 
     const completed = checkpoints.filter((value) => String(value).trim().length > 0).length;
@@ -127,7 +109,6 @@ const LeadershipInterviewProfile = () => {
           full_name: profile.fullName.trim(),
           role: profile.role,
           email: profile.email,
-          expertise: profile.expertise,
         })
         .eq("id", profileId);
       setLoading(false);
@@ -141,24 +122,6 @@ const LeadershipInterviewProfile = () => {
       }
     }
     setIsEditing(!isEditing);
-  };
-
-  const addExpertise = () => {
-    const value = newExpertise.trim();
-    if (!value) return;
-    if (profile.expertise.includes(value)) {
-      setNewExpertise("");
-      return;
-    }
-    setProfile((prev) => ({ ...prev, expertise: [...prev.expertise, value] }));
-    setNewExpertise("");
-  };
-
-  const removeExpertise = (index: number) => {
-    setProfile((prev) => ({
-      ...prev,
-      expertise: prev.expertise.filter((_, i) => i !== index),
-    }));
   };
 
   const updatePassword = async () => {
@@ -288,94 +251,6 @@ const LeadershipInterviewProfile = () => {
           </div>
         </div>
       </section>
-
-      <section className="rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md">
-            <Code className="h-5 w-5" />
-          </div>
-          <h4 className="text-lg font-bold text-slate-900">Areas of Expertise</h4>
-        </div>
-
-        <div className="space-y-3">
-          {profile.expertise.length === 0 ? (
-            <p className="text-sm text-slate-500">No expertise areas added yet.</p>
-          ) : (
-            profile.expertise.map((item, index) => (
-              <div key={index} className="flex items-center justify-between rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
-                <p className="font-semibold text-slate-900">{item}</p>
-                {isEditing && (
-                  <button onClick={() => {}} className="text-orange-600 hover:text-orange-700">
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            ))
-          )}
-        </div>
-
-        {isEditing && (
-          <div className="mt-4 space-y-2">
-            <Input
-              placeholder="Add new expertise area"
-              className="h-11 rounded-xl border-orange-200 bg-orange-50/30 focus:border-orange-400 focus:ring-orange-400"
-            />
-            <Button className="w-full gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white">
-              <Plus className="h-4 w-4" /> Add Expertise
-            </Button>
-          </div>
-        )}
-      </section>
-    </div>
-  );
-
-  const renderExpertise = () => (
-    <div className="space-y-6">
-      <section className="rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">
-        <div className="mb-5 flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md">
-            <Code className="h-5 w-5" />
-          </div>
-          <h4 className="text-lg font-bold text-slate-900">Areas of Expertise</h4>
-        </div>
-
-        <div className="space-y-3">
-          {profile.expertise.length === 0 ? (
-            <p className="text-sm text-slate-500">No expertise areas added yet.</p>
-          ) : (
-            profile.expertise.map((item, index) => (
-              <div key={`${item}-${index}`} className="flex items-center justify-between rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
-                <p className="font-semibold text-slate-900">{item}</p>
-                {isEditing && (
-                  <button onClick={() => removeExpertise(index)} className="text-orange-600 hover:text-orange-700">
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            ))
-          )}
-        </div>
-
-        {isEditing && (
-          <div className="mt-4 space-y-2">
-            <Input
-              placeholder="Add new expertise area"
-              value={newExpertise}
-              onChange={(e) => setNewExpertise(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  addExpertise();
-                }
-              }}
-              className="h-11 rounded-xl border-orange-200 bg-orange-50/30 focus:border-orange-400 focus:ring-orange-400"
-            />
-            <Button className="w-full gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white" onClick={addExpertise}>
-              <Plus className="h-4 w-4" /> Add Expertise
-            </Button>
-          </div>
-        )}
-      </section>
     </div>
   );
 
@@ -443,8 +318,6 @@ const LeadershipInterviewProfile = () => {
     switch (activeTab) {
       case "profile":
         return renderProfile();
-      case "expertise":
-        return renderExpertise();
       case "security":
         return renderSecurity();
       default:
@@ -466,7 +339,7 @@ const LeadershipInterviewProfile = () => {
                 My Profile
               </h1>
               <p className="max-w-2xl text-base font-medium leading-7 text-slate-600 sm:text-lg">
-                Manage your interviewer profile, expertise, and account settings in one unified workspace.
+                Manage your interviewer profile and account settings in one unified workspace.
               </p>
               <div className="mt-6 inline-flex rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-700 shadow-sm">
                 Profile completion: {profileCompletion}%
@@ -522,7 +395,7 @@ const LeadershipInterviewProfile = () => {
         </section>
 
         <div className="mb-8 flex items-center overflow-x-auto rounded-3xl border border-orange-100 bg-white p-4 shadow-lg">
-          <div className="grid h-12 min-w-[640px] w-full grid-cols-3 gap-2">
+          <div className="grid h-12 min-w-[420px] w-full grid-cols-2 gap-2">
             {tabs.map((tab) => (
               <button
                 key={tab.key}
@@ -549,4 +422,3 @@ const LeadershipInterviewProfile = () => {
 };
 
 export default LeadershipInterviewProfile;
-

@@ -1,8 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import RecruiterAdminLayout from "@/components/layouts/RecruiterAdminLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { supabase } from "@/lib/supabase";
+import { useToast } from "@/hooks/use-toast";
 import {
   Activity,
   ArrowUpRight,
@@ -15,6 +17,7 @@ import {
   Cpu,
   DollarSign,
   Globe2,
+  Loader2,
   RefreshCw,
   ShieldCheck,
   Sparkles,
@@ -23,7 +26,7 @@ import {
   Users,
 } from "lucide-react";
 
-type MonthKey = "all" | "january" | "february" | "march";
+type MonthKey = "all" | "7d" | "30d" | "90d";
 
 type StatCard = {
   label: string;
@@ -176,9 +179,194 @@ const getActivityTypeClasses = (type: ActivityItem["type"]) => {
 };
 
 export default function EmployerAdminOverview() {
+  const { toast } = useToast();
   const [selectedMonth, setSelectedMonth] = useState<MonthKey>("all");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string>("");
+  const [kpis, setKpis] = useState({
+    employersTotal: 0,
+    jobsTotal: 0,
+    jobsPublished: 0,
+    jobsUnpublished: 0,
+    jobsArchived: 0,
+    talentsTotal: 0,
+    applicationsTotal: 0,
+    applicationsPending: 0,
+    applicationsInProgress: 0,
+    applicationsMaybe: 0,
+    applicationsRejected: 0,
+    applicationsArchived: 0,
+  });
+  const [recentApplications, setRecentApplications] = useState<
+    Array<{
+      id: string;
+      candidateName: string;
+      companyName: string;
+      jobTitle: string;
+      status: string;
+      stage: string | null;
+      appliedAt: string;
+    }>
+  >([]);
 
-  const stats = useMemo(() => statsByMonth[selectedMonth], [selectedMonth]);
+  const rangeStartIso = useMemo(() => {
+    if (selectedMonth === "all") return null;
+    const now = new Date();
+    const days = selectedMonth === "7d" ? 7 : selectedMonth === "30d" ? 30 : 90;
+    const start = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    return start.toISOString();
+  }, [selectedMonth]);
+
+  const loadDashboard = async () => {
+    setLoading(true);
+    try {
+      const countTable = async (
+        table: "employers" | "talents" | "jobs" | "applications",
+        apply?: (query: any) => any,
+      ) => {
+        // NOTE: `.eq/.gte` only exists after `.select(...)` in supabase-js.
+        let query: any = supabase.from(table).select("id", { head: true, count: "exact" });
+
+        if (rangeStartIso) {
+          if (table === "applications") query = query.gte("applied_at", rangeStartIso);
+          else query = query.gte("created_at", rangeStartIso);
+        }
+
+        if (apply) query = apply(query);
+
+        const { count, error } = await query;
+        if (error) throw error;
+        return count ?? 0;
+      };
+
+      const [
+        employersTotal,
+        talentsTotal,
+        jobsTotal,
+        jobsPublished,
+        jobsUnpublished,
+        jobsArchived,
+        applicationsTotal,
+        applicationsPending,
+        applicationsInProgress,
+        applicationsMaybe,
+        applicationsRejected,
+        applicationsArchived,
+      ] = await Promise.all([
+        countTable("employers"),
+        countTable("talents"),
+        countTable("jobs"),
+        countTable("jobs", (q) => q.eq("status", "published")),
+        countTable("jobs", (q) => q.eq("status", "unpublished")),
+        countTable("jobs", (q) => q.eq("status", "archived")),
+        countTable("applications"),
+        countTable("applications", (q) => q.eq("status", "pending")),
+        countTable("applications", (q) => q.eq("status", "in-progress")),
+        countTable("applications", (q) => q.eq("status", "maybe")),
+        countTable("applications", (q) => q.eq("status", "rejected")),
+        countTable("applications", (q) => q.eq("status", "archived")),
+      ]);
+
+      setKpis({
+        employersTotal,
+        jobsTotal,
+        jobsPublished,
+        jobsUnpublished,
+        jobsArchived,
+        talentsTotal,
+        applicationsTotal,
+        applicationsPending,
+        applicationsInProgress,
+        applicationsMaybe,
+        applicationsRejected,
+        applicationsArchived,
+      });
+
+      const recentQuery = supabase
+        .from("applications")
+        .select(
+          `
+          id,
+          status,
+          stage,
+          applied_at,
+          talents ( full_name ),
+          jobs ( title, employers ( company_name ) )
+        `,
+        )
+        .order("applied_at", { ascending: false })
+        .limit(6);
+
+      const { data: recent, error: recentError } = rangeStartIso
+        ? await recentQuery.gte("applied_at", rangeStartIso)
+        : await recentQuery;
+
+      if (recentError) throw recentError;
+
+      setRecentApplications(
+        (recent || []).map((row: any) => ({
+          id: String(row.id),
+          candidateName: row.talents?.full_name || "Candidate",
+          companyName: row.jobs?.employers?.company_name || "Company",
+          jobTitle: row.jobs?.title || "Role",
+          status: row.status || "pending",
+          stage: row.stage ?? null,
+          appliedAt: row.applied_at || "",
+        })),
+      );
+
+      setLastUpdatedAt(new Date().toLocaleString());
+    } catch (error: any) {
+      console.error("Recruiter admin overview load failed:", error);
+      toast({
+        title: "Could not load dashboard",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadDashboard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMonth]);
+
+  const stats = useMemo<StatCard[]>(() => {
+    const fmt = (n: number) => n.toLocaleString();
+    return [
+      {
+        label: "Employers",
+        value: loading ? "-" : fmt(kpis.employersTotal),
+        desc: "Companies created",
+        trend: "",
+        icon: Building2,
+      },
+      {
+        label: "Jobs",
+        value: loading ? "-" : fmt(kpis.jobsTotal),
+        desc: `${fmt(kpis.jobsPublished)} published - ${fmt(kpis.jobsUnpublished)} unpublished`,
+        trend: "",
+        icon: Briefcase,
+      },
+      {
+        label: "Talents",
+        value: loading ? "-" : fmt(kpis.talentsTotal),
+        desc: "Candidate profiles",
+        trend: "",
+        icon: Users,
+      },
+      {
+        label: "Applications",
+        value: loading ? "-" : fmt(kpis.applicationsTotal),
+        desc: `${fmt(kpis.applicationsPending)} pending - ${fmt(kpis.applicationsInProgress)} in progress`,
+        trend: "",
+        icon: CheckCircle2,
+      },
+    ];
+  }, [kpis, loading]);
 
   return (
     <RecruiterAdminLayout>
@@ -198,10 +386,18 @@ export default function EmployerAdminOverview() {
               </p>
               <div className="mt-6 flex flex-wrap gap-3">
                 <div className="inline-flex rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-700 shadow-sm">
-                  Hiring snapshot updates every 15 minutes
+                  {lastUpdatedAt ? `Last updated: ${lastUpdatedAt}` : "Live platform snapshot"}
                 </div>
-                <Button className="gap-2 rounded-full bg-orange-600 px-5 text-white shadow-lg hover:bg-orange-700">
-                  <RefreshCw className="h-4 w-4" />
+                <Button
+                  className="gap-2 rounded-full bg-orange-600 px-5 text-white shadow-lg hover:bg-orange-700"
+                  onClick={async () => {
+                    setRefreshing(true);
+                    await loadDashboard();
+                    setRefreshing(false);
+                  }}
+                  disabled={refreshing}
+                >
+                  {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   Refresh Hiring Data
                 </Button>
               </div>
@@ -216,10 +412,12 @@ export default function EmployerAdminOverview() {
                   <p className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">{stat.label}</p>
                   <div className="mt-2 text-3xl font-bold text-slate-900">{stat.value}</div>
                   <p className="mt-1 text-sm text-slate-600">{stat.desc}</p>
-                  <div className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-orange-600">
-                    <ArrowUpRight className="h-3.5 w-3.5" />
-                    {stat.trend}
-                  </div>
+                  {stat.trend ? (
+                    <div className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-orange-600">
+                      <ArrowUpRight className="h-3.5 w-3.5" />
+                      {stat.trend}
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -228,7 +426,7 @@ export default function EmployerAdminOverview() {
 
         <div className="mb-8 flex flex-col gap-4 rounded-3xl border border-orange-100 bg-white p-4 shadow-lg md:flex-row md:items-center md:justify-between">
           <div className="text-sm font-semibold text-slate-700">
-            Showing {selectedMonth === "all" ? "all-time consolidated" : `${selectedMonth} 2026`} company-admin metrics.
+            Showing {selectedMonth === "all" ? "all-time consolidated" : selectedMonth === "7d" ? "last 7 days" : selectedMonth === "30d" ? "last 30 days" : "last 90 days"} company-admin metrics.
           </div>
           <div className="flex flex-nowrap gap-3">
             <Select value={selectedMonth} onValueChange={(value) => setSelectedMonth(value as MonthKey)}>
@@ -237,9 +435,9 @@ export default function EmployerAdminOverview() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All time</SelectItem>
-                <SelectItem value="january">January 2026</SelectItem>
-                <SelectItem value="february">February 2026</SelectItem>
-                <SelectItem value="march">March 2026</SelectItem>
+                <SelectItem value="7d">Last 7 days</SelectItem>
+                <SelectItem value="30d">Last 30 days</SelectItem>
+                <SelectItem value="90d">Last 90 days</SelectItem>
               </SelectContent>
             </Select>
             <Button
@@ -258,175 +456,120 @@ export default function EmployerAdminOverview() {
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
                 <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-orange-600">
-                  <BadgeDollarSign className="h-3.5 w-3.5" />
-                  Hiring Budget Streams
-                </div>
-                <h2 className="text-2xl font-bold text-slate-900">Monthly spend by hiring stream</h2>
-                <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">
-                  Replace chart placeholders with recruiter budget usage across departments and role groups.
-                </p>
-              </div>
-              <div className="inline-flex rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-700 shadow-sm">
-                {revenueStreams.length} streams
-              </div>
-            </div>
-
-            <div className="max-h-[520px] space-y-4 overflow-y-auto pr-2">
-              {revenueStreams.map((item) => (
-                <article key={item.id} className="rounded-3xl border border-orange-100 bg-orange-50/40 p-5 shadow-sm">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-lg font-bold text-slate-900">{item.stream}</h3>
-                      <div className="mt-2 flex items-center gap-2 text-sm text-slate-600">
-                        <Globe2 className="h-4 w-4 text-orange-500" />
-                        {item.region}
-                      </div>
-                    </div>
-                    <Badge className={`border ${getStatusClasses(item.status)}`}>{item.status}</Badge>
-                  </div>
-
-                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-2xl border border-orange-100 bg-white px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">MRR</p>
-                      <p className="mt-1 text-lg font-bold text-slate-900">{item.mrr}</p>
-                    </div>
-                    <div className="rounded-2xl border border-orange-100 bg-white px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Accounts</p>
-                      <p className="mt-1 text-lg font-bold text-slate-900">{item.accounts}</p>
-                    </div>
-                    <div className="rounded-2xl border border-orange-100 bg-white px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Growth</p>
-                      <p className="mt-1 inline-flex items-center gap-1 text-lg font-bold text-orange-600">
-                        <TrendingUp className="h-4 w-4" />
-                        {item.growth}
-                      </p>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-
-          <section className="rounded-[2rem] border border-orange-100 bg-white p-6 shadow-lg">
-            <div className="mb-5 flex items-start justify-between gap-4">
-              <div>
-                <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-orange-600">
-                  <Users className="h-3.5 w-3.5" />
-                  Team Distribution
-                </div>
-                <h2 className="text-2xl font-bold text-slate-900">Hiring team composition</h2>
-                <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">
-                  Team-level distribution with retention and monthly intake replacing static visuals.
-                </p>
-              </div>
-              <div className="inline-flex rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-700 shadow-sm">
-                {userDistribution.length} segments
-              </div>
-            </div>
-
-            <div className="max-h-[520px] space-y-4 overflow-y-auto pr-2">
-              {userDistribution.map((segment) => (
-                <article key={segment.id} className="rounded-3xl border border-orange-100 bg-orange-50/40 p-5 shadow-sm">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h3 className="text-lg font-bold text-slate-900">{segment.segment}</h3>
-                      <p className="mt-1 text-sm text-slate-600">{segment.note}</p>
-                    </div>
-                    <p className="text-2xl font-bold text-slate-900">{segment.share}%</p>
-                  </div>
-
-                  <div className="mt-4 h-2 overflow-hidden rounded-full bg-orange-100">
-                    <div className="h-full rounded-full bg-orange-600" style={{ width: `${segment.share}%` }} />
-                  </div>
-
-                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-2xl border border-orange-100 bg-white px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Active users</p>
-                      <p className="mt-1 text-lg font-bold text-slate-900">{segment.activeUsers.toLocaleString()}</p>
-                    </div>
-                    <div className="rounded-2xl border border-orange-100 bg-white px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">New users</p>
-                      <p className="mt-1 text-lg font-bold text-slate-900">+{segment.newUsers}</p>
-                    </div>
-                    <div className="rounded-2xl border border-orange-100 bg-white px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Retention</p>
-                      <p className="mt-1 text-lg font-bold text-orange-600">{segment.retention}</p>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-        </div>
-
-        <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-          <section className="rounded-[2rem] border border-orange-100 bg-white p-6 shadow-lg">
-            <div className="mb-5 flex items-start justify-between gap-4">
-              <div>
-                <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-orange-600">
                   <Activity className="h-3.5 w-3.5" />
-                  Live Hiring Activity
+                  Applications
                 </div>
-                <h2 className="text-2xl font-bold text-slate-900">Company admin activity feed</h2>
-              </div>
-              <div className="inline-flex rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-700 shadow-sm">
-                {activityFeed.length} events
+                <h2 className="text-2xl font-bold text-slate-900">Application status breakdown</h2>
+                <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">Counts are read from `applications.status`.</p>
               </div>
             </div>
 
-            <div className="space-y-4">
-              {activityFeed.map((event) => (
-                <article key={event.id} className="rounded-3xl border border-orange-100 bg-orange-50/40 p-4 shadow-sm">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h3 className="text-base font-bold text-slate-900">{event.title}</h3>
-                      <p className="mt-1 text-sm text-slate-600">{event.detail}</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                { label: "Pending", value: kpis.applicationsPending, icon: Clock3 },
+                { label: "In Progress", value: kpis.applicationsInProgress, icon: CheckCircle2 },
+                { label: "Maybe", value: kpis.applicationsMaybe, icon: Clock3 },
+                { label: "Rejected", value: kpis.applicationsRejected, icon: Clock3 },
+                { label: "Archived", value: kpis.applicationsArchived, icon: Clock3 },
+              ].map((item) => (
+                <div key={item.label} className="rounded-3xl border border-orange-100 bg-orange-50/40 p-4 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+                      <item.icon className="h-4 w-4 text-orange-600" />
+                      {item.label}
                     </div>
-                    <Badge className={`border ${getActivityTypeClasses(event.type)}`}>{event.type}</Badge>
+                    <div className="text-2xl font-bold text-slate-900">{loading ? "—" : item.value.toLocaleString()}</div>
                   </div>
-                  <p className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-slate-500">
-                    <Clock3 className="h-3.5 w-3.5" />
-                    {event.time}
-                  </p>
-                </article>
+                </div>
               ))}
             </div>
           </section>
 
           <section className="rounded-[2rem] border border-orange-100 bg-white p-6 shadow-lg">
-            <div className="mb-5">
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-orange-600">
-                <TrendingUp className="h-3.5 w-3.5" />
-                Hiring Health Metrics
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-orange-600">
+                  <Building2 className="h-3.5 w-3.5" />
+                  Jobs
+                </div>
+                <h2 className="text-2xl font-bold text-slate-900">Job status breakdown</h2>
+                <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">Counts are read from `jobs.status`.</p>
               </div>
-              <h2 className="text-2xl font-bold text-slate-900">Core hiring signals</h2>
             </div>
 
-            <div className="space-y-3">
-              {platformHealth.map((metric) => (
-                <article key={metric.label} className="rounded-3xl border border-orange-100 bg-orange-50/40 p-4 shadow-sm">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-600 text-white shadow-md">
-                        <metric.icon className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">{metric.label}</p>
-                        <p className="text-xs text-slate-500">Current team average</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-slate-900">{metric.value}</p>
-                      <p className="text-xs font-semibold text-orange-600">{metric.change}</p>
-                    </div>
-                  </div>
-                </article>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {[
+                { label: "Published", value: kpis.jobsPublished },
+                { label: "Unpublished", value: kpis.jobsUnpublished },
+                { label: "Archived", value: kpis.jobsArchived },
+              ].map((item) => (
+                <div key={item.label} className="rounded-3xl border border-orange-100 bg-orange-50/40 p-4 shadow-sm">
+                  <p className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">{item.label}</p>
+                  <p className="mt-2 text-3xl font-bold text-slate-900">{loading ? "—" : item.value.toLocaleString()}</p>
+                </div>
               ))}
             </div>
           </section>
         </div>
+
+        <section className="mt-6 rounded-[2rem] border border-orange-100 bg-white p-6 shadow-lg">
+          <div className="mb-5 flex items-start justify-between gap-4">
+            <div>
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-orange-600">
+                <Clock3 className="h-3.5 w-3.5" />
+                Recent
+              </div>
+              <h2 className="text-2xl font-bold text-slate-900">Recent applications</h2>
+              <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">Latest submissions across jobs and talents.</p>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-10 text-slate-600">
+              <Loader2 className="mr-2 h-5 w-5 animate-spin text-orange-600" />
+              Loading recent applications...
+            </div>
+          ) : recentApplications.length === 0 ? (
+            <div className="rounded-3xl border border-orange-100 bg-orange-50/40 p-6 text-sm text-slate-600">No applications yet.</div>
+          ) : (
+            <div className="overflow-hidden rounded-3xl border border-orange-100">
+              <table className="w-full text-left">
+                <thead className="bg-orange-50 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Candidate</th>
+                    <th className="px-4 py-3">Role</th>
+                    <th className="px-4 py-3">Company</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Applied</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-orange-100 bg-white">
+                  {recentApplications.map((item) => (
+                    <tr key={item.id} className="hover:bg-orange-50/50 transition-colors">
+                      <td className="px-4 py-4 text-sm font-semibold text-slate-900">{item.candidateName}</td>
+                      <td className="px-4 py-4 text-sm text-slate-700">{item.jobTitle}</td>
+                      <td className="px-4 py-4 text-sm text-slate-700">{item.companyName}</td>
+                      <td className="px-4 py-4">
+                        <Badge className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700">
+                          {item.status === "in-progress" && item.stage
+                            ? item.stage
+                                .split("-")
+                                .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+                                .join(" ")
+                            : item.status}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-slate-700">
+                        {item.appliedAt ? new Date(item.appliedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
     </RecruiterAdminLayout>
   );
 }
-

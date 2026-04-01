@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Archive, Briefcase, CalendarDays, Edit, Loader2, MapPin, Plus, Sparkles, Upload } from "lucide-react";
+import { Archive, Briefcase, CalendarDays, Edit, Loader2, MapPin, Plus, Share2, Sparkles, Upload } from "lucide-react";
 import type { JobDetailsData } from "@/data/talentJobs";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -49,8 +49,12 @@ type JobFormState = {
 };
 
 const statusOptions: JobPublishStatus[] = ["Published", "Unpublished", "Archived"];
-const employmentTypeOptions = ["Full-time", "Part-time", "Internship", "Contract"];
+const employmentTypeOptions = ["Full-time", "Part-time"];
 const workplaceOptions = ["On-site", "Hybrid", "Remote"];
+const contractTypeOptions = ["Permanent (CDI)", "Fixed-term (CDD)","Freelance"];
+const educationRequiredOptions = ["Bachelor (Licence)", "Master", "PhD (Doctorat)"];
+const experienceLevelOptions = ["0–1 years", "1–3 years", "3–5 years", "5–8 years", "8+ years"];
+const jobLevelOptions = ["Internship", "Junior", "Mid", "Senior", "Lead", "Manager", "Director"];
 
 const emptyForm: JobFormState = {
   title: "",
@@ -166,12 +170,20 @@ const asStringArray = (value: unknown): string[] => {
     .filter(Boolean);
 };
 
+const truncateText = (value: string, maxLength: number) => {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength).trimEnd()}…`;
+};
+
 export default function EmployerJobs() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [postedJobs, setPostedJobs] = useState<PostedJob[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [openDialog, setOpenDialog] = useState(false);
+  const [viewingJob, setViewingJob] = useState<PostedJob | null>(null);
   const [activeSection, setActiveSection] = useState<JobSection>("Published");
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
   const [employerId, setEmployerId] = useState<string | null>(null);
@@ -196,6 +208,23 @@ export default function EmployerJobs() {
       title: "AI Generator Coming Soon",
       description: "AI generation will be added later. You can fill all fields manually for now.",
     });
+  };
+
+  const handleShareJob = async (job: PostedJob) => {
+    const jobUrl = `${window.location.origin}/jobs/${job.id}`;
+
+    try {
+      await navigator.clipboard.writeText(jobUrl);
+      toast({
+        title: "Link copied to clipboard",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Share failed",
+        description: error?.message || "Could not share this job.",
+        variant: "destructive",
+      });
+    }
   };
 
   const canMoveToNextStep = (step: number) => {
@@ -655,7 +684,29 @@ export default function EmployerJobs() {
                       </div>
                       <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">Career Opportunity</Badge>
                     </div>
-                    <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">{postedJob.status}</Badge>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => void handleShareJob(postedJob)}
+                        className="h-10 w-10 rounded-full border-orange-200 bg-white text-orange-700 hover:bg-orange-50"
+                        aria-label={`Share ${postedJob.job.title}`}
+                      >
+                        <Share2 className="h-5 w-5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => handleOpenEditJob(postedJob.id)}
+                        className="h-10 w-10 rounded-full border-orange-200 bg-white text-orange-700 hover:bg-orange-50"
+                        aria-label={`Edit ${postedJob.job.title}`}
+                      >
+                        <Edit className="h-5 w-5" />
+                      </Button>
+                      <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">{postedJob.status}</Badge>
+                    </div>
                   </div>
 
                   <h3 className="text-2xl font-bold text-slate-900">{postedJob.job.title}</h3>
@@ -687,44 +738,18 @@ export default function EmployerJobs() {
                   </div>
 
                   <div className="mt-5 rounded-2xl border border-orange-100 bg-white p-4">
-                    <h4 className="text-sm font-bold uppercase tracking-wide text-slate-900">Role Overview</h4>
-                    <p className="mt-2 text-sm leading-6 text-slate-700">{postedJob.job.summary}</p>
-                  </div>
-
-                  <div className="mt-5 grid gap-4 md:grid-cols-2">
-                    <div className="rounded-2xl border border-orange-100 bg-white p-4">
-                      <h4 className="text-sm font-bold uppercase tracking-wide text-slate-900">What You Will Do</h4>
-                      <ul className="mt-2 space-y-2 text-sm text-slate-700">
-                        {postedJob.responsibilities.map((line) => (
-                          <li key={line} className="flex gap-2">
-                            <span className="mt-1 text-orange-500">•</span>
-                            <span>{line}</span>
-                          </li>
-                        ))}
-                      </ul>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <h4 className="text-sm font-bold uppercase tracking-wide text-slate-900">Announcement</h4>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setViewingJob(postedJob)}
+                        className="h-10 rounded-full border-orange-200 px-5 text-orange-700 hover:bg-orange-50"
+                      >
+                        View details
+                      </Button>
                     </div>
-                    <div className="rounded-2xl border border-orange-100 bg-white p-4">
-                      <h4 className="text-sm font-bold uppercase tracking-wide text-slate-900">Requirements</h4>
-                      <ul className="mt-2 space-y-2 text-sm text-slate-700">
-                        {postedJob.requirements.map((line) => (
-                          <li key={line} className="flex gap-2">
-                            <span className="mt-1 text-orange-500">•</span>
-                            <span>{line}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-
-                  <div className="mt-5 rounded-2xl border border-orange-100 bg-white p-4">
-                    <h4 className="text-sm font-bold uppercase tracking-wide text-slate-900">Required Skills</h4>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {postedJob.job.skills.map((skill) => (
-                        <Badge key={skill} className="rounded-full border border-orange-200 bg-orange-50 text-orange-700">
-                          {skill}
-                        </Badge>
-                      ))}
-                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-700">{truncateText(postedJob.job.summary, 180)}</p>
                   </div>
 
                   <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-orange-100 pt-4">
@@ -732,16 +757,6 @@ export default function EmployerJobs() {
                       {postedJob.job.initials} {postedJob.job.company} hiring for this role now across active teams.
                     </p>
                     <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleOpenEditJob(postedJob.id)}
-                        className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-                        aria-label={`Edit ${postedJob.job.title}`}
-                      >
-                        <Edit className="h-5 w-5" />
-                      </Button>
                       {postedJob.status === "Published" ? (
                         <>
                           <Button
@@ -782,6 +797,71 @@ export default function EmployerJobs() {
             </div>
           )}
         </section>
+
+        <Dialog open={!!viewingJob} onOpenChange={(open) => !open && setViewingJob(null)}>
+          <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold text-slate-900">Job Details</DialogTitle>
+            </DialogHeader>
+
+            {viewingJob ? (
+              <div className="space-y-5">
+                <div>
+                  <h3 className="text-2xl font-bold text-slate-900">{viewingJob.job.title}</h3>
+                  <p className="mt-1 text-base font-semibold text-slate-700">{viewingJob.job.company}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">{viewingJob.job.industry}</Badge>
+                    <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">{viewingJob.job.jobType}</Badge>
+                    <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">{viewingJob.job.workMode}</Badge>
+                    <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">{viewingJob.job.experience}</Badge>
+                    <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">{viewingJob.job.companySize}</Badge>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-orange-100 bg-orange-50/40 p-4">
+                  <h4 className="text-sm font-bold uppercase tracking-wide text-slate-900">Announcement</h4>
+                  <p className="mt-2 text-sm leading-6 text-slate-700 whitespace-pre-line">{viewingJob.job.summary}</p>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="rounded-2xl border border-orange-100 bg-white p-4">
+                    <h4 className="text-sm font-bold uppercase tracking-wide text-slate-900">What You Will Do</h4>
+                    <ul className="mt-2 space-y-2 text-sm text-slate-700">
+                      {viewingJob.responsibilities.map((line) => (
+                        <li key={line} className="flex gap-2">
+                          <span className="mt-1 text-orange-500">•</span>
+                          <span>{line}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="rounded-2xl border border-orange-100 bg-white p-4">
+                    <h4 className="text-sm font-bold uppercase tracking-wide text-slate-900">Requirements</h4>
+                    <ul className="mt-2 space-y-2 text-sm text-slate-700">
+                      {viewingJob.requirements.map((line) => (
+                        <li key={line} className="flex gap-2">
+                          <span className="mt-1 text-orange-500">•</span>
+                          <span>{line}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-orange-100 bg-white p-4">
+                  <h4 className="text-sm font-bold uppercase tracking-wide text-slate-900">Required Skills</h4>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {viewingJob.job.skills.map((skill) => (
+                      <Badge key={skill} className="rounded-full border border-orange-200 bg-orange-50 text-orange-700">
+                        {skill}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </DialogContent>
+        </Dialog>
 
         <Dialog
           open={openDialog}
@@ -865,7 +945,7 @@ export default function EmployerJobs() {
                         <SelectValue placeholder="Select employment type" />
                       </SelectTrigger>
                       <SelectContent>
-                        {employmentTypeOptions.map((employmentTypeOption) => (
+                        {Array.from(new Set([form.employmentType, ...employmentTypeOptions].filter(Boolean))).map((employmentTypeOption) => (
                           <SelectItem key={employmentTypeOption} value={employmentTypeOption}>
                             {employmentTypeOption}
                           </SelectItem>
@@ -880,19 +960,79 @@ export default function EmployerJobs() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
                     <Label className="text-sm font-semibold text-slate-700">Contract Type</Label>
-                    <Input value={form.contractType} onChange={(e) => setForm((c) => ({ ...c, contractType: e.target.value }))} className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50" required />
+                    <Select value={form.contractType} onValueChange={(value) => setForm((c) => ({ ...c, contractType: value }))}>
+                      <SelectTrigger className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50">
+                        <SelectValue placeholder="Select contract type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from(new Set([form.contractType, ...contractTypeOptions].filter(Boolean))).map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <Label className="text-sm font-semibold text-slate-700">Experience Level</Label>
-                    <Input value={form.experienceLevel} onChange={(e) => setForm((c) => ({ ...c, experienceLevel: e.target.value }))} className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50" required />
+                    <Select value={form.experienceLevel} onValueChange={(value) => setForm((c) => ({ ...c, experienceLevel: value }))}>
+                      <SelectTrigger className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50">
+                        <SelectValue placeholder="Select experience" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from(new Set([form.experienceLevel, ...experienceLevelOptions].filter(Boolean))).map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <Label className="text-sm font-semibold text-slate-700">Job Level</Label>
-                    <Input value={form.jobLevel} onChange={(e) => setForm((c) => ({ ...c, jobLevel: e.target.value }))} className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50" required />
+                    <Select
+                      value={form.jobLevel}
+                      onValueChange={(value) =>
+                        setForm((current) => {
+                          const next = { ...current, jobLevel: value };
+
+                          if (value === "Internship") {
+                            next.employmentType = "Internship";
+                            if (!next.experienceLevel) {
+                              next.experienceLevel = "0–1 years";
+                            }
+                          }
+
+                          return next;
+                        })
+                      }
+                    >
+                      <SelectTrigger className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50">
+                        <SelectValue placeholder="Select job level" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from(new Set([form.jobLevel, ...jobLevelOptions].filter(Boolean))).map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <Label className="text-sm font-semibold text-slate-700">Education Required</Label>
-                    <Input value={form.educationRequired} onChange={(e) => setForm((c) => ({ ...c, educationRequired: e.target.value }))} className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50" required />
+                    <Select value={form.educationRequired} onValueChange={(value) => setForm((c) => ({ ...c, educationRequired: value }))}>
+                      <SelectTrigger className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50">
+                        <SelectValue placeholder="Select education level" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from(new Set([form.educationRequired, ...educationRequiredOptions].filter(Boolean))).map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <Label className="text-sm font-semibold text-slate-700">Positions Available</Label>
@@ -981,4 +1121,3 @@ export default function EmployerJobs() {
     </RecruiterLayout>
   );
 }
-

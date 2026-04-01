@@ -44,6 +44,41 @@ const toDisplayRole = (role: string) => {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 };
 
+const generateRandomPassword = (length = 8) => {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnopqrstuvwxyz";
+  const digits = "23456789";
+  const all = `${upper}${lower}${digits}`;
+
+  const randomInt = (max: number) => {
+    if (max <= 0) return 0;
+    const cryptoObj = typeof window !== "undefined" ? window.crypto : undefined;
+    if (cryptoObj?.getRandomValues) {
+      const array = new Uint32Array(1);
+      cryptoObj.getRandomValues(array);
+      return array[0] % max;
+    }
+    return Math.floor(Math.random() * max);
+  };
+
+  const chars = [
+    upper[randomInt(upper.length)],
+    lower[randomInt(lower.length)],
+    digits[randomInt(digits.length)],
+  ];
+
+  while (chars.length < length) {
+    chars.push(all[randomInt(all.length)]);
+  }
+
+  for (let i = chars.length - 1; i > 0; i -= 1) {
+    const j = randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+
+  return chars.join("");
+};
+
 export default function EmployerAdminUsers() {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -177,7 +212,7 @@ export default function EmployerAdminUsers() {
       firstName: "",
       lastName: "",
       email: "",
-      password: "",
+      password: generateRandomPassword(),
       phone: "",
     });
     setOpenDialog(true);
@@ -733,14 +768,25 @@ export default function EmployerAdminUsers() {
               {!editingUser && (
                 <div>
                   <Label className="text-sm font-semibold text-slate-700">Password</Label>
-                  <Input
-                    type="password"
-                    value={form.password}
-                    onChange={(e) => setForm({ ...form, password: e.target.value })}
-                    placeholder="Set initial password"
-                    className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50 focus:border-orange-400"
-                    required
-                  />
+                  <div className="mt-2 flex gap-2">
+                    <Input
+                      type="password"
+                      value={form.password}
+                      readOnly
+                      placeholder="Generated password"
+                      autoComplete="new-password"
+                      className="h-12 rounded-xl border-orange-200 bg-orange-50 focus:border-orange-400"
+                      required
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setForm({ ...form, password: generateRandomPassword() })}
+                      className="h-12 whitespace-nowrap rounded-xl border-orange-200"
+                    >
+                      Generate
+                    </Button>
+                  </div>
                 </div>
               )}
 

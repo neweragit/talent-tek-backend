@@ -141,6 +141,20 @@ const extractCvsObjectPathFromResumeUrl = (resumeUrl: string): string | null => 
   return null;
 };
 
+const toFixed3ResumeUrls = (value: unknown): [string, string, string] => {
+  if (Array.isArray(value)) {
+    const a = value.map((v) => (typeof v === "string" ? v : "")).slice(0, 3);
+    return [(a[0] ?? "").trim(), (a[1] ?? "").trim(), (a[2] ?? "").trim()];
+  }
+  if (typeof value === "string" && value.trim()) {
+    const trimmed = value.trim();
+    return [trimmed, "", ""];
+  }
+  return ["", "", ""];
+};
+
+const firstNonEmptyResumeUrl = (urls: readonly string[]) => urls.find((u) => String(u).trim()) ?? "";
+
 export default function EmployerApplicants() {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -431,7 +445,7 @@ export default function EmployerApplicants() {
         // Load applications for these jobs
         const { data: applicationRows, error: appsError } = await supabase
           .from("applications")
-          .select("id, job_id, talent_id, status, match_score, applied_at, stage")
+          .select("id, job_id, talent_id, status, match_score, applied_at, stage, resume_url")
           .in("job_id", jobIds);
 
         if (appsError) throw appsError;
@@ -464,9 +478,11 @@ export default function EmployerApplicants() {
         const mappedApplicants: Applicant[] = apps.map((app: any) => {
           const talent = talentById.get(app.talent_id as string) as any | undefined;
           const email = talent?.user_id ? (emailByUserId.get(talent.user_id as string) as string | undefined) : undefined;
-          const resumeUrl = talent?.resume_url as string | undefined;
+          const appResumeUrl = typeof app.resume_url === "string" ? (app.resume_url as string) : "";
+          const talentResumeUrl = firstNonEmptyResumeUrl(toFixed3ResumeUrls(talent?.resume_url));
+          const resumeUrl = appResumeUrl || talentResumeUrl || "";
 
-          const cvName = resumeUrl ? String(resumeUrl).split("/").pop() || "CV" : "";
+          const cvName = resumeUrl ? "Resume" : "";
 
           return {
             id: app.id,
@@ -480,7 +496,7 @@ export default function EmployerApplicants() {
             currentCompany: companyName,
             coverLetter: talent?.short_bio || "",
             cvName,
-            cvUrl: resumeUrl,
+            cvUrl: resumeUrl || undefined,
             skills: (talent?.skills as string[]) || [],
             status: mapDbStatusToUi(app.status),
             matchScore: Number(app.match_score) || 0,

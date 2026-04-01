@@ -41,7 +41,6 @@ interface InterviewerUser {
   fullName: string;
   email: string;
   role: "Technical Interviewer" | "Leadership Interviewer";
-  expertise: string[];
   joinDate: string;
   status: "active" | "inactive";
 }
@@ -64,14 +63,39 @@ const toUiRole = (interviewType?: string): InterviewerUser["role"] => {
   return "Technical Interviewer";
 };
 
-const toStringArray = (value: unknown): string[] => {
-  if (!Array.isArray(value)) {
-    return [];
+const generateRandomPassword = (length = 8) => {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnopqrstuvwxyz";
+  const digits = "23456789";
+  const all = `${upper}${lower}${digits}`;
+
+  const randomInt = (max: number) => {
+    if (max <= 0) return 0;
+    const cryptoObj = typeof window !== "undefined" ? window.crypto : undefined;
+    if (cryptoObj?.getRandomValues) {
+      const array = new Uint32Array(1);
+      cryptoObj.getRandomValues(array);
+      return array[0] % max;
+    }
+    return Math.floor(Math.random() * max);
+  };
+
+  const chars = [
+    upper[randomInt(upper.length)],
+    lower[randomInt(lower.length)],
+    digits[randomInt(digits.length)],
+  ];
+
+  while (chars.length < length) {
+    chars.push(all[randomInt(all.length)]);
   }
 
-  return value
-    .map((item) => (typeof item === "string" ? item.trim() : ""))
-    .filter(Boolean);
+  for (let i = chars.length - 1; i > 0; i -= 1) {
+    const j = randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+
+  return chars.join("");
 };
 
 export default function EmployerInterviewers() {
@@ -91,7 +115,6 @@ export default function EmployerInterviewers() {
     fullName: "",
     email: "",
     role: "" as "" | InterviewerUser["role"],
-    expertise: "",
     password: "",
   });
 
@@ -151,7 +174,7 @@ export default function EmployerInterviewers() {
 
       const { data: rows, error } = await supabase
         .from("interviewers")
-        .select("id,user_id,full_name,email,expertise,interview_type,status,created_at")
+        .select("id,user_id,full_name,email,interview_type,status,created_at")
         .eq("employer_id", resolvedEmployerId)
         .order("created_at", { ascending: false });
 
@@ -186,7 +209,6 @@ export default function EmployerInterviewers() {
           fullName: row.full_name || "Unknown",
           email: linkedUser?.email || row.email || "",
           role: toUiRole(row.interview_type),
-          expertise: toStringArray(row.expertise),
           joinDate: row.created_at || new Date().toISOString(),
           status: linkedUser ? (linkedUser.is_active ? "active" : "inactive") : row.status === "inactive" ? "inactive" : "active",
         };
@@ -211,7 +233,7 @@ export default function EmployerInterviewers() {
 
   const handleOpenDialog = () => {
     setEditingUser(null);
-    setForm({ fullName: "", email: "", role: "", expertise: "", password: "" });
+    setForm({ fullName: "", email: "", role: "", password: generateRandomPassword() });
     setOpenDialog(true);
   };
 
@@ -221,31 +243,16 @@ export default function EmployerInterviewers() {
       fullName: user.fullName,
       email: user.email,
       role: user.role,
-      expertise: user.expertise.join(", "),
       password: "",
     });
     setOpenDialog(true);
   };
 
   const handleSaveUser = async () => {
-    if (!form.fullName || !form.email || !form.role || !form.expertise.trim()) {
+    if (!form.fullName || !form.email || !form.role) {
       toast({
         title: "Missing fields",
-        description: "Please fill in all fields, including expertise.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const expertiseArray = form.expertise
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean);
-
-    if (expertiseArray.length === 0) {
-      toast({
-        title: "Missing Expertise",
-        description: "Please add at least one expertise item.",
+        description: "Please fill in all fields.",
         variant: "destructive",
       });
       return;
@@ -290,7 +297,6 @@ export default function EmployerInterviewers() {
           .update({
             full_name: form.fullName.trim(),
             email: normalizedEmail,
-            expertise: expertiseArray,
             interview_type: toDbInterviewType(form.role),
             role: form.role,
             updated_at: new Date().toISOString(),
@@ -350,7 +356,6 @@ export default function EmployerInterviewers() {
             employer_id: employerId,
             full_name: form.fullName.trim(),
             email: normalizedEmail,
-            expertise: expertiseArray,
             interview_type: toDbInterviewType(form.role),
             role: form.role,
             status: "active",
@@ -362,7 +367,7 @@ export default function EmployerInterviewers() {
 
       await loadInterviewers();
       setOpenDialog(false);
-      setForm({ fullName: "", email: "", role: "", expertise: "", password: "" });
+      setForm({ fullName: "", email: "", role: "", password: "" });
       setEditingUser(null);
     } catch (error: any) {
       console.error("Error saving interviewer:", error);
@@ -683,20 +688,6 @@ export default function EmployerInterviewers() {
                     <span className="text-orange-700">Role</span>
                     <Badge className="rounded-full border-0 bg-orange-100 text-orange-700">{user.role}</Badge>
                   </div>
-                  <div className="flex items-start justify-between gap-3 text-sm">
-                    <span className="pt-1 text-orange-700">Expertise</span>
-                    <div className="flex flex-wrap justify-end gap-1.5">
-                      {user.expertise.length > 0 ? (
-                        user.expertise.map((item) => (
-                          <Badge key={`${user.id}-${item}`} className="rounded-full border border-orange-200 bg-white text-orange-700">
-                            {item}
-                          </Badge>
-                        ))
-                      ) : (
-                        <span className="font-medium text-slate-500">Not set</span>
-                      )}
-                    </div>
-                  </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-orange-700">Join Date</span>
                     <span className="flex items-center gap-1 font-bold text-slate-900">
@@ -791,14 +782,25 @@ export default function EmployerInterviewers() {
                   <Label className="text-sm font-semibold text-slate-700">
                     Password {editingUser ? "(leave blank to keep current)" : ""}
                   </Label>
-                  <Input
-                    type="password"
-                    value={form.password}
-                    onChange={(e) => setForm({ ...form, password: e.target.value })}
-                    placeholder={editingUser ? "Optional" : "Set initial password"}
-                    className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50 focus:border-orange-400"
-                    required={!editingUser}
-                  />
+                  <div className="mt-2 flex gap-2">
+                    <Input
+                      type="password"
+                      value={form.password}
+                      readOnly
+                      placeholder={editingUser ? "Optional" : "Generated password"}
+                      autoComplete={editingUser ? "new-password" : "new-password"}
+                      className="h-12 rounded-xl border-orange-200 bg-orange-50 focus:border-orange-400"
+                      required={!editingUser}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setForm({ ...form, password: generateRandomPassword() })}
+                      className="h-12 whitespace-nowrap rounded-xl border-orange-200"
+                    >
+                      Generate
+                    </Button>
+                  </div>
                 </div>
                 <div>
                   <Label className="text-sm font-semibold text-slate-700">Role</Label>
@@ -817,16 +819,6 @@ export default function EmployerInterviewers() {
                       ))}
                     </SelectContent>
                   </Select>
-                </div>
-                <div className="sm:col-span-2">
-                  <Label className="text-sm font-semibold text-slate-700">Expertise (comma separated)</Label>
-                  <Input
-                    value={form.expertise}
-                    onChange={(e) => setForm({ ...form, expertise: e.target.value })}
-                    placeholder="React, System Design, Behavioral"
-                    className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50 focus:border-orange-400"
-                    required
-                  />
                 </div>
               </div>
               <div className="flex gap-3 pt-4">
@@ -871,4 +863,3 @@ export default function EmployerInterviewers() {
     </RecruiterLayout>
   );
 }
-

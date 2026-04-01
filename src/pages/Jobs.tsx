@@ -5,9 +5,9 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { MapPin, Clock, Briefcase, Users, Star, Share2, Bookmark, Filter, ChevronRight, Award, Globe, Search, X } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
+import { MapPin, Clock, Briefcase, Users, Star, Share2, Filter, ChevronRight, Award, Globe, Search, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useToast } from "@/hooks/use-toast";
 
 interface Job {
 	id: string;
@@ -26,8 +26,8 @@ interface Job {
 }
 
 const Jobs = () => {
-	const { user } = useAuth();
 	const navigate = useNavigate();
+	const { toast } = useToast();
 	const [jobs, setJobs] = useState<Job[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [searchTerm, setSearchTerm] = useState("");
@@ -35,7 +35,6 @@ const Jobs = () => {
 	const [selectedLevel, setSelectedLevel] = useState("all");
 	const [selectedType, setSelectedType] = useState("all");
 	const [viewCounts, setViewCounts] = useState<Record<string, number>>({});
-	const [appliedJobs, setAppliedJobs] = useState<Set<string>>(new Set());
 
 
 	useEffect(() => {
@@ -62,6 +61,7 @@ const Jobs = () => {
 							logo_url
 						)
 					`)
+					.eq("status", "published")
 					.order('created_at', { ascending: false });
 
 				if (error) throw error;
@@ -90,29 +90,6 @@ const Jobs = () => {
 					counts[job.id] = job.views_count || 0;
 				});
 				setViewCounts(counts);
-
-				// Fetch applied jobs for current user
-				if (user) {
-					try {
-						const { data: talent } = await supabase
-							.from('talents')
-							.select('id')
-							.eq('user_id', user.id)
-							.single();
-
-						if (talent) {
-							const { data: applications } = await supabase
-								.from('applications')
-								.select('job_id')
-								.eq('talent_id', talent.id);
-
-							const applied = new Set<string>((applications?.map((app: any) => String(app.job_id)) ?? []) as string[]);
-							setAppliedJobs(applied);
-						}
-					} catch (error) {
-						console.error('Error fetching applied jobs:', error);
-					}
-				}
 			} catch (error) {
 				console.error('Error fetching jobs:', error);
 				setJobs([]);
@@ -145,18 +122,19 @@ const Jobs = () => {
 	const handleShare = (job: Job, e: React.MouseEvent) => {
 		e.stopPropagation();
 		const jobUrl = `${window.location.origin}/jobs/${job.id}`;
-		
-		if (navigator.share) {
-			navigator.share({
-				title: job.title,
-				text: `Check out this job: ${job.title} at ${job.company_name}`,
-				url: jobUrl,
-			}).catch(err => console.log('Share failed:', err));
-		} else {
-			// Fallback: copy to clipboard
-			navigator.clipboard.writeText(jobUrl);
-			alert('Job link copied to clipboard!');
-		}
+
+		navigator.clipboard
+			.writeText(jobUrl)
+			.then(() => {
+				toast({ title: "Link copied to clipboard" });
+			})
+			.catch((error) => {
+				toast({
+					title: "Copy failed",
+					description: error?.message || "Could not copy the link.",
+					variant: "destructive",
+				});
+			});
 	};
 
 	return (
@@ -171,6 +149,9 @@ const Jobs = () => {
 						</h1>
 						<p className="text-sm sm:text-base leading-relaxed text-orange-600 max-w-2xl mx-auto">
 							Discover top opportunities and connect with leading employers for your next career move
+						</p>
+						<p className="mt-3 text-xs sm:text-sm font-semibold text-slate-600 max-w-2xl mx-auto">
+							To apply, use your Talent dashboard.
 						</p>
 					</div>
 					{/* Search Bar */}
@@ -358,12 +339,6 @@ const Jobs = () => {
 												>
 													<Share2 className="w-5 h-5" />
 												</button>
-												<button
-													className="p-2 rounded-lg hover:bg-orange-100 transition-colors text-orange-600"
-													title="Bookmark job"
-												>
-													<Bookmark className="w-5 h-5" />
-												</button>
 											</div>
 										</div>
 
@@ -421,17 +396,6 @@ const Jobs = () => {
 													className="flex-1 bg-orange-600 text-white font-bold text-sm py-3 px-4 rounded-lg hover:bg-orange-700 transition-all duration-200 hover:shadow-lg flex items-center justify-center gap-2"
 												>
 													View Details <ChevronRight className="w-4 h-4" />
-												</button>
-												<button 
-													onClick={() => handleViewDetails(job)}
-													className={`flex-1 border-2 font-bold text-sm py-3 px-4 rounded-lg transition-all duration-200 ${
-														appliedJobs.has(job.id)
-															? 'border-gray-400 text-gray-400 bg-gray-100 cursor-not-allowed'
-															: 'border-orange-600 text-orange-600 hover:bg-orange-50'
-													}`}
-													disabled={appliedJobs.has(job.id)}
-												>
-													{appliedJobs.has(job.id) ? 'Applied' : 'Apply Now'}
 												</button>
 											</div>
 										</div>

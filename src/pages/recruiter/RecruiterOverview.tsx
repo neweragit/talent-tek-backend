@@ -30,7 +30,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 
-type TeamFilter = "all" | "Engineering" | "Product" | "Operations" | "Growth" | "Customer Success";
+type TeamLabel = "Engineering" | "Product" | "Operations" | "Growth" | "Customer Success";
 type PriorityFilter = "all" | "Urgent" | "Steady" | "New";
 
 type RecruiterStat = {
@@ -43,7 +43,7 @@ type RecruiterStat = {
 type ApplicationOpening = {
   id: string;
   role: string;
-  team: Exclude<TeamFilter, "all">;
+  team: TeamLabel;
   location: string;
   monthlyApplications: number;
   newThisWeek: number;
@@ -55,7 +55,7 @@ type ApplicationOpening = {
 type HiringRateItem = {
   id: string;
   role: string;
-  team: Exclude<TeamFilter, "all">;
+  team: TeamLabel;
   fillRate: number;
   hired: number;
   interviewing: number;
@@ -79,7 +79,7 @@ const asNullableString = (value: unknown): string | null => {
   return str.length > 0 ? str : null;
 };
 
-const toTeamFilter = (profession: string | null | undefined, title: string | null | undefined): Exclude<TeamFilter, "all"> => {
+const toTeamFilter = (profession: string | null | undefined, title: string | null | undefined): TeamLabel => {
   const haystack = `${profession ?? ""} ${title ?? ""}`.toLowerCase();
   if (/(frontend|backend|full[- ]?stack|engineer|developer|devops|software|data|qa|mobile)/.test(haystack)) {
     return "Engineering";
@@ -136,7 +136,6 @@ export default function EmployerOverview() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
-  const [teamFilter, setTeamFilter] = useState<TeamFilter>("all");
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all");
   const [loadingOverview, setLoadingOverview] = useState(true);
   const [stats, setStats] = useState<RecruiterStat[]>([
@@ -466,24 +465,22 @@ export default function EmployerOverview() {
         opening.role.toLowerCase().includes(normalizedSearch) ||
         opening.recruiter.toLowerCase().includes(normalizedSearch) ||
         opening.applicants.some((applicant) => applicant.toLowerCase().includes(normalizedSearch));
-      const matchesTeam = teamFilter === "all" || opening.team === teamFilter;
       const matchesPriority = priorityFilter === "all" || opening.priority === priorityFilter;
 
-      return matchesSearch && matchesTeam && matchesPriority;
+      return matchesSearch && matchesPriority;
     });
-  }, [applicationOpenings, priorityFilter, searchQuery, teamFilter]);
+  }, [applicationOpenings, priorityFilter, searchQuery]);
 
   const filteredHiringRateItems = useMemo(() => {
     const normalizedSearch = searchQuery.trim().toLowerCase();
 
     return hiringRateItems.filter((item) => {
       const matchesSearch = normalizedSearch.length === 0 || item.role.toLowerCase().includes(normalizedSearch);
-      const matchesTeam = teamFilter === "all" || item.team === teamFilter;
       const matchesPriority = priorityFilter === "all" || item.priority === priorityFilter;
 
-      return matchesSearch && matchesTeam && matchesPriority;
+      return matchesSearch && matchesPriority;
     });
-  }, [hiringRateItems, priorityFilter, searchQuery, teamFilter]);
+  }, [hiringRateItems, priorityFilter, searchQuery]);
 
   const overviewLabel = loadingOverview
     ? "Loading overview..."
@@ -493,7 +490,6 @@ export default function EmployerOverview() {
 
   const resetFilters = () => {
     setSearchQuery("");
-    setTeamFilter("all");
     setPriorityFilter("all");
   };
 
@@ -542,7 +538,7 @@ export default function EmployerOverview() {
           </div>
         </section>
 
-        <div className="mb-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px_220px]">
+        <div className="mb-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
           <div className="rounded-3xl border border-orange-100 bg-white p-4 shadow-lg">
             <div className="relative">
               <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-orange-400" />
@@ -554,20 +550,6 @@ export default function EmployerOverview() {
               />
             </div>
           </div>
-
-          <Select value={teamFilter} onValueChange={(value) => setTeamFilter(value as TeamFilter)}>
-            <SelectTrigger className="h-full min-h-14 rounded-3xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-lg">
-              <SelectValue placeholder="Team" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All teams</SelectItem>
-              <SelectItem value="Engineering">Engineering</SelectItem>
-              <SelectItem value="Product">Product</SelectItem>
-              <SelectItem value="Operations">Operations</SelectItem>
-              <SelectItem value="Growth">Growth</SelectItem>
-              <SelectItem value="Customer Success">Customer Success</SelectItem>
-            </SelectContent>
-          </Select>
 
           <Select value={priorityFilter} onValueChange={(value) => setPriorityFilter(value as PriorityFilter)}>
             <SelectTrigger className="h-full min-h-14 rounded-3xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-lg">
