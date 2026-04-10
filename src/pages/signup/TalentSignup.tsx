@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,14 @@ import { normalizeEmailForAuth } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { IdCard } from "lucide-react";
 import bcrypt from "bcryptjs";
+import cities from "../../../cities.json";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const steps = [
   { title: "Account Setup", description: "Create your account." },
@@ -24,31 +32,55 @@ const steps = [
   { title: "Terms & Consent", description: "Review and accept the terms." },
 ];
 
-const positionOptions = [
-  "Frontend Developer",
-  "Backend Developer",
-  "Full Stack Developer",
-  "UI/UX Designer",
-  "Product Manager",
-  "QA Engineer",
-  "Data Analyst",
-];
+const currentPositionOptions = ["Internship", "Junior", "Mid", "Senior", "Lead", "Manager", "Director"];
+const experienceLevelOptions = ["0–1 years", "1–3 years", "3–5 years", "5–8 years", "8+ years"];
+const educationLevelOptions = ["Bachelor (Licence)", "Master", "PhD (Doctorat)"];
 
-const experienceOptions = [
-  "0-1 years",
-  "2-4 years",
-  "5-7 years",
-  "8+ years",
+const jobTypeOptions = [
+  { label: "Full-Time", value: "full-time" },
+  { label: "Part-Time", value: "part-time" },
+  { label: "Contract", value: "contract" },
+  { label: "Internship", value: "internship" },
 ];
-
-const jobTypeOptions = ["Full-Time", "Part-Time", "Contract", "Internship"];
-const workLocationOptions = ["Remote", "On-site", "Hybrid"];
+const workLocationOptions = [
+  { label: "Remote", value: "remote" },
+  { label: "On-site", value: "on-site" },
+  { label: "Hybrid", value: "hybrid" },
+];
+const skillOptions = [
+  "JavaScript",
+  "TypeScript",
+  "React",
+  "Next.js",
+  "Node.js",
+  "Python",
+  "Java",
+  "C++",
+  "C#",
+  "SQL",
+  "PostgreSQL",
+  "MongoDB",
+  "Docker",
+  "Kubernetes",
+  "AWS",
+  "Azure",
+  "Figma",
+  "UI/UX",
+  "Product Design",
+  "QA Testing",
+  "DevOps",
+  "Data Analysis",
+  "PowerBI",
+  "Leadership",
+  "Teamwork",
+];
 
 const TalentSignup = () => {
   const [step, setStep] = useState(1);
   const navigate = useNavigate();
   const { login } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [checkingEmail, setCheckingEmail] = useState(false);
   const [error, setError] = useState("");
 
   const [form, setForm] = useState({
@@ -62,19 +94,40 @@ const TalentSignup = () => {
     yearsOfExperience: "",
     educationLevel: "",
     shortBio: "",
-    skills: "",
-    jobTypes: "",
-    workLocation: "",
+    skills: [] as string[],
+    jobTypes: [] as string[],
+    workLocation: [] as string[],
     linkedinUrl: "",
     githubUrl: "",
     portfolioUrl: "",
     hasCarteEntrepreneur: false,
   });
   const [cvFile, setCvFile] = useState<File | null>(null);
+  const wilayaOptions = useMemo(() => {
+    const list = (cities as { wilayas?: Array<{ wilaya_id?: number; wilaya_name_latin?: string }> }).wilayas ?? [];
+    return list.slice(0, 58).map((wilaya) => {
+      const id = typeof wilaya.wilaya_id === "number" ? String(wilaya.wilaya_id).padStart(2, "0") : "";
+      const name = wilaya.wilaya_name_latin ?? "";
+      return {
+        label: id ? `${id} - ${name}` : name,
+        value: name,
+      };
+    });
+  }, []);
 
   const handleChange = (field: string, value: string | boolean) => {
     if (error) setError("");
     setForm(prev => ({ ...prev, [field]: value }));
+  };
+  const toggleArrayValue = (field: "jobTypes" | "workLocation" | "skills", value: string) => {
+    if (error) setError("");
+    setForm(prev => {
+      const currentValues = prev[field];
+      const nextValues = currentValues.includes(value)
+        ? currentValues.filter(v => v !== value)
+        : [...currentValues, value];
+      return { ...prev, [field]: nextValues };
+    });
   };
 
   const validateStep = async (currentStep: number): Promise<boolean> => {
@@ -101,21 +154,25 @@ const TalentSignup = () => {
         return false;
       }
 
-      // Check if email already exists
-      const { data: existingUsers, error: checkError } = await supabase
-        .from("users")
-        .select("id")
-        .eq("email", normalizedEmail)
-        .limit(1);
+      setCheckingEmail(true);
+      try {
+        const { data: existingUsers, error: checkError } = await supabase
+          .from("users")
+          .select("id")
+          .eq("email", normalizedEmail)
+          .limit(1);
 
-      if (checkError) {
-        setError("Failed to verify email. Please try again.");
-        return false;
-      }
+        if (checkError) {
+          setError("Failed to verify email. Please try again.");
+          return false;
+        }
 
-      if (existingUsers && existingUsers.length > 0) {
-        setError("This email is already used. Please sign in or use another email.");
-        return false;
+        if (existingUsers && existingUsers.length > 0) {
+          setError("This email is already used. Please sign in or use another email.");
+          return false;
+        }
+      } finally {
+        setCheckingEmail(false);
       }
 
       if (normalizedEmail !== form.email) {
@@ -138,8 +195,8 @@ const TalentSignup = () => {
     }
 
     if (currentStep === 5) {
-      const jobTypesSelected = form.jobTypes.split(",").map(v => v.trim()).filter(Boolean);
-      const workLocSelected = form.workLocation.split(",").map(v => v.trim()).filter(Boolean);
+      const jobTypesSelected = form.jobTypes;
+      const workLocSelected = form.workLocation;
       if (jobTypesSelected.length === 0) {
         setError("Please select at least one job type.");
         return false;
@@ -159,18 +216,6 @@ const TalentSignup = () => {
     setStep(prev => Math.min(prev + 1, steps.length));
   };
 
-  const toggleMultiSelect = (field: "jobTypes" | "workLocation", value: string) => {
-    const currentValues = form[field]
-      .split(",")
-      .map(v => v.trim())
-      .filter(Boolean);
-    const alreadySelected = currentValues.includes(value);
-    const nextValues = alreadySelected
-      ? currentValues.filter(v => v !== value)
-      : [...currentValues, value];
-    handleChange(field, nextValues.join(", "));
-  };
-
   const uploadCVToStorage = async (
     file: File,
     userId: string,
@@ -178,7 +223,8 @@ const TalentSignup = () => {
   ): Promise<{ ok: true; url: string } | { ok: false; message: string }> => {
     try {
       const fileExt = file.name.split('.').pop();
-      const fileName = `${userId}_cv_${Date.now()}.${fileExt}`;
+    const safeBase = file.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9._-]+/g, "_") || "resume";
+    const fileName = `${userId}_${Date.now()}__${safeBase}.${fileExt}`;
 
       // Use a safe folder name derived from email so we can find a user's files later.
       const emailFolder = email
@@ -258,8 +304,8 @@ const TalentSignup = () => {
         return;
       }
 
-      const jobTypesSelected = form.jobTypes.split(",").map(j => j.trim()).filter(Boolean);
-      const workLocSelected = form.workLocation.split(",").map(w => w.trim()).filter(Boolean);
+      const jobTypesSelected = form.jobTypes;
+      const workLocSelected = form.workLocation;
       if (jobTypesSelected.length === 0) {
         setError("Please select at least one job type.");
         setStep(5);
@@ -329,7 +375,7 @@ const TalentSignup = () => {
           years_of_experience: form.yearsOfExperience || null,
           education_level: form.educationLevel || null,
           short_bio: form.shortBio || null,
-          skills: form.skills ? form.skills.split(',').map(s => s.trim()) : [],
+          skills: form.skills,
           job_types: jobTypesSelected,
           work_location: workLocSelected,
           linkedin_url: form.linkedinUrl || null,
@@ -399,8 +445,8 @@ const TalentSignup = () => {
                       <Label htmlFor="confirmPassword">Confirm Password *</Label>
                       <PasswordInput id="confirmPassword" value={form.confirmPassword} onChange={e => handleChange('confirmPassword', e.target.value)} className="bg-orange-50" />
                     </div>
-                    <Button type="button" disabled={loading} className="w-full rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white font-bold px-8 py-4 mt-2" onClick={handleNextStep}>
-                      Continue
+                    <Button type="button" disabled={loading || checkingEmail} className="w-full rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white font-bold px-8 py-4 mt-2" onClick={handleNextStep}>
+                      {checkingEmail ? "Checking email..." : "Continue"}
                     </Button>
                   </form>
                 )}
@@ -426,21 +472,17 @@ const TalentSignup = () => {
                         <Input
                           id="cv-upload"
                           type="file"
-                          accept=".pdf,.doc,.docx"
+                          accept=".pdf,application/pdf"
                           className="hidden"
                           onChange={e => {
                             setError("");
                             if (e.target.files && e.target.files[0]) {
                               const selectedFile = e.target.files[0];
-                              const allowedTypes = [
-                                "application/pdf",
-                                "application/msword",
-                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                              ];
+                              const allowedTypes = ["application/pdf"];
                               const maxSizeBytes = 10 * 1024 * 1024;
 
                               if (!allowedTypes.includes(selectedFile.type)) {
-                                setError("Invalid CV format. Please upload PDF, DOC, or DOCX.");
+                                setError("Invalid CV format. Please upload a PDF file.");
                                 setCvFile(null);
                                 return;
                               }
@@ -477,7 +519,18 @@ const TalentSignup = () => {
                     </div>
                     <div>
                       <Label htmlFor="city">City</Label>
-                      <Input id="city" value={form.city} onChange={e => handleChange('city', e.target.value)} className="bg-orange-50" placeholder="Algiers" />
+                      <Select value={form.city} onValueChange={value => handleChange("city", value)}>
+                        <SelectTrigger id="city" className="bg-orange-50">
+                          <SelectValue placeholder="Select a wilaya" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-64 overflow-y-auto">
+                          {wilayaOptions.map(option => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="flex gap-3">
                       <Button variant="outline" type="button" onClick={() => setStep(step - 1)} className="w-full">Back</Button>
@@ -491,39 +544,48 @@ const TalentSignup = () => {
                   <form className="space-y-5">
                     <div>
                       <Label htmlFor="currentPosition">Current Position</Label>
-                      <Input
-                        id="currentPosition"
-                        value={form.currentPosition}
-                        list="current-position-options"
-                        onChange={e => handleChange("currentPosition", e.target.value)}
-                        className="bg-orange-50"
-                        placeholder="e.g., Senior Developer"
-                      />
-                      <datalist id="current-position-options">
-                        {positionOptions.map(option => (
-                          <option key={option} value={option} />
-                        ))}
-                      </datalist>
+                      <Select value={form.currentPosition} onValueChange={(value) => handleChange("currentPosition", value)}>
+                        <SelectTrigger id="currentPosition" className="bg-orange-50">
+                          <SelectValue placeholder="Select position level" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {currentPositionOptions.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {option}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div>
                       <Label htmlFor="yearsOfExperience">Years of Experience</Label>
-                      <Input
-                        id="yearsOfExperience"
-                        value={form.yearsOfExperience}
-                        list="experience-options"
-                        onChange={e => handleChange("yearsOfExperience", e.target.value)}
-                        className="bg-orange-50"
-                        placeholder="e.g., 5 years"
-                      />
-                      <datalist id="experience-options">
-                        {experienceOptions.map(option => (
-                          <option key={option} value={option} />
-                        ))}
-                      </datalist>
+                      <Select value={form.yearsOfExperience} onValueChange={(value) => handleChange("yearsOfExperience", value)}>
+                        <SelectTrigger id="yearsOfExperience" className="bg-orange-50">
+                          <SelectValue placeholder="Select experience" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {experienceLevelOptions.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {option}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div>
                       <Label htmlFor="educationLevel">Education Level</Label>
-                      <Input id="educationLevel" value={form.educationLevel} onChange={e => handleChange('educationLevel', e.target.value)} className="bg-orange-50" placeholder="e.g., Bachelor's Degree" />
+                      <Select value={form.educationLevel} onValueChange={(value) => handleChange("educationLevel", value)}>
+                        <SelectTrigger id="educationLevel" className="bg-orange-50">
+                          <SelectValue placeholder="Select education level" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {educationLevelOptions.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {option}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div>
                       <Label htmlFor="shortBio">Short Bio</Label>
@@ -540,23 +602,38 @@ const TalentSignup = () => {
                 {step === 5 && (
                   <form className="space-y-5">
                     <div>
-                      <Label htmlFor="skills">Skills (comma-separated)</Label>
-                      <Input id="skills" value={form.skills} onChange={e => handleChange('skills', e.target.value)} className="bg-orange-50" placeholder="e.g., React, Node.js, Python" />
+                      <p className="text-sm font-medium leading-none text-slate-900">Skills</p>
+                      <p className="text-xs text-muted-foreground mt-1 mb-2">Select all that apply.</p>
+                      <div className="flex flex-wrap gap-2">
+                        {skillOptions.map(option => {
+                          const selected = form.skills.includes(option);
+                          return (
+                            <button
+                              key={option}
+                              type="button"
+                              onClick={() => toggleArrayValue("skills", option)}
+                              className={`rounded-full border-2 px-3 py-1.5 text-xs font-semibold transition-colors ${selected ? "border-orange-500 bg-orange-500 text-white shadow-sm" : "border-orange-100 bg-orange-50/80 text-slate-800 hover:border-orange-200"}`}
+                            >
+                              {option}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                     <div>
                       <p className="text-sm font-medium leading-none text-slate-900">Interested Job Types *</p>
                       <p className="text-xs text-muted-foreground mt-1 mb-2">Select all that apply.</p>
                       <div className="grid grid-cols-2 gap-2" role="group" aria-label="Interested job types">
                         {jobTypeOptions.map(option => {
-                          const selected = form.jobTypes.split(",").map(v => v.trim()).includes(option);
+                          const selected = form.jobTypes.includes(option.value);
                           return (
                             <button
-                              key={option}
+                              key={option.value}
                               type="button"
-                              onClick={() => toggleMultiSelect("jobTypes", option)}
+                              onClick={() => toggleArrayValue("jobTypes", option.value)}
                               className={`rounded-lg border-2 px-3 py-2.5 text-sm font-medium transition-colors ${selected ? "border-orange-500 bg-orange-500 text-white shadow-sm" : "border-orange-100 bg-orange-50/80 text-slate-800 hover:border-orange-200"}`}
                             >
-                              {option}
+                              {option.label}
                             </button>
                           );
                         })}
@@ -567,15 +644,15 @@ const TalentSignup = () => {
                       <p className="text-xs text-muted-foreground mt-1 mb-2">Select all that apply.</p>
                       <div className="grid grid-cols-3 gap-2" role="group" aria-label="Preferred work location">
                         {workLocationOptions.map(option => {
-                          const selected = form.workLocation.split(",").map(v => v.trim()).includes(option);
+                          const selected = form.workLocation.includes(option.value);
                           return (
                             <button
-                              key={option}
+                              key={option.value}
                               type="button"
-                              onClick={() => toggleMultiSelect("workLocation", option)}
+                              onClick={() => toggleArrayValue("workLocation", option.value)}
                               className={`rounded-lg border-2 px-3 py-2.5 text-sm font-medium transition-colors ${selected ? "border-orange-500 bg-orange-500 text-white shadow-sm" : "border-orange-100 bg-orange-50/80 text-slate-800 hover:border-orange-200"}`}
                             >
-                              {option}
+                              {option.label}
                             </button>
                           );
                         })}

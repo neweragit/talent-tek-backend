@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import TalentLayout from "@/components/layouts/TalentLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,23 +13,32 @@ import {
 } from "@/components/ui/select";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
-import { type ApplicationStatus } from "@/lib/talentApplications";
 import {
+  ArrowLeft,
   Briefcase,
+  Building2,
   CalendarDays,
   CheckCircle2,
   Clock3,
-  ExternalLink,
+  GraduationCap,
+  Link,
   Mail,
+  MapPin,
   Search,
+  Users,
   XCircle,
 } from "lucide-react";
 
+type ApplicationStatus = "pending" | "in-progress" | "rejected" | "maybe" | "archived";
+type ApplicationStage = "to-contact" | "talent-acquisition" | "technical" | "leadership" | "offer" | "rejected-offer" | "hired" | null;
+
 const statusOptions: Array<{ value: "all" | ApplicationStatus; label: string }> = [
   { value: "all", label: "All Status" },
-  { value: "interview", label: "Interview Scheduled" },
+  { value: "pending", label: "Pending" },
   { value: "in-progress", label: "In Progress" },
-  { value: "rejected", label: "Updates" },
+  { value: "rejected", label: "Rejected" },
+  { value: "maybe", label: "Maybe" },
+  { value: "archived", label: "Archived" },
 ];
 
 const getCompanyInitials = (company: string) => {
@@ -61,12 +70,6 @@ const getStatusMeta = (status: ApplicationStatus) => {
         badgeClassName: "border border-orange-200 bg-orange-50 text-orange-700",
         icon: Clock3,
       };
-    case "interview":
-      return {
-        label: "Interview Scheduled",
-        badgeClassName: "border border-orange-200 bg-orange-50 text-orange-700",
-        icon: CalendarDays,
-      };
     case "in-progress":
       return {
         label: "In Progress",
@@ -75,9 +78,21 @@ const getStatusMeta = (status: ApplicationStatus) => {
       };
     case "rejected":
       return {
-        label: "Update",
+        label: "Rejected",
         badgeClassName: "border border-orange-300 bg-orange-100 text-orange-800",
         icon: XCircle,
+      };
+    case "maybe":
+      return {
+        label: "Maybe",
+        badgeClassName: "border border-orange-200 bg-orange-50 text-orange-700",
+        icon: CheckCircle2,
+      };
+    case "archived":
+      return {
+        label: "Archived",
+        badgeClassName: "border border-orange-200 bg-orange-50 text-orange-700",
+        icon: Briefcase,
       };
     default:
       return {
@@ -90,10 +105,47 @@ const getStatusMeta = (status: ApplicationStatus) => {
 
 const normalizeStatus = (status: string): ApplicationStatus => {
   const lower = status?.toLowerCase?.() ?? "";
-  if (lower === "interview" || lower === "in-progress" || lower === "rejected" || lower === "pending") {
+  if (lower === "in-progress" || lower === "rejected" || lower === "pending" || lower === "maybe" || lower === "archived") {
     return lower as ApplicationStatus;
   }
   return "pending";
+};
+
+const normalizeStage = (stage: string | null | undefined): ApplicationStage => {
+  const lower = stage?.toLowerCase?.() ?? "";
+  if (
+    lower === "to-contact" ||
+    lower === "talent-acquisition" ||
+    lower === "technical" ||
+    lower === "leadership" ||
+    lower === "offer" ||
+    lower === "rejected-offer" ||
+    lower === "hired"
+  ) {
+    return lower as ApplicationStage;
+  }
+  return null;
+};
+
+const formatStageLabel = (stage: ApplicationStage) => {
+  switch (stage) {
+    case "to-contact":
+      return "To Contact";
+    case "talent-acquisition":
+      return "Talent Acquisition";
+    case "technical":
+      return "Technical";
+    case "leadership":
+      return "Leadership";
+    case "offer":
+      return "Offer";
+    case "rejected-offer":
+      return "Rejected Offer";
+    case "hired":
+      return "Hired";
+    default:
+      return "";
+  }
 };
 
 const formatDate = (dateValue: string | null | undefined) => {
@@ -103,14 +155,44 @@ const formatDate = (dateValue: string | null | undefined) => {
   return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 };
 
+const formatPostedAgo = (dateValue: string | null | undefined) => {
+  if (!dateValue) return "Posted recently";
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return "Posted recently";
+  const diffMs = Date.now() - date.getTime();
+  const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+  if (diffDays <= 0) return "Posted today";
+  if (diffDays === 1) return "Posted 1 day ago";
+  return `Posted ${diffDays} days ago`;
+};
+
+const normalizeTextArray = (value: unknown): string[] => {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item ?? "").trim()).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    const raw = trimmed.startsWith("{") && trimmed.endsWith("}") ? trimmed.slice(1, -1) : trimmed;
+    return raw
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
 const getApplicationSummary = (application: { company: string; status: ApplicationStatus; cvName?: string }) => {
   switch (application.status) {
-    case "interview":
-      return `Your application with ${application.company} is already moving forward. Keep your CV and interview story sharp for the next conversation.`;
     case "in-progress":
       return `Your candidacy is still under active review at ${application.company}. Stay ready in case the hiring team reaches out quickly.`;
     case "rejected":
       return `Thanks for applying to ${application.company}. This role won’t move forward for now — good luck on the next one.`;
+    case "maybe":
+      return `Your profile is in consideration at ${application.company}. Keep your resume and availability updated.`;
+    case "archived":
+      return `This application at ${application.company} is archived for now.`;
     default:
       return application.cvName
         ? `Your direct candidacy is on file and ready for review by ${application.company}.`
@@ -120,12 +202,14 @@ const getApplicationSummary = (application: { company: string; status: Applicati
 
 const getApplicationFooter = (status: ApplicationStatus) => {
   switch (status) {
-    case "interview":
-      return "Review the job again and prepare for interview follow-up with a clear story about your recent work.";
     case "in-progress":
       return "Keep this role warm by reviewing the job page and preparing for the next step if the hiring team reaches out.";
     case "rejected":
       return "Keep applying to similar roles — each application improves your signal and your next match.";
+    case "maybe":
+      return "Stay responsive and keep your profile sharp while the team decides on next steps.";
+    case "archived":
+      return "Archive keeps this application in your history while you focus on newer opportunities.";
     default:
       return "Keep your documents polished so you can move fast if the employer responds.";
   }
@@ -140,14 +224,25 @@ type TalentAppCard = {
   jobId?: string;
   contact?: string;
   workplace?: string;
+  location?: string;
+  industry?: string;
+  employmentType?: string;
+  contractType?: string;
+  experienceLevel?: string;
+  jobLevel?: string;
+  description?: string;
+  createdAt?: string;
+  skillsRequired: string[];
   companyLogoUrl?: string;
   cvName?: string;
+  stage?: ApplicationStage;
 };
 
 const TalentApplications = () => {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const location = useLocation();
+  const [viewMode, setViewMode] = useState<"list" | "details">("list");
+  const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | ApplicationStatus>("all");
   const [applications, setApplications] = useState<TalentAppCard[]>([]);
@@ -177,8 +272,12 @@ const TalentApplications = () => {
     });
   }, [applications, isFiltering, searchQuery, statusFilter]);
 
+  const selectedApplication = useMemo(() => {
+    if (!selectedApplicationId) return null;
+    return applications.find((application) => application.id === selectedApplicationId) ?? null;
+  }, [applications, selectedApplicationId]);
+
   const applicationStats = useMemo(() => {
-    const interviewCount = applications.filter((application) => application.status === "interview").length;
     const inProgressCount = applications.filter((application) => application.status === "in-progress").length;
     const closedCount = applications.filter((application) => application.status === "rejected").length;
 
@@ -196,16 +295,16 @@ const TalentApplications = () => {
         icon: Clock3,
       },
       {
-        label: "Interviews",
-        value: interviewCount,
-        detail: "Next-step conversations",
-        icon: CheckCircle2,
-      },
-      {
         label: "Updates",
         value: closedCount,
         detail: "Application updates",
         icon: XCircle,
+      },
+      {
+        label: "Maybe",
+        value: applications.filter((application) => application.status === "maybe").length,
+        detail: "Under consideration",
+        icon: CheckCircle2,
       },
     ];
   }, [applications]);
@@ -242,14 +341,23 @@ const TalentApplications = () => {
           .select(`
             id,
             status,
+            stage,
             applied_at,
             job_id,
             jobs (
               id,
               title,
+              description,
+              location,
               workplace,
+              employment_type,
+              contract_type,
+              experience_level,
+              job_level,
+              skills_required,
+              created_at,
               employer_id,
-              employers (company_name, logo_url)
+              employers (company_name, logo_url, industry)
             )
           `)
           .eq('talent_id', talent.id)
@@ -263,8 +371,18 @@ const TalentApplications = () => {
           id: record.id,
           company: record.jobs?.employers?.company_name || record.jobs?.title || 'Unknown Company',
           jobTitle: record.jobs?.title || 'Unknown Role',
+          description: record.jobs?.description || '',
+          location: record.jobs?.location || 'Not specified',
           workplace: record.jobs?.workplace || 'Not specified',
+          employmentType: record.jobs?.employment_type || 'Not specified',
+          contractType: record.jobs?.contract_type || 'Not specified',
+          experienceLevel: record.jobs?.experience_level || 'Not specified',
+          jobLevel: record.jobs?.job_level || 'Not specified',
+          industry: record.jobs?.employers?.industry || 'Not specified',
+          createdAt: record.jobs?.created_at || record.applied_at,
+          skillsRequired: normalizeTextArray(record.jobs?.skills_required),
           status: normalizeStatus(record.status),
+          stage: normalizeStage(record.stage),
           appliedDate: formatDate(record.applied_at),
           jobId: record.job_id,
           contact: record.jobs?.employers?.company_name || 'N/A',
@@ -288,6 +406,142 @@ const TalentApplications = () => {
     filteredApplications.length === applications.length
       ? `Showing all ${applications.length} applications`
       : `Showing ${filteredApplications.length} of ${applications.length} applications`;
+
+  if (viewMode === "details" && selectedApplication) {
+    const statusMeta = getStatusMeta(selectedApplication.status);
+    const initials = getCompanyInitials(selectedApplication.company);
+
+    return (
+      <TalentLayout>
+        <div className="relative z-10 max-w-7xl mx-auto px-3 sm:px-4 py-6 sm:py-10">
+          <div className="mb-7">
+            <button
+              type="button"
+              onClick={() => setViewMode("list")}
+              className="inline-flex h-12 items-center rounded-full border border-orange-200 bg-white px-8 text-base font-semibold text-orange-700 shadow-sm transition-colors hover:bg-orange-50"
+            >
+              <ArrowLeft className="mr-3 h-5 w-5 text-orange-700" />
+              Back to Applications
+            </button>
+          </div>
+
+          <div className="rounded-[2rem] border border-orange-100 bg-white p-6 shadow-lg sm:p-8">
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+              <div>
+                <div className="mb-4 flex items-start gap-4">
+                  <div className="h-16 w-16 overflow-hidden rounded-2xl bg-white shadow-lg">
+                    {selectedApplication.companyLogoUrl ? (
+                      <img
+                        src={selectedApplication.companyLogoUrl}
+                        alt={`${selectedApplication.company} logo`}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-lg font-bold text-white">
+                        {initials}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-orange-600">Career Opportunity</p>
+                    <h1 className="mt-1 text-3xl font-bold text-slate-900">{selectedApplication.jobTitle}</h1>
+                    <p className="mt-1 text-sm font-semibold text-orange-600">{selectedApplication.company}</p>
+                  </div>
+                </div>
+
+                <div className="mb-6 flex flex-wrap items-center gap-2">
+                  <Badge className="border border-orange-200 bg-orange-50 text-orange-700">{selectedApplication.industry || "Industry"}</Badge>
+                  <Badge className="border border-orange-200 bg-orange-50 text-orange-700">{selectedApplication.employmentType || "Type"}</Badge>
+                  <Badge className="border border-orange-200 bg-orange-50 text-orange-700">{selectedApplication.workplace || "Workplace"}</Badge>
+                  <Badge className="border border-orange-200 bg-orange-50 text-orange-700">{selectedApplication.experienceLevel || selectedApplication.jobLevel || "Experience"}</Badge>
+                </div>
+
+                <div className="grid gap-4 rounded-2xl border border-orange-100 bg-orange-50/40 p-5 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Location</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{selectedApplication.location || "Not specified"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Contract Type</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{selectedApplication.contractType || selectedApplication.employmentType || "Not specified"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Posted</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{formatPostedAgo(selectedApplication.createdAt)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Experience</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{selectedApplication.experienceLevel || selectedApplication.jobLevel || "Not specified"}</p>
+                  </div>
+                </div>
+
+                <div className="mt-6 rounded-[2rem] border border-orange-100 bg-white p-7 shadow-sm">
+                  <h2 className="text-2xl font-bold text-slate-900">Job Description</h2>
+                  <p className="mt-4 whitespace-pre-line text-base leading-7 text-slate-600">
+                    {selectedApplication.description || "Full role specifics are shared during the hiring process."}
+                  </p>
+                </div>
+
+                <div className="mt-6 rounded-[2rem] border border-orange-100 bg-white p-7 shadow-sm">
+                  <h3 className="text-2xl font-bold text-slate-900">Role details</h3>
+                  <p className="mt-4 text-base leading-7 text-slate-600">Full role specifics are shared during the hiring process.</p>
+                  {selectedApplication.skillsRequired.length > 0 ? (
+                    <div className="mt-5 flex flex-wrap gap-2">
+                      {selectedApplication.skillsRequired.map((skill, index) => (
+                        <span key={`${skill}-${index}`} className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700">
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <aside className="h-fit rounded-[2rem] border border-orange-100 bg-white p-7 shadow-lg">
+                <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-orange-600 text-xl font-bold text-white shadow-md">
+                  {initials}
+                </div>
+                <h3 className="mt-6 text-3xl font-bold text-slate-900">{selectedApplication.company}</h3>
+                <p className="mt-2 text-sm font-semibold text-slate-500">Hiring for this role now across active teams.</p>
+
+                <div className="mt-6 space-y-3 text-sm font-semibold text-slate-700">
+                  <div className="flex items-center gap-3">
+                    <Users className="h-4 w-4 text-orange-500" />
+                    <span>{selectedApplication.industry || "Industry"}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Briefcase className="h-4 w-4 text-orange-500" />
+                    <span>{[selectedApplication.employmentType, selectedApplication.workplace].filter(Boolean).join(" · ")}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <GraduationCap className="h-4 w-4 text-orange-500" />
+                    <span>{selectedApplication.jobLevel || selectedApplication.experienceLevel || "Not specified"}</span>
+                  </div>
+                </div>
+
+                <div className="mt-7 space-y-3">
+                  <Button
+                    type="button"
+                    disabled
+                    className="h-14 w-full cursor-default rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-base font-semibold text-white shadow-md disabled:opacity-100"
+                  >
+                    <Link className="mr-2 h-5 w-5" />
+                    {statusMeta.label}
+                  </Button>
+                  {selectedApplication.status === "in-progress" && selectedApplication.stage ? (
+                    <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700">
+                      Stage: {formatStageLabel(selectedApplication.stage)}
+                    </div>
+                  ) : null}
+                
+                </div>
+              </aside>
+            </div>
+          </div>
+        </div>
+      </TalentLayout>
+    );
+  }
 
   return (
     <TalentLayout>
@@ -427,7 +681,11 @@ const TalentApplications = () => {
                       <StatusIcon className="h-4 w-4 text-orange-600" />
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Stage</p>
-                        <p className="mt-1 text-sm font-semibold text-slate-900">{statusMeta.label}</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">
+                          {application.status === "in-progress" && application.stage
+                            ? formatStageLabel(application.stage)
+                            : statusMeta.label}
+                        </p>
                       </div>
                     </div>
 
@@ -448,10 +706,14 @@ const TalentApplications = () => {
                     </p>
                     <Button
                       type="button"
-                      onClick={() => application.jobId && navigate(`/talent/job/${application.jobId}`)}
+                      onClick={() => {
+                        setSelectedApplicationId(application.id);
+                        setViewMode("details");
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
                       className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md hover:from-orange-700 hover:to-orange-600"
                     >
-                      <ExternalLink className="h-4 w-4" />
+                      <Search className="h-4 w-4" />
                       View Job
                     </Button>
                   </div>

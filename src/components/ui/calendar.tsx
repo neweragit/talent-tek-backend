@@ -1,7 +1,7 @@
 import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { DayPicker } from "react-day-picker";
-import { startOfDay } from "date-fns";
+import { format, startOfDay } from "date-fns";
 
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
@@ -22,6 +22,10 @@ function Calendar({ className, classNames, showOutsideDays = true, disabled: dis
       showOutsideDays={showOutsideDays}
       className={cn("p-3", className)}
       disabled={disabled}
+      formatters={{
+        // Use short weekday names (Mon/Tue/...) to avoid duplicate one-letter weekday keys.
+        formatWeekdayName: (date) => format(date, "EEE"),
+      }}
       classNames={{
         months: "flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0",
         month: "space-y-4",

@@ -5,6 +5,8 @@ import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import CvViewer from "@/components/CvViewer";
 import { format, isSameDay } from "date-fns";
+import { jsPDF } from "jspdf";
+import talentekLogo from "@/logo/logo.jfif";
 import {
   Users,
   Search,
@@ -15,19 +17,21 @@ import {
   Mail,
   Phone,
   FileText,
-  GripVertical,
   ChevronRight,
   UserCheck,
   UserX,
   Archive,
   Clock,
   Loader2,
+  Briefcase,
+  GraduationCap,
   Building,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -51,11 +55,27 @@ interface RecruiterJob {
   title: string;
   department: string;
   location: string;
+  contractType?: string;
+  employmentType?: string;
+  workplace?: string;
+  experienceLevel?: string;
   status?: string;
+}
+
+interface EmployerProfileData {
+  companyName: string;
+  logoUrl: string;
+  repFirstName: string;
+  repLastName: string;
+  address: string;
+  city: string;
+  zipCode: string;
+  country: string;
 }
 
 interface Application {
   id: string;
+  talentId: string;
   name: string;
   email: string;
   phone: string;
@@ -142,6 +162,14 @@ const ceilToNextMinute = (date: Date) => {
 
 const maxTime = (a: string, b: string) => (a.localeCompare(b) >= 0 ? a : b);
 
+const computeOfferResponseDeadline = (responseDays: number): Date => {
+  const safeDays = Number.isFinite(responseDays) ? Math.max(1, Math.floor(responseDays)) : 7;
+  const deadline = new Date();
+  deadline.setHours(23, 59, 59, 999);
+  deadline.setDate(deadline.getDate() + safeDays);
+  return deadline;
+};
+
 export default function EmployerPipeline() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -154,15 +182,32 @@ export default function EmployerPipeline() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCandidate, setSelectedCandidate] = useState<Application | null>(null);
   const [showMoveDialog, setShowMoveDialog] = useState(false);
-  const [draggedCandidate, setDraggedCandidate] = useState<Application | null>(null);
   const [cvDialogOpen, setCvDialogOpen] = useState(false);
   const [cvDialogUrl, setCvDialogUrl] = useState("");
   const [cvLoading, setCvLoading] = useState(false);
   const [cvDialogError, setCvDialogError] = useState("");
+  const [inlineCvUrl, setInlineCvUrl] = useState("");
+  const [inlineCvLoading, setInlineCvLoading] = useState(false);
+  const [inlineCvError, setInlineCvError] = useState("");
   const [applicationBusyById, setApplicationBusyById] = useState<Record<string, boolean>>({});
+  const [confirmMoveOpen, setConfirmMoveOpen] = useState(false);
+  const [pendingMoveStatus, setPendingMoveStatus] = useState<ApplicationStatus | null>(null);
   
   const [currentEmployerId, setCurrentEmployerId] = useState<string | null>(null);
   const [currentTeamMemberId, setCurrentTeamMemberId] = useState<string | null>(null);
+  const [currentRecruiterName, setCurrentRecruiterName] = useState<string>("");
+  const [currentCompanyName, setCurrentCompanyName] = useState<string>("");
+  const [currentCompanyLogoUrl, setCurrentCompanyLogoUrl] = useState<string>("");
+  const [currentEmployerProfile, setCurrentEmployerProfile] = useState<EmployerProfileData>({
+    companyName: "",
+    logoUrl: "",
+    repFirstName: "",
+    repLastName: "",
+    address: "",
+    city: "",
+    zipCode: "",
+    country: "",
+  });
 
   const applicationCountByJobId = useMemo(() => {
     const counts = new Map<string, number>();
@@ -238,11 +283,21 @@ export default function EmployerPipeline() {
   const [candidateForOffer, setCandidateForOffer] = useState<Application | null>(null);
   const [offerSalary, setOfferSalary] = useState<string>("");
   const [offerStartDay, setOfferStartDay] = useState<Date | undefined>(undefined);
+  const [offerDatePickerOpen, setOfferDatePickerOpen] = useState(false);
   const [offerBenefits, setOfferBenefits] = useState<string>("");
+  const [offerResponseDays, setOfferResponseDays] = useState<number>(7);
   const [offerSaving, setOfferSaving] = useState(false);
+  const [offerPreviewLoading, setOfferPreviewLoading] = useState(false);
+  const [offerPreviewUrl, setOfferPreviewUrl] = useState<string>("");
+  const [offerPreviewError, setOfferPreviewError] = useState<string>("");
+  const [offerPdfBlob, setOfferPdfBlob] = useState<Blob | null>(null);
 
   // View mode: kanban for "in-progress" tab, list for everything else
   const viewMode = activeTab === "in-progress" ? "pipeline" : "list";
+
+  useEffect(() => {
+    setSelectedCandidate(null);
+  }, [activeTab]);
 
   const extractCvsObjectPathFromResumeUrl = (resumeUrl: string): string | null => {
     const match = resumeUrl.match(/cvs\/(.+)$/);
@@ -263,52 +318,94 @@ export default function EmployerPipeline() {
 
   const firstNonEmptyResumeUrl = (urls: readonly string[]) => urls.find((u) => String(u).trim()) ?? "";
 
+  const createCvPreviewUrl = async (application: Application) => {
+    if (!application.cvUrl) {
+      throw new Error("No CV available for this candidate.");
+    }
+
+    const objectPath = extractCvsObjectPathFromResumeUrl(application.cvUrl);
+    if (!objectPath) {
+      throw new Error("Could not resolve CV storage path.");
+    }
+
+    const { data, error } = await supabase.storage.from("cvs").createSignedUrl(objectPath, 60);
+    if (error) throw error;
+
+    const signedUrl = data?.signedUrl;
+    if (!signedUrl) throw new Error("Signed URL was not returned.");
+
+    const response = await fetch(signedUrl);
+    if (!response.ok) throw new Error("Failed to fetch CV");
+
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+  };
+
   const openCvPreview = async (application: Application) => {
     if (cvLoading) return;
     setCvDialogError("");
     setCvLoading(true);
 
-    if (!application.cvUrl) {
-      setCvLoading(false);
-      setCvDialogError("No CV available for this candidate.");
-      setCvDialogUrl("");
-      setCvDialogOpen(true);
-      return;
-    }
-
-    const objectPath = extractCvsObjectPathFromResumeUrl(application.cvUrl);
-    if (!objectPath) {
-      setCvLoading(false);
-      setCvDialogError("Could not resolve CV storage path.");
-      setCvDialogUrl("");
-      setCvDialogOpen(true);
-      return;
-    }
-
     try {
-      const { data, error } = await supabase.storage.from("cvs").createSignedUrl(objectPath, 60);
-      if (error) throw error;
-
-      const signedUrl = data?.signedUrl;
-      if (!signedUrl) throw new Error("Signed URL was not returned.");
-
-      const response = await fetch(signedUrl);
-      if (!response.ok) throw new Error("Failed to fetch CV");
-
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-
+      const blobUrl = await createCvPreviewUrl(application);
       setCvDialogUrl(blobUrl);
-      setCvLoading(false);
       setCvDialogOpen(true);
     } catch (err) {
       console.error("Failed to create CV preview:", err);
-      setCvLoading(false);
       setCvDialogError(err instanceof Error ? err.message : "Failed to open CV preview.");
       setCvDialogUrl("");
       setCvDialogOpen(true);
+    } finally {
+      setCvLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (activeTab !== "all") {
+      if (inlineCvUrl) URL.revokeObjectURL(inlineCvUrl);
+      setInlineCvUrl("");
+      setInlineCvError("");
+      setInlineCvLoading(false);
+      return;
+    }
+
+    if (!selectedCandidate) {
+      if (inlineCvUrl) URL.revokeObjectURL(inlineCvUrl);
+      setInlineCvUrl("");
+      setInlineCvError("");
+      setInlineCvLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setInlineCvLoading(true);
+    setInlineCvError("");
+
+    createCvPreviewUrl(selectedCandidate)
+      .then((url) => {
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        if (inlineCvUrl) URL.revokeObjectURL(inlineCvUrl);
+        setInlineCvUrl(url);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setInlineCvError(err instanceof Error ? err.message : "Failed to load CV preview.");
+        if (inlineCvUrl) {
+          URL.revokeObjectURL(inlineCvUrl);
+          setInlineCvUrl("");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setInlineCvLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, selectedCandidate?.id]);
 
   const scheduledDateTime = useMemo(() => {
     if (!scheduledDay) return null;
@@ -449,7 +546,7 @@ export default function EmployerPipeline() {
     setMeetLink(newMeetLink);
     toast({
       title: "Meet Link Generated",
-      description: "Share this link with the candidate",
+      description: "Meet link generated successfully.",
     });
   };
 
@@ -459,7 +556,7 @@ export default function EmployerPipeline() {
     setTechnicalMeetLink(newMeetLink);
     toast({
       title: "Meet Link Generated",
-      description: "Share this link with the candidate and interviewer",
+      description: "Meet link generated successfully.",
     });
   };
 
@@ -469,7 +566,7 @@ export default function EmployerPipeline() {
     setLeadershipMeetLink(newMeetLink);
     toast({
       title: "Meet Link Generated",
-      description: "Share this link with the candidate and interviewer",
+      description: "Meet link generated successfully.",
     });
   };
 
@@ -532,6 +629,37 @@ export default function EmployerPipeline() {
           return;
         }
 
+        if (candidateForInterview?.talentId) {
+          const { data: candidateRows, error: candidateError } = await supabase
+            .from("interviews")
+            .select("id, scheduled_date, duration_minutes, status, applications!inner(talent_id)")
+            .eq("applications.talent_id", candidateForInterview.talentId)
+            .gte("scheduled_date", dayStart.toISOString())
+            .lt("scheduled_date", dayEnd.toISOString())
+            .in("status", ["scheduled", "confirmed", "rescheduled"]);
+
+          if (candidateError) throw candidateError;
+
+          const candidateConflict = (candidateRows ?? [])
+            .map((row: any) => {
+              const start = new Date(row.scheduled_date).getTime();
+              const end = start + (Number(row.duration_minutes) || 60) * 60_000;
+              return { id: row.id, start, end };
+            })
+            .find((row: any) => newStart < row.end && newEnd > row.start);
+
+          if (candidateConflict) {
+            setAvailabilityStatus("conflict");
+            setAvailabilityMessage(
+              `Candidate has another interview at ${format(
+                new Date(candidateConflict.start),
+                "HH:mm"
+              )}–${format(new Date(candidateConflict.end), "HH:mm")}.`
+            );
+            return;
+          }
+        }
+
         setAvailabilityStatus("available");
         setAvailabilityMessage("Available.");
       } catch (err) {
@@ -546,6 +674,7 @@ export default function EmployerPipeline() {
     scheduledDateTime,
     durationMinutes,
     currentTeamMemberId,
+    candidateForInterview?.talentId,
   ]);
 
   useEffect(() => {
@@ -596,6 +725,37 @@ export default function EmployerPipeline() {
           return;
         }
 
+        if (candidateForTechnical?.talentId) {
+          const { data: candidateRows, error: candidateError } = await supabase
+            .from("interviews")
+            .select("id, scheduled_date, duration_minutes, status, applications!inner(talent_id)")
+            .eq("applications.talent_id", candidateForTechnical.talentId)
+            .gte("scheduled_date", dayStart.toISOString())
+            .lt("scheduled_date", dayEnd.toISOString())
+            .in("status", ["scheduled", "confirmed", "rescheduled"]);
+
+          if (candidateError) throw candidateError;
+
+          const candidateConflict = (candidateRows ?? [])
+            .map((row: any) => {
+              const start = new Date(row.scheduled_date).getTime();
+              const end = start + (Number(row.duration_minutes) || 60) * 60_000;
+              return { id: row.id, start, end };
+            })
+            .find((row: any) => newStart < row.end && newEnd > row.start);
+
+          if (candidateConflict) {
+            setTechnicalAvailabilityStatus("conflict");
+            setTechnicalAvailabilityMessage(
+              `Candidate has another interview at ${format(
+                new Date(candidateConflict.start),
+                "HH:mm"
+              )}–${format(new Date(candidateConflict.end), "HH:mm")}.`
+            );
+            return;
+          }
+        }
+
         setTechnicalAvailabilityStatus("available");
         setTechnicalAvailabilityMessage("Available.");
       } catch (err) {
@@ -605,7 +765,7 @@ export default function EmployerPipeline() {
     };
 
     void checkTechnicalAvailability();
-  }, [showTechnicalDialog, technicalDateTime, technicalDurationMinutes, selectedInterviewerId]);
+  }, [showTechnicalDialog, technicalDateTime, technicalDurationMinutes, selectedInterviewerId, candidateForTechnical?.talentId]);
 
   useEffect(() => {
     const checkLeadershipAvailability = async () => {
@@ -655,6 +815,37 @@ export default function EmployerPipeline() {
           return;
         }
 
+        if (candidateForLeadership?.talentId) {
+          const { data: candidateRows, error: candidateError } = await supabase
+            .from("interviews")
+            .select("id, scheduled_date, duration_minutes, status, applications!inner(talent_id)")
+            .eq("applications.talent_id", candidateForLeadership.talentId)
+            .gte("scheduled_date", dayStart.toISOString())
+            .lt("scheduled_date", dayEnd.toISOString())
+            .in("status", ["scheduled", "confirmed", "rescheduled"]);
+
+          if (candidateError) throw candidateError;
+
+          const candidateConflict = (candidateRows ?? [])
+            .map((row: any) => {
+              const start = new Date(row.scheduled_date).getTime();
+              const end = start + (Number(row.duration_minutes) || 60) * 60_000;
+              return { id: row.id, start, end };
+            })
+            .find((row: any) => newStart < row.end && newEnd > row.start);
+
+          if (candidateConflict) {
+            setLeadershipAvailabilityStatus("conflict");
+            setLeadershipAvailabilityMessage(
+              `Candidate has another interview at ${format(
+                new Date(candidateConflict.start),
+                "HH:mm"
+              )}–${format(new Date(candidateConflict.end), "HH:mm")}.`
+            );
+            return;
+          }
+        }
+
         setLeadershipAvailabilityStatus("available");
         setLeadershipAvailabilityMessage("Available.");
       } catch (err) {
@@ -664,7 +855,13 @@ export default function EmployerPipeline() {
     };
 
     void checkLeadershipAvailability();
-  }, [showLeadershipDialog, leadershipDateTime, leadershipDurationMinutes, selectedLeadershipInterviewerId]);
+  }, [
+    showLeadershipDialog,
+    leadershipDateTime,
+    leadershipDurationMinutes,
+    selectedLeadershipInterviewerId,
+    candidateForLeadership?.talentId,
+  ]);
 
   const handleScheduleInterview = async () => {
     if (!candidateForInterview || !scheduledDateTime) {
@@ -1076,11 +1273,39 @@ export default function EmployerPipeline() {
     setCandidateForOffer(app);
     setOfferSalary("");
     setOfferStartDay(undefined);
+    setOfferDatePickerOpen(false);
     setOfferBenefits("");
+    setOfferResponseDays(7);
+    setOfferPreviewUrl("");
+    setOfferPreviewError("");
+    setOfferPdfBlob(null);
     setShowOfferDialog(true);
   };
 
-  const handleCreateOffer = async () => {
+  const urlToDataUrl = async (url: string): Promise<string | null> => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      const blob = await response.blob();
+
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === "string") {
+            resolve(reader.result);
+            return;
+          }
+          reject(new Error("Could not read image data."));
+        };
+        reader.onerror = () => reject(new Error("Could not read logo file."));
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  const buildOfferPdfBlob = async () => {
     if (!candidateForOffer) return;
 
     const job = getJobForApplication(candidateForOffer);
@@ -1102,11 +1327,338 @@ export default function EmployerPipeline() {
       return;
     }
 
+    if (!Number.isFinite(offerResponseDays) || offerResponseDays < 1) {
+      toast({
+        title: "Invalid Response Time",
+        description: "Response time must be at least 1 day.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setOfferPreviewLoading(true);
+    setOfferPreviewError("");
+    try {
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
+      const salaryValue = offerSalary.trim();
+      const salaryStored = salaryValue.toLowerCase().includes("dzd") ? salaryValue : `${salaryValue} DZD`;
+      const startDateStored = format(offerStartDay, "MMMM d, yyyy");
+      const issueDateStored = format(new Date(), "MMMM d, yyyy");
+      const responseDeadlineStored = format(computeOfferResponseDeadline(offerResponseDays), "MMMM d, yyyy");
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const marginX = 52;
+      const contentWidth = pageWidth - marginX * 2;
+      let y = 60;
+
+      const color = {
+        blue: [109, 151, 209] as const,
+        text: [33, 37, 41] as const,
+        subtle: [211, 220, 232] as const,
+      };
+
+      const repFullName = [currentEmployerProfile.repFirstName, currentEmployerProfile.repLastName]
+        .map((v) => String(v || "").trim())
+        .filter(Boolean)
+        .join(" ");
+      const recruiterFullName = String(currentRecruiterName || "").trim() || String(user?.email || "").trim() || "Recruiter";
+      const repAddressLine = [currentEmployerProfile.address, currentEmployerProfile.city]
+        .map((v) => String(v || "").trim())
+        .filter(Boolean)
+        .join(", ");
+      const repPostalLine = [currentEmployerProfile.zipCode, currentEmployerProfile.country]
+        .map((v) => String(v || "").trim())
+        .filter(Boolean)
+        .join(" ");
+
+      const candidateName = String(candidateForOffer.name || "Candidate").trim();
+      const candidateAddress = String(candidateForOffer.location || "").trim();
+      const candidateEmail = String(candidateForOffer.email || "").trim();
+
+      const contractType = String(job.contractType || "").trim();
+      const employmentType = String(job.employmentType || "").trim();
+      const workplace = String(job.workplace || "").trim();
+      const experienceLevel = String(job.experienceLevel || "").trim();
+      const workLocation = String(job.location || "").trim() || "Not specified";
+
+      const writeParagraph = (
+        text: string,
+        options?: { lineHeight?: number; fontSize?: number; fontWeight?: "normal" | "bold" },
+      ) => {
+        const lineHeight = options?.lineHeight ?? 23;
+        const fontSize = options?.fontSize ?? 13;
+        const fontWeight = options?.fontWeight ?? "normal";
+        doc.setFont("times", fontWeight);
+        doc.setFontSize(fontSize);
+        doc.setTextColor(...color.text);
+        const lines = doc.splitTextToSize(text, contentWidth);
+        doc.text(lines, marginX, y);
+        y += lines.length * lineHeight;
+      };
+
+      const writeStyledParagraph = (
+        runs: Array<{ text: string; fontWeight?: "normal" | "bold" }>,
+        options?: { lineHeight?: number; fontSize?: number },
+      ) => {
+        const lineHeight = options?.lineHeight ?? 23;
+        const fontSize = options?.fontSize ?? 13;
+        const maxX = marginX + contentWidth;
+        let x = marginX;
+        let currentY = y;
+
+        doc.setFontSize(fontSize);
+        doc.setTextColor(...color.text);
+
+        for (const run of runs) {
+          const weight = run.fontWeight ?? "normal";
+          const tokens = run.text.split(/(\s+)/).filter((token) => token.length > 0);
+
+          for (const token of tokens) {
+            const isWhitespace = /^\s+$/.test(token);
+            doc.setFont("times", weight);
+            const tokenWidth = doc.getTextWidth(token);
+
+            if (!isWhitespace && x + tokenWidth > maxX) {
+              currentY += lineHeight;
+              x = marginX;
+            }
+
+            if (isWhitespace && x === marginX) {
+              continue;
+            }
+
+            doc.text(token, x, currentY);
+            x += tokenWidth;
+          }
+        }
+
+        y = currentY + lineHeight;
+      };
+
+      const ensureRoom = (neededHeight: number) => {
+        if (y + neededHeight <= pageHeight - 74) return;
+        doc.addPage();
+        y = 60;
+      };
+
+      const getImageFormat = (dataUrl: string) => (dataUrl.startsWith("data:image/png") ? "PNG" : "JPEG");
+
+      // Add a subtle center watermark logo behind content.
+      const watermarkLogoDataUrl = await urlToDataUrl(talentekLogo);
+      if (watermarkLogoDataUrl) {
+        try {
+          const anyDoc = doc as any;
+          if (typeof anyDoc.setGState === "function" && typeof anyDoc.GState === "function") {
+            anyDoc.setGState(new anyDoc.GState({ opacity: 0.03 }));
+            const watermarkSize = 300;
+            doc.addImage(
+              watermarkLogoDataUrl,
+              getImageFormat(watermarkLogoDataUrl),
+              (pageWidth - watermarkSize) / 2,
+              (pageHeight - watermarkSize) / 2,
+              watermarkSize,
+              watermarkSize,
+            );
+            anyDoc.setGState(new anyDoc.GState({ opacity: 1 }));
+          } else {
+            // Fallback when opacity APIs are unavailable.
+            doc.setTextColor(235, 235, 235);
+            doc.setFont("times", "bold");
+            doc.setFontSize(52);
+            doc.text("TALENTEK", pageWidth / 2, pageHeight / 2, { align: "center" });
+          }
+        } catch {
+          // Ignore watermark rendering issues and continue.
+        }
+      }
+
+      const companyLogoDataUrl = currentCompanyLogoUrl ? await urlToDataUrl(currentCompanyLogoUrl) : null;
+      if (companyLogoDataUrl) {
+        try {
+          doc.addImage(companyLogoDataUrl, getImageFormat(companyLogoDataUrl), marginX, y - 8, 54, 54);
+        } catch {
+          // Ignore logo rendering issues and continue with text-only header.
+        }
+      }
+
+      doc.setFont("times", "bold");
+      doc.setFontSize(16);
+      doc.setTextColor(...color.text);
+      doc.text(currentCompanyName || "Company", marginX + 66, y + 10);
+
+      doc.setFont("times", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(...color.text);
+      if (repFullName) doc.text(repFullName, marginX + 66, y + 28);
+      if (repAddressLine) doc.text(repAddressLine, marginX + 66, y + 43);
+      if (repPostalLine) doc.text(repPostalLine, marginX + 66, y + 58);
+
+      const rightX = pageWidth - marginX;
+      doc.setFont("times", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(...color.blue);
+      doc.text(candidateName, rightX, y + 80, { align: "right" });
+
+      doc.setFont("times", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(...color.text);
+      if (candidateAddress) doc.text(candidateAddress, rightX, y + 95, { align: "right" });
+      if (candidateEmail) doc.text(candidateEmail, rightX, y + 110, { align: "right" });
+
+      y += 136;
+      doc.setDrawColor(...color.subtle);
+      doc.line(marginX, y, pageWidth - marginX, y);
+      y += 24;
+
+      doc.setFont("times", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(...color.text);
+      doc.text("Subject: Employment Offer", marginX, y);
+
+      doc.setFont("times", "normal");
+      doc.setFontSize(11);
+      doc.text(`${workLocation}, ${issueDateStored}`, rightX, y, { align: "right" });
+
+      y += 28;
+      writeStyledParagraph(
+        [
+          { text: "Madam/Sir " },
+          { text: `${candidateName},`, fontWeight: "bold" },
+        ],
+        { fontSize: 14, lineHeight: 24 },
+      );
+      y += 10;
+
+      writeStyledParagraph(
+        [
+          {
+            text: "We are pleased to offer you a position within our organization under the employment terms described below. You are being offered the role of ",
+          },
+          { text: `${job.title || "this role"}`, fontWeight: "bold" },
+          { text: " under a " },
+          { text: `${contractType || "standard"}`, fontWeight: "bold" },
+          { text: " contract, with an " },
+          { text: `${employmentType || "full-time"}`, fontWeight: "bold" },
+          { text: " schedule, a " },
+          { text: `${workplace || "hybrid"}`, fontWeight: "bold" },
+          { text: " work mode, based in " },
+          { text: `${workLocation}`, fontWeight: "bold" },
+          { text: " with an expected start date of " },
+          { text: `${startDateStored}.`, fontWeight: "bold" },
+        ],
+        { fontSize: 13, lineHeight: 23 },
+      );
+      y += 10;
+
+      writeStyledParagraph(
+        [
+          { text: "The proposed compensation and profile alignment for this position are provided below. Your compensation will be " },
+          { text: `${salaryStored}.`, fontWeight: "bold" },
+    
+        ],
+        { fontSize: 13, lineHeight: 23 },
+      );
+      y += 10;
+
+      writeStyledParagraph(
+        [
+          { text: "You are kindly requested to communicate your decision no later than " },
+          { text: `${responseDeadlineStored}.`, fontWeight: "bold" },
+          { text: " If no response is received by this date, this employment offer will be considered declined." },
+        ],
+        { fontSize: 14, lineHeight: 24 },
+      );
+      y += 12;
+
+      doc.setFont("times", "normal");
+      doc.setFontSize(13);
+      doc.setTextColor(...color.text);
+      doc.text("Please accept the expression of my distinguished consideration.", marginX, y);
+      y += 24;
+      doc.setFont("times", "bold");
+      doc.text(recruiterFullName, marginX, y);
+      y += 18;
+      doc.setFont("times", "normal");
+      doc.text(currentCompanyName || "Company", marginX, y);
+
+      doc.setTextColor(120, 120, 120);
+      doc.setFont("times", "normal");
+      doc.setFontSize(8);
+      doc.text("All rights reserved to Talentek", pageWidth / 2, pageHeight - 18, { align: "center" });
+
+      const blob = doc.output("blob");
+      const previewUrl = URL.createObjectURL(blob);
+      setOfferPdfBlob(blob);
+      setOfferPreviewUrl(previewUrl);
+    } catch (err) {
+      setOfferPreviewError(err instanceof Error ? err.message : "Failed to generate offer PDF preview.");
+      setOfferPdfBlob(null);
+      setOfferPreviewUrl("");
+    } finally {
+      setOfferPreviewLoading(false);
+    }
+  };
+
+  const handleCreateOffer = async () => {
+    if (!candidateForOffer || !offerPdfBlob) {
+      toast({
+        title: "Preview required",
+        description: "Please click Show Result first to generate the offer PDF.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const job = getJobForApplication(candidateForOffer);
+    if (!job) {
+      toast({
+        title: "Missing Job",
+        description: "We couldn't find the job details for this application.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!offerSalary.trim() || !offerStartDay) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in salary and start date.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!Number.isFinite(offerResponseDays) || offerResponseDays < 1) {
+      toast({
+        title: "Invalid Response Time",
+        description: "Response time must be at least 1 day.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setOfferSaving(true);
     try {
       const salaryValue = offerSalary.trim();
       const salaryStored = salaryValue.toLowerCase().includes("dzd") ? salaryValue : `${salaryValue} DZD`;
       const startDateStored = format(offerStartDay, "yyyy-MM-dd");
+      const responseDeadlineStored = computeOfferResponseDeadline(offerResponseDays).toISOString();
+
+      const objectPath = [
+        currentEmployerId || "employer",
+        candidateForOffer.id,
+        `offer-${Date.now()}.pdf`,
+      ].join("/");
+
+      const { error: uploadError } = await supabase.storage.from("offers").upload(objectPath, offerPdfBlob, {
+        contentType: "application/pdf",
+        upsert: true,
+      });
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicData } = supabase.storage.from("offers").getPublicUrl(objectPath);
+      const offerUrl = publicData?.publicUrl || objectPath;
 
       const { error } = await supabase
         .from("offers")
@@ -1118,6 +1670,8 @@ export default function EmployerPipeline() {
           work_location: job.location || null,
           benefits_perks: offerBenefits.trim() ? offerBenefits.trim() : null,
           status: "pending",
+          offre_url: offerUrl,
+          response_deadline: responseDeadlineStored,
         })
         .select();
 
@@ -1129,11 +1683,31 @@ export default function EmployerPipeline() {
 
       setShowOfferDialog(false);
       setCandidateForOffer(null);
+      setOfferPreviewUrl("");
+      setOfferPdfBlob(null);
+      setOfferPreviewError("");
     } catch (err) {
       console.error("Failed to create offer:", err);
+      const errorMessage =
+        typeof err === "object" && err !== null && "message" in err
+          ? String((err as { message?: unknown }).message ?? "")
+          : "";
+      const isStorageRlsError =
+        /row-level security|violates row-level security policy|new row violates/i.test(errorMessage);
+
+      if (isStorageRlsError) {
+        console.info(
+          "Expected offers storage policies: insert 1i5ycnr_0 (SELECT), insert 1i5ycnr_1 (INSERT), insert 1i5ycnr_2 (UPDATE), insert 1i5ycnr_3 (DELETE).",
+        );
+      }
+
       toast({
         title: "Error",
-        description: err instanceof Error ? err.message : "Failed to create offer",
+        description: isStorageRlsError
+          ? "Upload blocked by Storage policy. Apply offers policies: insert 1i5ycnr_0, insert 1i5ycnr_1, insert 1i5ycnr_2, insert 1i5ycnr_3, then retry."
+          : err instanceof Error
+          ? err.message
+          : "Failed to create offer",
         variant: "destructive",
       });
     } finally {
@@ -1166,17 +1740,43 @@ export default function EmployerPipeline() {
 
         const { data: teamMembership } = await supabase
           .from("employer_team_members")
-          .select("id, employer_id")
+          .select("id, employer_id, first_name, last_name")
           .eq("user_id", user.id)
           .maybeSingle();
 
         resolvedTeamMemberId = teamMembership?.id ?? null;
+        const recruiterFullName = [teamMembership?.first_name, teamMembership?.last_name]
+          .map((value) => String(value || "").trim())
+          .filter(Boolean)
+          .join(" ");
+        setCurrentRecruiterName(recruiterFullName);
         if (!resolvedEmployerId) {
           resolvedEmployerId = teamMembership?.employer_id ?? null;
         }
 
         setCurrentEmployerId(resolvedEmployerId);
         setCurrentTeamMemberId(resolvedTeamMemberId);
+
+        if (resolvedEmployerId) {
+          const { data: employerProfile } = await supabase
+            .from("employers")
+            .select("company_name, logo_url, rep_first_name, rep_last_name, address, city, zip_code, country")
+            .eq("id", resolvedEmployerId)
+            .maybeSingle();
+
+          setCurrentCompanyName(employerProfile?.company_name || "");
+          setCurrentCompanyLogoUrl(employerProfile?.logo_url || "");
+          setCurrentEmployerProfile({
+            companyName: employerProfile?.company_name || "",
+            logoUrl: employerProfile?.logo_url || "",
+            repFirstName: employerProfile?.rep_first_name || "",
+            repLastName: employerProfile?.rep_last_name || "",
+            address: employerProfile?.address || "",
+            city: employerProfile?.city || "",
+            zipCode: employerProfile?.zip_code || "",
+            country: employerProfile?.country || "",
+          });
+        }
 
         if (!resolvedEmployerId) {
           toast({
@@ -1191,7 +1791,7 @@ export default function EmployerPipeline() {
         // Load jobs for this company
         const { data: jobRows, error: jobsError } = await supabase
           .from("jobs")
-          .select("id,title,profession,location,status")
+          .select("id,title,profession,location,contract_type,employment_type,workplace,experience_level,status")
           .eq("employer_id", resolvedEmployerId)
           .order("created_at", { ascending: false });
 
@@ -1202,6 +1802,10 @@ export default function EmployerPipeline() {
           title: row.title || "Untitled Position",
           department: row.profession || "",
           location: row.location || "",
+          contractType: row.contract_type || "",
+          employmentType: row.employment_type || "",
+          workplace: row.workplace || "",
+          experienceLevel: row.experience_level || "",
           status: row.status || null,
         }));
 
@@ -1324,7 +1928,9 @@ export default function EmployerPipeline() {
         // Load talent info to build applicant rows
         const { data: talentRows, error: talentsError } = await supabase
           .from("talents")
-          .select("id, user_id, full_name, phone_number, city, years_of_experience, short_bio, skills, resume_url, current_position, education_level, job_types, work_location, linkedin_url, github_url, portfolio_url")
+          .select(
+            "id, user_id, full_name, phone_number, city, years_of_experience, short_bio, skills, resume_url, current_position, education_level, job_types, work_location, linkedin_url, github_url, portfolio_url, has_carte_entrepreneur"
+          )
           .in("id", talentIds);
 
         if (talentsError) throw talentsError;
@@ -1362,6 +1968,7 @@ export default function EmployerPipeline() {
 
           return {
             id: app.id,
+            talentId: app.talent_id,
             name: talent?.full_name || "",
             email: email || "",
             phone: talent?.phone_number || "",
@@ -1544,8 +2151,14 @@ export default function EmployerPipeline() {
 
   const handleMoveCandidate = async (newStatus: ApplicationStatus) => {
     if (!selectedCandidate) return;
+    setPendingMoveStatus(newStatus);
+    setConfirmMoveOpen(true);
+  };
 
-    // Optimistic UI update
+  const confirmMoveCandidate = async () => {
+    if (!selectedCandidate || !pendingMoveStatus) return;
+
+    const newStatus = pendingMoveStatus;
     const updatedApp = { ...selectedCandidate, status: newStatus, stage: newStatus === "in-progress" ? ("to-contact" as ApplicationStage) : null };
     setApplications((prev) =>
       prev.map((app) => (app.id === selectedCandidate.id ? updatedApp : app))
@@ -1557,6 +2170,8 @@ export default function EmployerPipeline() {
     });
 
     setShowMoveDialog(false);
+    setConfirmMoveOpen(false);
+    setPendingMoveStatus(null);
     setSelectedCandidate(null);
 
     try {
@@ -1574,46 +2189,46 @@ export default function EmployerPipeline() {
     }
   };
 
-  const handleDragStart = (e: React.DragEvent, candidate: Application) => {
-    setDraggedCandidate(candidate);
-    e.dataTransfer.effectAllowed = "move";
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-  };
-
-  const handleDrop = (e: React.DragEvent, stageId: ApplicationStage) => {
-    e.preventDefault();
-    if (!draggedCandidate) return;
-
-    const candidate = draggedCandidate;
-    const previousStage = candidate.stage;
-
-    setApplications((prev) => prev.map((app) => (app.id === candidate.id ? { ...app, stage: stageId } : app)));
-    setDraggedCandidate(null);
-
-    void (async () => {
-      try {
-        const { error } = await supabase
-          .from("applications")
-          .update({ stage: stageId, updated_at: new Date().toISOString() })
-          .eq("id", candidate.id);
-        if (error) throw error;
-      } catch (err) {
-        console.error("Failed to update pipeline stage:", err);
-        setApplications((prev) =>
-          prev.map((app) => (app.id === candidate.id ? { ...app, stage: previousStage } : app))
-        );
-        toast({
-          title: "Error",
-          description: err instanceof Error ? err.message : "Failed to update pipeline stage.",
-          variant: "destructive",
-        });
-      }
-    })();
-  };
+  const confirmStyle = useMemo(() => {
+    if (!pendingMoveStatus) {
+      return {
+        label: "this action",
+        icon: UserCheck,
+        tone: "bg-orange-100 text-orange-700",
+        button: "bg-orange-600 hover:bg-orange-700",
+      };
+    }
+    if (pendingMoveStatus === "rejected") {
+      return {
+        label: "Rejected",
+        icon: UserX,
+        tone: "bg-red-100 text-red-700",
+        button: "bg-red-600 hover:bg-red-700",
+      };
+    }
+    if (pendingMoveStatus === "archived") {
+      return {
+        label: "Archived",
+        icon: Archive,
+        tone: "bg-amber-100 text-amber-700",
+        button: "bg-amber-600 hover:bg-amber-700",
+      };
+    }
+    if (pendingMoveStatus === "maybe") {
+      return {
+        label: "Maybe",
+        icon: Clock,
+        tone: "bg-orange-100 text-orange-700",
+        button: "bg-orange-600 hover:bg-orange-700",
+      };
+    }
+    return {
+      label: "To Contact",
+      icon: UserCheck,
+      tone: "bg-emerald-100 text-emerald-700",
+      button: "bg-emerald-600 hover:bg-emerald-700",
+    };
+  }, [pendingMoveStatus]);
 
   const getApplicationsByStage = (stageId: ApplicationStage) => {
     return applications.filter(
@@ -1750,7 +2365,186 @@ export default function EmployerPipeline() {
         )}
 
         {/* List View */}
-        {!loading && viewMode === "list" && (
+        {!loading && viewMode === "list" && activeTab === "all" && (
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            <div className="space-y-4">
+              {filteredApplications.length === 0 ? (
+                <div className="bg-white rounded-3xl border border-orange-100 shadow-lg p-8 text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-orange-600 flex items-center justify-center mx-auto mb-3 shadow-md">
+                    <Users className="w-7 h-7 text-white" />
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-900 mb-2">No Applications Found</h3>
+                  <p className="text-slate-600 text-sm">No candidates match your current filters</p>
+                </div>
+              ) : (
+                filteredApplications.map((app) => {
+                  const initials = app.name
+                    .split(" ")
+                    .map((n) => n[0])
+                    .join("")
+                    .toUpperCase()
+                    .slice(0, 2);
+                  const isSelected = selectedCandidate?.id === app.id;
+
+                  return (
+                    <button
+                      key={app.id}
+                      type="button"
+                      onClick={() => {
+                        if (applicationBusyById[app.id]) return;
+                        if (isSelected) return;
+                        setSelectedCandidate(app);
+                      }}
+                      className={[
+                        "w-full text-left bg-white rounded-2xl border shadow-md p-4 transition-all",
+                        isSelected ? "border-orange-300 shadow-lg" : "border-orange-100 hover:shadow-lg hover:border-orange-200",
+                      ].join(" ")}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex items-start gap-4">
+                          <div className="w-12 h-12 rounded-2xl bg-orange-600 flex items-center justify-center text-white font-bold text-base shadow-md flex-shrink-0">
+                            {initials}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="text-sm font-bold text-slate-900 truncate">{app.name}</h3>
+                              <Badge className="px-2 py-0.5 text-[10px] bg-orange-100 text-orange-700 border border-orange-200">
+                                {getDisplayStatusLabel(app)}
+                              </Badge>
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-slate-600">
+                              <span className="flex items-center gap-1">
+                                <Mail className="w-3 h-3 text-orange-500" />
+                                {app.email || "—"}
+                              </span>
+                              {app.phone ? (
+                                <span className="flex items-center gap-1">
+                                  <Phone className="w-3 h-3 text-orange-500" />
+                                  {app.phone}
+                                </span>
+                              ) : null}
+                              <span className="flex items-center gap-1">
+                                <MapPin className="w-3 h-3 text-orange-500" />
+                                {app.location || "—"}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <CalendarIcon className="w-3 h-3 text-orange-500" />
+                                Applied {app.appliedDate || "—"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className={`px-2.5 py-1 rounded-full border ${getScoreColor(app.matchScore)} flex items-center gap-1`}>
+                          <Sparkles className="w-3 h-3" />
+                          <span className="font-bold text-xs">{app.matchScore}%</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {app.skills.slice(0, 5).map((skill, index) => (
+                          <Badge
+                            key={`${app.id}-skills-${index}-${skill}`}
+                            className="rounded-full border border-orange-200 bg-orange-50 text-orange-700"
+                          >
+                            {skill}
+                          </Badge>
+                        ))}
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-slate-700 sm:grid-cols-2">
+                        {app.currentPosition ? (
+                          <span className="flex items-center gap-2">
+                            <Briefcase className="w-3 h-3 text-orange-500" />
+                            <span className="font-semibold text-slate-800">Position:</span> {app.currentPosition}
+                          </span>
+                        ) : null}
+                        {app.educationLevel ? (
+                          <span className="flex items-center gap-2">
+                            <GraduationCap className="w-3 h-3 text-orange-500" />
+                            <span className="font-semibold text-slate-800">Education:</span> {app.educationLevel}
+                          </span>
+                        ) : null}
+                        {app.experience ? (
+                          <span className="flex items-center gap-2">
+                            <CalendarIcon className="w-3 h-3 text-orange-500" />
+                            <span className="font-semibold text-slate-800">Experience:</span> {app.experience}
+                          </span>
+                        ) : null}
+                        {app.jobTypes && app.jobTypes.length > 0 ? (
+                          <span className="flex items-center gap-2">
+                            <span className="font-semibold text-slate-800">Type:</span> {app.jobTypes.slice(0, 2).join(", ")}
+                          </span>
+                        ) : null}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="rounded-3xl border border-orange-100 bg-white p-5 shadow-lg">
+              <div className="flex flex-nowrap items-center justify-between gap-3 overflow-x-auto px-1">
+                <Button
+                  variant="outline"
+                  onClick={() => selectedCandidate && handleMoveCandidate("archived")}
+                  className="h-10 whitespace-nowrap rounded-full border-2 border-orange-300 bg-white text-orange-700 hover:bg-orange-50 hover:text-orange-800 font-semibold"
+                  disabled={!selectedCandidate || !!(selectedCandidate && applicationBusyById[selectedCandidate.id])}
+                >
+                  <Archive className="w-4 h-4 mr-2" />
+                  Archive
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => selectedCandidate && handleMoveCandidate("rejected")}
+                  className="h-10 whitespace-nowrap rounded-full border-2 border-orange-300 bg-white text-orange-700 hover:bg-orange-50 hover:text-orange-800 font-semibold"
+                  disabled={!selectedCandidate || !!(selectedCandidate && applicationBusyById[selectedCandidate.id])}
+                >
+                  <UserX className="w-4 h-4 mr-2" />
+                  Rejected
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => selectedCandidate && handleMoveCandidate("maybe")}
+                  className="h-10 whitespace-nowrap rounded-full border-2 border-orange-300 bg-white text-orange-700 hover:bg-orange-50 hover:text-orange-800 font-semibold"
+                  disabled={!selectedCandidate || !!(selectedCandidate && applicationBusyById[selectedCandidate.id])}
+                >
+                  <Clock className="w-4 h-4 mr-2" />
+                  Maybe
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => selectedCandidate && handleMoveCandidate("in-progress")}
+                  className="h-10 whitespace-nowrap rounded-full border-2 border-orange-300 bg-white text-orange-700 hover:bg-orange-50 hover:text-orange-800 font-semibold"
+                  disabled={!selectedCandidate || !!(selectedCandidate && applicationBusyById[selectedCandidate.id])}
+                >
+                  <UserCheck className="w-4 h-4 mr-2" />
+                  To Contact
+                </Button>
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-orange-100 bg-orange-50/30 p-4 min-h-[420px]">
+                {inlineCvLoading ? (
+                  <div className="h-full flex items-center justify-center text-sm font-semibold text-orange-700">
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading resume...
+                  </div>
+                ) : inlineCvError ? (
+                  <div className="h-full flex items-center justify-center text-sm font-semibold text-orange-700">
+                    {inlineCvError}
+                  </div>
+                ) : inlineCvUrl ? (
+                  <CvViewer fileUrl={inlineCvUrl} />
+                ) : (
+                  <div className="h-full flex items-center justify-center text-sm font-semibold text-slate-500">
+                    Select a candidate to view the resume.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!loading && viewMode === "list" && activeTab !== "all" && (
           <div className="grid gap-4">
             {filteredApplications.length === 0 ? (
               <div className="bg-white rounded-3xl border border-orange-100 shadow-lg p-12 text-center">
@@ -1782,22 +2576,17 @@ export default function EmployerPipeline() {
                         setSelectedCandidate(app);
                       }}
                     >
-                      {/* Avatar */}
                       <div className="w-14 h-14 rounded-full bg-orange-600 flex items-center justify-center text-white font-bold text-lg shadow-md flex-shrink-0">
                         {initials}
                       </div>
 
-                      {/* Candidate Info */}
                       <div className="flex-1 min-w-0">
-                        {/* Name & Status */}
                         <div className="flex items-center gap-2 mb-2 flex-wrap">
                           <h3 className="text-base font-bold text-slate-900">{app.name}</h3>
                           <Badge className="px-2 py-0.5 text-xs bg-orange-100 text-orange-700 border border-orange-200">
                             {getDisplayStatusLabel(app)}
                           </Badge>
                         </div>
-
-                        {/* Contact Info */}
                         <div className="flex flex-wrap gap-4 text-xs text-slate-600 mb-2">
                           <span className="flex items-center gap-1">
                             <Mail className="w-3 h-3" />
@@ -1812,12 +2601,10 @@ export default function EmployerPipeline() {
                             Applied {new Date(app.appliedDate).toLocaleDateString()}
                           </span>
                         </div>
-
-                        {/* Skills */}
                         <div className="flex flex-wrap gap-1.5">
-                          {app.skills.slice(0, 3).map((skill) => (
+                          {app.skills.slice(0, 3).map((skill, index) => (
                             <span
-                              key={skill}
+                              key={`${app.id}-dialog-skills-${index}-${skill}`}
                               className="px-2 py-0.5 rounded-full bg-orange-50 text-orange-600 text-xs font-medium"
                             >
                               {skill}
@@ -1829,8 +2616,6 @@ export default function EmployerPipeline() {
                             </span>
                           )}
                         </div>
-
-                        {/* Additional Info Row */}
                         <div className="flex flex-wrap gap-4 text-xs text-slate-600 mt-2">
                           {app.currentPosition && (
                             <span>
@@ -1855,9 +2640,8 @@ export default function EmployerPipeline() {
                         </div>
                       </div>
 
-                      {/* Match Score */}
                       <div className={`px-3 py-1.5 rounded-full border ${getScoreColor(app.matchScore)} flex items-center gap-1 flex-shrink-0`}>
-                        <Star className="w-3 h-3" />
+                        <Sparkles className="w-3 h-3" />
                         <span className="font-bold text-sm">{app.matchScore}%</span>
                       </div>
                     </div>
@@ -1869,7 +2653,7 @@ export default function EmployerPipeline() {
           </div>
         )}
 
-        {/* Pipeline View - Drag and Drop */}
+        {/* Pipeline View */}
         {!loading && viewMode === "pipeline" && (
           <div className="overflow-x-auto pb-4">
             <div className="flex gap-4 min-w-max">
@@ -1879,8 +2663,6 @@ export default function EmployerPipeline() {
                   <div
                     key={stage.id}
                     className="w-80 flex-shrink-0"
-                    onDragOver={handleDragOver}
-                    onDrop={(e) => handleDrop(e, stage.id as ApplicationStage)}
                   >
                     {/* Stage Header */}
                     <div className="bg-orange-600 rounded-t-2xl p-4 text-white">
@@ -1910,17 +2692,14 @@ export default function EmployerPipeline() {
                           return (
                             <div
                               key={app.id}
-                              draggable
-                              onDragStart={(e) => handleDragStart(e, app)}
                               onClick={() => {
                                 if (applicationBusyById[app.id]) return;
                                 if (selectedCandidate?.id === app.id) return;
                                 setSelectedCandidate(app);
                               }}
-                              className="bg-white rounded-xl border border-orange-100 shadow-sm p-4 hover:shadow-md transition-all cursor-grab active:cursor-grabbing"
+                              className="bg-white rounded-xl border border-orange-100 shadow-sm p-4 hover:shadow-md transition-all cursor-pointer"
                             >
                               <div className="flex items-center gap-2 mb-3">
-                                <GripVertical className="w-4 h-4 text-orange-300" />
                                 <div className="w-10 h-10 rounded-xl bg-orange-600 flex items-center justify-center text-white font-bold text-sm">
                                   {initials}
                                 </div>
@@ -1938,6 +2717,40 @@ export default function EmployerPipeline() {
                                 <div className={`px-2 py-1 rounded-full text-xs font-bold ${getScoreColor(app.matchScore)}`}>
                                   {app.matchScore}%
                                 </div>
+                              </div>
+
+                              <div className="mt-2 flex items-center gap-1 text-[11px] text-slate-500">
+                                <CalendarIcon className="w-3 h-3" />
+                                Applied {app.appliedDate || "—"}
+                              </div>
+
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {app.skills.slice(0, 3).map((skill, index) => (
+                                  <span
+                                    key={`${app.id}-stage-dialog-skills-${index}-${skill}`}
+                                    className="px-2 py-0.5 rounded-full bg-orange-50 text-orange-600 text-[11px] font-medium"
+                                  >
+                                    {skill}
+                                  </span>
+                                ))}
+                              </div>
+
+                              <div className="mt-2 grid gap-1 text-[11px] text-slate-600">
+                                {app.currentPosition ? (
+                                  <span>
+                                    <span className="font-semibold text-slate-700">Position:</span> {app.currentPosition}
+                                  </span>
+                                ) : null}
+                                {app.educationLevel ? (
+                                  <span>
+                                    <span className="font-semibold text-slate-700">Education:</span> {app.educationLevel}
+                                  </span>
+                                ) : null}
+                                {app.jobTypes && app.jobTypes.length > 0 ? (
+                                  <span>
+                                    <span className="font-semibold text-slate-700">Type:</span> {app.jobTypes.slice(0, 2).join(", ")}
+                                  </span>
+                                ) : null}
                               </div>
 
                               {stage.id === "talent-acquisition" && (
@@ -2061,7 +2874,10 @@ export default function EmployerPipeline() {
       </Dialog>
 
       {/* Candidate Details Dialog */}
-      <Dialog open={!!selectedCandidate && !showMoveDialog && !cvDialogOpen} onOpenChange={(open) => !open && setSelectedCandidate(null)}>
+      <Dialog
+        open={viewMode === "pipeline" && !!selectedCandidate && !showMoveDialog && !cvDialogOpen}
+        onOpenChange={(open) => !open && setSelectedCandidate(null)}
+      >
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
           {selectedCandidate && (
             <>
@@ -2073,125 +2889,111 @@ export default function EmployerPipeline() {
               </DialogHeader>
 
               <div className="flex-1 overflow-y-auto pr-1">
-                <div className="space-y-6 mt-4 pb-6">
-                {/* Pipeline Status */}
-                <div className="flex items-center justify-between p-4 bg-orange-50 rounded-2xl border border-orange-100">
-                  <div>
-                    <p className="text-sm text-slate-600">Pipeline:</p>
-                  <p className="font-bold text-orange-600">{getDisplayStatusLabel(selectedCandidate)}</p>
-                  </div>
-                </div>
-
-                {/* AI Match Score */}
-                <div className="p-4 bg-white rounded-2xl border border-orange-100">
-                  <h3 className="text-sm font-semibold text-slate-600 mb-2">AI Candidate Scoring</h3>
-                  <div className="flex items-center gap-4">
-                    <div className="text-lg font-semibold text-slate-700">Match Score</div>
-                    <div className={`px-4 py-2 rounded-2xl border ${getScoreColor(selectedCandidate.matchScore)} font-bold text-xl`}>
-                      {selectedCandidate.matchScore}%
-                    </div>
-                  </div>
-                </div>
-
-                {/* Contact Details */}
-                <div className="p-4 bg-white rounded-2xl border border-orange-100">
-                  <h3 className="text-sm font-semibold text-slate-600 mb-3">Contact Details</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-5 mt-4 pb-6">
+                <div className="rounded-2xl border border-orange-100 bg-white p-4">
+                  <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="text-xs text-slate-500">Phone</p>
-                      <p className="font-medium text-slate-900 flex items-center gap-2">
-                        <Phone className="w-4 h-4 text-orange-500" />
-                        {selectedCandidate.phone}
-                      </p>
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-500">Application snapshot</p>
+                      <h3 className="mt-2 text-xl font-bold text-slate-900">{selectedCandidate.name}</h3>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                        <span className="inline-flex items-center gap-2">
+                          <CalendarIcon className="w-4 h-4 text-orange-500" />
+                          Applied {selectedCandidate.appliedDate || "—"}
+                        </span>
+                        <Badge className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs text-orange-700">
+                          {getDisplayStatusLabel(selectedCandidate)}
+                        </Badge>
+                        {selectedCandidate.stage ? (
+                          <Badge className="rounded-full border border-orange-200 bg-white px-3 py-1 text-xs text-slate-700">
+                            {formatStageForDisplay(selectedCandidate.stage)}
+                          </Badge>
+                        ) : null}
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-xs text-slate-500">Email</p>
-                      <p className="font-medium text-slate-900 flex items-center gap-2">
-                        <Mail className="w-4 h-4 text-orange-500" />
-                        {selectedCandidate.email}
-                      </p>
+                    <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 ${getScoreColor(selectedCandidate.matchScore)}`}>
+                      <Sparkles className="w-4 h-4" />
+                      <span className="text-sm font-bold">{selectedCandidate.matchScore}%</span>
                     </div>
                   </div>
-                </div>
 
-                {/* Professional Information */}
-                <div className="p-4 bg-white rounded-2xl border border-orange-100">
-                  <h3 className="text-sm font-semibold text-slate-600 mb-3">Professional Information</h3>
-                  <div>
-                    <p className="text-xs text-slate-500">Current Company</p>
-                    <p className="font-medium text-slate-900 flex items-center gap-2">
-                      <Building className="w-4 h-4 text-orange-500" />
-                      {selectedCandidate.currentCompany}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Personal & Education */}
-                <div className="p-4 bg-white rounded-2xl border border-orange-100">
-                  <h3 className="text-sm font-semibold text-slate-600 mb-3">Personal & Education</h3>
-                  <div>
-                    <p className="text-xs text-slate-500">Location</p>
-                    <p className="font-medium text-slate-900 flex items-center gap-2">
+                  <div className="mt-4 grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
+                    <div className="flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-orange-500" />
+                      <span className="font-semibold">Email:</span>
+                      <span className="text-slate-600">{selectedCandidate.email || "—"}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Phone className="w-4 h-4 text-orange-500" />
+                      <span className="font-semibold">Phone:</span>
+                      <span className="text-slate-600">{selectedCandidate.phone || "—"}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
                       <MapPin className="w-4 h-4 text-orange-500" />
-                      {selectedCandidate.location}
-                    </p>
+                      <span className="font-semibold">Location:</span>
+                      <span className="text-slate-600">{selectedCandidate.location || "—"}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Briefcase className="w-4 h-4 text-orange-500" />
+                      <span className="font-semibold">Position:</span>
+                      <span className="text-slate-600">{selectedCandidate.currentPosition || "—"}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <GraduationCap className="w-4 h-4 text-orange-500" />
+                      <span className="font-semibold">Education:</span>
+                      <span className="text-slate-600">{selectedCandidate.educationLevel || "—"}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <CalendarIcon className="w-4 h-4 text-orange-500" />
+                      <span className="font-semibold">Experience:</span>
+                      <span className="text-slate-600">{selectedCandidate.experience || "—"}</span>
+                    </div>
                   </div>
-                </div>
 
-                {/* Application Details */}
-                <div className="p-4 bg-white rounded-2xl border border-orange-100">
-                  <h3 className="text-sm font-semibold text-slate-600 mb-3">Application Details</h3>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm text-slate-600">Current Stage:</p>
-                      <p className="font-semibold text-orange-600">{formatStageForDisplay(selectedCandidate.stage)}</p>
+                  {selectedCandidate.skills?.length ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {selectedCandidate.skills.slice(0, 8).map((skill, index) => (
+                        <Badge
+                          key={`${selectedCandidate.id}-profile-skill-${index}-${skill}`}
+                          className="rounded-full border border-orange-200 bg-orange-50 text-orange-700"
+                        >
+                          {skill}
+                        </Badge>
+                      ))}
                     </div>
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm text-slate-600">Experience:</p>
-                      <p className="font-semibold text-slate-900">{selectedCandidate.experience}</p>
-                    </div>
-                  </div>
+                  ) : null}
                 </div>
 
                 {/* Interviewer Feedback Stack */}
-                {selectedCandidate.stage ? (
-                  <div className="space-y-3">
-                    {getFeedbackStack(selectedCandidate, selectedCandidate.stage).map((item) => (
-                      <div key={item.key} className="p-4 bg-orange-50 rounded-2xl border border-orange-100">
-                        <div className="flex items-center justify-between mb-2">
-                          <h3 className="text-sm font-semibold text-slate-700">{item.label}</h3>
-                          {typeof item.rating === "number" ? (
-                            renderRatingStars(item.rating, "w-4 h-4")
-                          ) : (
-                            <span className="text-xs font-bold text-slate-500">No feedback yet</span>
+                  {selectedCandidate.stage && selectedCandidate.stage !== "to-contact" ? (
+                    <div className="space-y-3">
+                      {getFeedbackStack(selectedCandidate, selectedCandidate.stage).map((item) => (
+                        <div key={item.key} className="p-4 bg-orange-50 rounded-2xl border border-orange-100">
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="text-sm font-semibold text-slate-700">{item.label}</h3>
+                            {typeof item.rating === "number" ? (
+                              renderRatingStars(item.rating, "w-4 h-4")
+                            ) : (
+                              <span className="text-xs font-bold text-slate-500">Pending</span>
+                            )}
+                          </div>
+                          {item.text ? (
+                            <p className="text-sm font-medium text-slate-700">{item.text}</p>
+                          ) : null}
+                          {item.submittedOn && (
+                            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              Submitted {item.submittedOn}
+                            </p>
                           )}
                         </div>
-                        {item.text ? (
-                          <p className="text-sm font-medium text-slate-700">{item.text}</p>
-                        ) : (
-                          <p className="text-sm text-slate-600">No interviewer feedback has been submitted yet.</p>
-                        )}
-                        {item.submittedOn && (
-                          <p className="mt-3 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                            Submitted {item.submittedOn}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-
-                    {getFeedbackStack(selectedCandidate, selectedCandidate.stage).length === 0 && (
-                      <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100">
-                        <p className="text-sm text-slate-600">No interviewer feedback has been submitted yet.</p>
-                      </div>
-                    )}
-                  </div>
-                ) : null}
+                      ))}
+                    </div>
+                  ) : null}
 
                 {/* View CV Button */}
                 <Button
                   onClick={() => openCvPreview(selectedCandidate)}
                   disabled={cvLoading}
-                  className="w-full rounded-lg border-2 border-orange-300 text-slate-700 bg-white hover:bg-orange-100 hover:border-orange-400 font-semibold py-5 text-base transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+                  className="w-full rounded-full border-2 border-orange-300 bg-transparent text-white hover:bg-orange-50/80 hover:text-white font-semibold py-6 text-base shadow-sm hover:shadow transition-all disabled:opacity-70 disabled:cursor-not-allowed"
                 >
                   {cvLoading ? (
                     <>
@@ -2211,114 +3013,100 @@ export default function EmployerPipeline() {
               {/* Sticky Actions (always visible) */}
               <div className="border-t border-orange-100 pt-4 mt-2 bg-white">
                 <div className="flex flex-col gap-3">
-                  <div className={activeTab === "maybe" ? "grid grid-cols-3 gap-2" : "grid grid-cols-2 gap-2 sm:grid-cols-4"}>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => handleMoveCandidate("archived")}
-                      className="h-11 rounded-lg border-2 border-orange-300 bg-white text-orange-700 hover:bg-orange-50 hover:text-orange-800 font-semibold"
-                      disabled={!!applicationBusyById[selectedCandidate.id]}
-                    >
-                      <Archive className="w-4 h-4 mr-2" />
-                      Archive
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => handleMoveCandidate("rejected")}
-                      className="h-11 rounded-lg border-2 border-orange-300 bg-white text-orange-700 hover:bg-orange-50 hover:text-orange-800 font-semibold"
-                      disabled={!!applicationBusyById[selectedCandidate.id]}
-                    >
-                      <UserX className="w-4 h-4 mr-2" />
-                      Rejected
-                    </Button>
-
-                    {activeTab !== "maybe" ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => handleMoveCandidate("maybe")}
-                        className="h-11 rounded-lg border-2 border-orange-300 bg-white text-orange-700 hover:bg-orange-50 hover:text-orange-800 font-semibold"
-                        disabled={!!applicationBusyById[selectedCandidate.id]}
-                      >
-                        <Clock className="w-4 h-4 mr-2" />
-                        Maybe
-                      </Button>
-                    ) : null}
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => handleMoveCandidate("in-progress")}
-                      className="h-11 rounded-lg border-2 border-orange-300 bg-white text-orange-700 hover:bg-orange-50 hover:text-orange-800 font-semibold"
-                      disabled={!!applicationBusyById[selectedCandidate.id]}
-                    >
-                      <UserCheck className="w-4 h-4 mr-2" />
-                      To Contact
-                    </Button>
-                  </div>
-
                   {selectedCandidate?.stage === "to-contact" ? (
                     <Button
-                      onClick={() => openScheduleInterviewDialog(selectedCandidate)}
+                      onClick={() => void openScheduleInterviewDialog(selectedCandidate)}
                       className="w-full bg-orange-600 text-white hover:bg-orange-700 font-semibold py-4 rounded-lg transition-all shadow-md hover:shadow-lg"
+                      disabled={!!applicationBusyById[selectedCandidate.id]}
                     >
                       <CalendarIcon className="w-4 h-4 mr-2" />
-                      Schedule
+                      Schedule Interview
                     </Button>
                   ) : null}
 
                   {selectedCandidate?.stage === "talent-acquisition" ? (
-                    <Button
-                      onClick={() => void openTechnicalInterviewDialog(selectedCandidate)}
-                      className="w-full bg-orange-600 text-white hover:bg-orange-700 font-semibold py-4 rounded-lg transition-all shadow-md hover:shadow-lg"
-                      disabled={!!applicationBusyById[selectedCandidate.id]}
-                    >
-                      {applicationBusyById[selectedCandidate.id] ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Loading...
-                        </>
-                      ) : (
-                        "Move to Technical"
-                      )}
-                    </Button>
-                  ) : null}
-
-                  {selectedCandidate?.stage === "technical" ? (
                     <div className="flex gap-2">
                       <Button
                         type="button"
-                        onClick={() => void openLeadershipInterviewDialog(selectedCandidate)}
-                        className="flex-1 bg-orange-600 text-white hover:bg-orange-700 font-semibold py-4 rounded-lg transition-all shadow-md hover:shadow-lg"
+                        onClick={() => handleMoveCandidate("archived")}
+                        className="flex-1 border-2 border-amber-300 bg-transparent text-white hover:bg-amber-50/80 hover:text-white font-semibold py-4 rounded-lg transition-all shadow-sm hover:shadow"
                         disabled={!!applicationBusyById[selectedCandidate.id]}
                       >
-                        <CalendarIcon className="w-4 h-4 mr-2" />
-                        Schedule Leadership
+                        <Archive className="w-4 h-4 mr-2" />
+                        Move to Archive
                       </Button>
                       <Button
-                        type="button"
-                        onClick={() => openOfferDialog(selectedCandidate)}
-                        className="flex-1 border-2 border-orange-300 bg-white text-orange-700 hover:bg-orange-50 hover:text-orange-800 font-semibold py-4 rounded-lg transition-all"
+                        onClick={() => void openTechnicalInterviewDialog(selectedCandidate)}
+                        className="flex-1 border-2 border-orange-300 bg-transparent text-white hover:bg-orange-50/80 hover:text-white font-semibold py-4 rounded-lg transition-all shadow-sm hover:shadow"
                         disabled={!!applicationBusyById[selectedCandidate.id]}
                       >
-                        <Building className="w-4 h-4 mr-2" />
-                        Move to Offer
+                        {applicationBusyById[selectedCandidate.id] ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Loading...
+                          </>
+                        ) : (
+                          "Move to Technical"
+                        )}
+                      </Button>
+                    </div>
+                  ) : null}
+
+                  {selectedCandidate?.stage === "technical" ? (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          onClick={() => void openLeadershipInterviewDialog(selectedCandidate)}
+                          className="flex-1 bg-orange-600 text-white hover:bg-orange-700 font-semibold py-4 rounded-lg transition-all shadow-md hover:shadow-lg"
+                          disabled={!!applicationBusyById[selectedCandidate.id]}
+                        >
+                          <CalendarIcon className="w-4 h-4 mr-2" />
+                          Schedule Leadership
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={() => openOfferDialog(selectedCandidate)}
+                          className="flex-1 bg-orange-600 text-white hover:bg-orange-700 font-semibold py-4 rounded-lg transition-all shadow-md hover:shadow-lg"
+                          disabled={!!applicationBusyById[selectedCandidate.id]}
+                        >
+                          <Building className="w-4 h-4 mr-2" />
+                          Move to Offer
+                        </Button>
+                      </div>
+                      <Button
+                        type="button"
+                        onClick={() => handleMoveCandidate("archived")}
+                        className="w-full bg-amber-500 text-white hover:bg-amber-600 font-semibold py-4 rounded-lg transition-all shadow-md hover:shadow-lg"
+                        disabled={!!applicationBusyById[selectedCandidate.id]}
+                      >
+                        <Archive className="w-4 h-4 mr-2" />
+                        Move to Archive
                       </Button>
                     </div>
                   ) : null}
 
                   {selectedCandidate?.stage === "leadership" ? (
-                    <Button
-                      type="button"
-                      onClick={() => openOfferDialog(selectedCandidate)}
-                      className="w-full border-2 border-orange-300 bg-white text-orange-700 hover:bg-orange-50 hover:text-orange-800 font-semibold py-4 rounded-lg transition-all"
-                      disabled={!!applicationBusyById[selectedCandidate.id]}
-                    >
-                      <Building className="w-4 h-4 mr-2" />
-                      Move to Offer
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        onClick={() => openOfferDialog(selectedCandidate)}
+                        className="flex-1 bg-orange-600 text-white hover:bg-orange-700 font-semibold py-4 rounded-lg transition-all shadow-md hover:shadow-lg"
+                        disabled={!!applicationBusyById[selectedCandidate.id]}
+                      >
+                        <Building className="w-4 h-4 mr-2" />
+                        Move to Offer
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={() => handleMoveCandidate("archived")}
+                        className="flex-1 bg-amber-500 text-white hover:bg-amber-600 font-semibold py-4 rounded-lg transition-all shadow-md hover:shadow-lg"
+                        disabled={!!applicationBusyById[selectedCandidate.id]}
+                      >
+                        <Archive className="w-4 h-4 mr-2" />
+                        Move to Archive
+                      </Button>
+                    </div>
                   ) : null}
                 </div>
               </div>
@@ -2401,6 +3189,48 @@ export default function EmployerPipeline() {
         </DialogContent>
       </Dialog>
 
+      {/* Confirm Move Dialog */}
+      <Dialog open={confirmMoveOpen} onOpenChange={setConfirmMoveOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-slate-900">Confirm move</DialogTitle>
+            <DialogDescription className="text-sm text-slate-600 mt-1">
+              {selectedCandidate && pendingMoveStatus
+                ? `Move ${selectedCandidate.name} to ${confirmStyle.label}?`
+                : "Confirm this action."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 flex items-center gap-3 rounded-2xl border border-orange-100 bg-orange-50/60 p-3">
+            <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${confirmStyle.tone}`}>
+              <confirmStyle.icon className="h-5 w-5" />
+            </div>
+            <div className="text-sm font-semibold text-slate-700">
+              {pendingMoveStatus ? confirmStyle.label : "Status change"}
+            </div>
+          </div>
+          <div className="mt-5 flex gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1 rounded-full border-orange-200 text-slate-700 hover:bg-orange-50"
+              onClick={() => {
+                setConfirmMoveOpen(false);
+                setPendingMoveStatus(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className={`flex-1 rounded-full text-white ${confirmStyle.button}`}
+              onClick={confirmMoveCandidate}
+            >
+              Confirm
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Schedule Interview Dialog */}
       <Dialog open={showScheduleDialog} onOpenChange={setShowScheduleDialog}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -2422,8 +3252,14 @@ export default function EmployerPipeline() {
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-3">Scheduled Date & Time</label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="rounded-xl border-2 border-orange-200 bg-white p-2">
-                  <Calendar mode="single" selected={scheduledDay} onSelect={setScheduledDay} initialFocus />
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Date</label>
+                  <Input
+                    type="date"
+                    value={scheduledDay ? format(scheduledDay, "yyyy-MM-dd") : ""}
+                    onChange={(e) => setScheduledDay(e.target.value ? new Date(`${e.target.value}T00:00:00`) : undefined)}
+                    className="rounded-lg border-2 border-orange-300 h-11 font-medium"
+                  />
                 </div>
 
                 <div className="space-y-4">
@@ -2587,8 +3423,14 @@ export default function EmployerPipeline() {
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-3">Scheduled Date & Time</label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="rounded-xl border-2 border-orange-200 bg-white p-2">
-                  <Calendar mode="single" selected={technicalDay} onSelect={setTechnicalDay} initialFocus />
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Date</label>
+                  <Input
+                    type="date"
+                    value={technicalDay ? format(technicalDay, "yyyy-MM-dd") : ""}
+                    onChange={(e) => setTechnicalDay(e.target.value ? new Date(`${e.target.value}T00:00:00`) : undefined)}
+                    className="rounded-lg border-2 border-orange-300 h-11 font-medium"
+                  />
                 </div>
 
                 <div className="space-y-4">
@@ -2761,8 +3603,16 @@ export default function EmployerPipeline() {
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-3">Scheduled Date & Time</label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="rounded-xl border-2 border-orange-200 bg-white p-2">
-                  <Calendar mode="single" selected={leadershipDay} onSelect={setLeadershipDay} initialFocus />
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Date</label>
+                  <Input
+                    type="date"
+                    value={leadershipDay ? format(leadershipDay, "yyyy-MM-dd") : ""}
+                    onChange={(e) =>
+                      setLeadershipDay(e.target.value ? new Date(`${e.target.value}T00:00:00`) : undefined)
+                    }
+                    className="rounded-lg border-2 border-orange-300 h-11 font-medium"
+                  />
                 </div>
 
                 <div className="space-y-4">
@@ -2975,16 +3825,35 @@ export default function EmployerPipeline() {
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">Start Date</label>
-                  <div className="grid grid-cols-1 gap-3">
-                    <div className="rounded-xl border-2 border-orange-200 bg-white p-2">
-                      <Calendar mode="single" selected={offerStartDay} onSelect={setOfferStartDay} initialFocus />
-                    </div>
-                    <Input
-                      readOnly
-                      value={offerStartDay ? format(offerStartDay, "EEEE, MMMM d, yyyy") : ""}
-                      placeholder="Select a start date"
-                      className="rounded-lg border-2 border-orange-200 h-11 font-medium bg-orange-50/40 text-slate-700"
-                    />
+                  <div className="grid grid-cols-1 gap-2">
+                    <Popover open={offerDatePickerOpen} onOpenChange={setOfferDatePickerOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-11 w-full justify-between rounded-lg border-2 border-orange-300 bg-white px-3 text-left font-medium text-slate-700 hover:bg-orange-50"
+                        >
+                          <span className={offerStartDay ? "text-slate-700" : "text-slate-400"}>
+                            {offerStartDay ? format(offerStartDay, "EEEE, MMMM d, yyyy") : "Select start date"}
+                          </span>
+                          <CalendarIcon className="h-4 w-4 text-orange-600" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0 border-orange-200" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={offerStartDay}
+                          onSelect={(day) => {
+                            setOfferStartDay(day);
+                            if (day) setOfferDatePickerOpen(false);
+                          }}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <p className="text-xs font-medium text-slate-500">
+                      Pick the official joining date for this offer letter.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -2999,33 +3868,82 @@ export default function EmployerPipeline() {
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Response Time (Days)</label>
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={offerResponseDays}
+                  onChange={(e) => setOfferResponseDays(Number(e.target.value))}
+                  placeholder="e.g. 7"
+                  className="rounded-lg border-2 border-orange-300 h-11 font-medium"
+                />
+                <p className="mt-1 text-xs font-medium text-slate-500">
+                  If the candidate does not respond before this deadline, the offer is auto-rejected.
+                </p>
+              </div>
+
               <div className="flex gap-3 pt-4 border-t border-orange-100">
                 <Button
                   onClick={() => setShowOfferDialog(false)}
                   variant="outline"
                   className="flex-1 rounded-lg border-orange-300 text-slate-700 hover:bg-orange-50"
-                  disabled={offerSaving}
+                  disabled={offerSaving || offerPreviewLoading}
                 >
                   Cancel
                 </Button>
                 <Button
+                  onClick={() => void buildOfferPdfBlob()}
+                  variant="outline"
+                  className="flex-1 rounded-lg border-orange-300 text-orange-700 hover:bg-orange-50 font-medium"
+                  disabled={offerSaving || offerPreviewLoading || !candidateForOffer}
+                >
+                  {offerPreviewLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="w-4 h-4 mr-2" />
+                      Show Result
+                    </>
+                  )}
+                </Button>
+                <Button
                   onClick={handleCreateOffer}
                   className="flex-1 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium"
-                  disabled={offerSaving || !candidateForOffer}
+                  disabled={offerSaving || offerPreviewLoading || !candidateForOffer || !offerPdfBlob}
                 >
                   {offerSaving ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Creating...
+                      Confirming...
                     </>
                   ) : (
                     <>
                       <Building className="w-4 h-4 mr-2" />
-                      Create Offer
+                      Confirm Offer
                     </>
                   )}
                 </Button>
               </div>
+
+              {offerPreviewError ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">
+                  {offerPreviewError}
+                </div>
+              ) : null}
+
+              {offerPreviewUrl ? (
+                <div className="rounded-2xl border border-orange-100 bg-white p-3 shadow-sm">
+                  <p className="mb-3 text-sm font-semibold text-slate-700">Offer PDF Preview</p>
+                  <div className="h-[460px] overflow-hidden rounded-xl border border-orange-100">
+                    <CvViewer fileUrl={offerPreviewUrl} />
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </DialogContent>

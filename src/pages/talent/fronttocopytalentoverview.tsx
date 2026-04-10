@@ -735,7 +735,7 @@ export default function TalentOverview() {
               <SelectValue placeholder="Date posted" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Any time</SelectItem>
+              <SelectItem value="all">All dates</SelectItem>
               <SelectItem value="1">Last 24 hours</SelectItem>
               <SelectItem value="3">Last 3 days</SelectItem>
               <SelectItem value="7">Last 7 days</SelectItem>

@@ -2,10 +2,9 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { MapPin, Clock, Briefcase, Users, Star, Share2, Filter, ChevronRight, Award, Globe, Search, X } from "lucide-react";
+import { MapPin, Clock, Briefcase, Users, Share2, Filter, Globe, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 
@@ -26,15 +25,14 @@ interface Job {
 }
 
 const Jobs = () => {
-	const navigate = useNavigate();
 	const { toast } = useToast();
+	const navigate = useNavigate();
 	const [jobs, setJobs] = useState<Job[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [searchTerm, setSearchTerm] = useState("");
 	const [selectedIndustry, setSelectedIndustry] = useState("all");
 	const [selectedLevel, setSelectedLevel] = useState("all");
 	const [selectedType, setSelectedType] = useState("all");
-	const [viewCounts, setViewCounts] = useState<Record<string, number>>({});
 
 
 	useEffect(() => {
@@ -84,12 +82,6 @@ const Jobs = () => {
 
 				setJobs(formattedJobs);
 				
-				// Initialize view counts from database
-				const counts: Record<string, number> = {};
-				data?.forEach((job: any) => {
-					counts[job.id] = job.views_count || 0;
-				});
-				setViewCounts(counts);
 			} catch (error) {
 				console.error('Error fetching jobs:', error);
 				setJobs([]);
@@ -100,24 +92,6 @@ const Jobs = () => {
 
 		fetchJobs();
 	}, []);
-
-	const handleViewDetails = async (job: Job) => {
-		// Increment view count
-		const newCount = (viewCounts[job.id] || 0) + 1;
-		setViewCounts(prev => ({ ...prev, [job.id]: newCount }));
-		
-		// Update view count in database
-		try {
-			await supabase
-				.from('jobs')
-				.update({ views_count: newCount })
-				.eq('id', job.id);
-		} catch (error) {
-			console.error('Error updating view count:', error);
-		}
-		
-		navigate(`/jobs/${job.id}`);
-	};
 
 	const handleShare = (job: Job, e: React.MouseEvent) => {
 		e.stopPropagation();
@@ -258,7 +232,7 @@ const Jobs = () => {
 								<div className="space-y-2">
 									<label className="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors hover:bg-orange-50 border-2 border-transparent">
 										<input type="radio" name="date" value="any" className="hidden" />
-										<span className="text-xs sm:text-sm font-medium">Any time</span>
+										<span className="text-xs sm:text-sm font-medium">All dates</span>
 									</label>
 									<label className="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors hover:bg-orange-50 border-2 border-transparent">
 										<input type="radio" name="date" value="24h" className="hidden" />
@@ -389,14 +363,16 @@ const Jobs = () => {
 												))}
 											</div>
 
-											{/* Buttons */}
-											<div className="mt-auto pt-4 flex gap-3">
-												<button 
-													onClick={() => handleViewDetails(job)}
-													className="flex-1 bg-orange-600 text-white font-bold text-sm py-3 px-4 rounded-lg hover:bg-orange-700 transition-all duration-200 hover:shadow-lg flex items-center justify-center gap-2"
+											<div className="mt-auto pt-4 space-y-3">
+												<button
+													onClick={() => navigate(`/jobs/${job.id}`)}
+													className="w-full rounded-full border-2 border-orange-500 bg-white px-4 py-3 text-sm font-semibold text-orange-600 transition-all hover:bg-orange-50"
 												>
-													View Details <ChevronRight className="w-4 h-4" />
+													Job Details
 												</button>
+												<div className="rounded-xl border border-orange-100 bg-orange-50/60 px-4 py-3 text-sm font-semibold text-slate-600">
+													Log in to the Talent dashboard to view full details and apply.
+												</div>
 											</div>
 										</div>
 									</Card>

@@ -115,7 +115,6 @@ export default function EmployerInterviewers() {
     fullName: "",
     email: "",
     role: "" as "" | InterviewerUser["role"],
-    password: "",
   });
 
   const filteredUsers = useMemo(
@@ -233,7 +232,7 @@ export default function EmployerInterviewers() {
 
   const handleOpenDialog = () => {
     setEditingUser(null);
-    setForm({ fullName: "", email: "", role: "", password: generateRandomPassword() });
+    setForm({ fullName: "", email: "", role: "" });
     setOpenDialog(true);
   };
 
@@ -243,7 +242,6 @@ export default function EmployerInterviewers() {
       fullName: user.fullName,
       email: user.email,
       role: user.role,
-      password: "",
     });
     setOpenDialog(true);
   };
@@ -280,10 +278,6 @@ export default function EmployerInterviewers() {
             updated_at: new Date().toISOString(),
           };
 
-          if (form.password.trim()) {
-            userUpdatePayload.password_hash = await bcrypt.hash(form.password, 10);
-          }
-
           const { error: updateUserError } = await supabase
             .from("users")
             .update(userUpdatePayload)
@@ -305,15 +299,6 @@ export default function EmployerInterviewers() {
 
         if (error) throw error;
       } else {
-        if (!form.password.trim()) {
-          toast({
-            title: "Password Required",
-            description: "Please set a password for the interviewer user account.",
-            variant: "destructive",
-          });
-          return;
-        }
-
         const { data: existingUser, error: existingUserError } = await supabase
           .from("users")
           .select("id")
@@ -331,7 +316,12 @@ export default function EmployerInterviewers() {
           return;
         }
 
-        const passwordHash = await bcrypt.hash(form.password.trim(), 10);
+        const generatedPassword = generateRandomPassword();
+        console.info("[Interviewer Test Credentials]", {
+          email: normalizedEmail,
+          password: generatedPassword,
+        });
+        const passwordHash = await bcrypt.hash(generatedPassword, 10);
 
         const { data: createdUser, error: createUserError } = await supabase
           .from("users")
@@ -367,7 +357,7 @@ export default function EmployerInterviewers() {
 
       await loadInterviewers();
       setOpenDialog(false);
-      setForm({ fullName: "", email: "", role: "", password: "" });
+      setForm({ fullName: "", email: "", role: "" });
       setEditingUser(null);
     } catch (error: any) {
       console.error("Error saving interviewer:", error);
@@ -743,7 +733,7 @@ export default function EmployerInterviewers() {
         </div>
 
         <Dialog open={openDialog} onOpenChange={setOpenDialog}>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle className="text-2xl font-bold text-slate-900">
                 {editingUser ? "Edit Interviewer" : "Add New Interviewer"}
@@ -756,6 +746,22 @@ export default function EmployerInterviewers() {
               }}
               className="mt-4 space-y-5"
             >
+              {!editingUser && (
+                <div className="rounded-2xl border border-orange-200 bg-gradient-to-br from-orange-50 via-white to-orange-100 p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500 text-white shadow-md">
+                      <Sparkles className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">Automatic account setup</p>
+                      <p className="mt-1 text-sm leading-6 text-slate-600">
+                        Password is auto-generated and sent automatically. You don&apos;t need to fill or manage it here.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <Label className="text-sm font-semibold text-slate-700">Full Name</Label>
@@ -774,51 +780,38 @@ export default function EmployerInterviewers() {
                     value={form.email}
                     onChange={(e) => setForm({ ...form, email: e.target.value })}
                     placeholder="interviewer@company.com"
+                    autoComplete="email"
                     className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50 focus:border-orange-400"
                     required
                   />
                 </div>
-                <div>
-                  <Label className="text-sm font-semibold text-slate-700">
-                    Password {editingUser ? "(leave blank to keep current)" : ""}
-                  </Label>
-                  <div className="mt-2 flex gap-2">
-                    <Input
-                      type="password"
-                      value={form.password}
-                      readOnly
-                      placeholder={editingUser ? "Optional" : "Generated password"}
-                      autoComplete={editingUser ? "new-password" : "new-password"}
-                      className="h-12 rounded-xl border-orange-200 bg-orange-50 focus:border-orange-400"
-                      required={!editingUser}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setForm({ ...form, password: generateRandomPassword() })}
-                      className="h-12 whitespace-nowrap rounded-xl border-orange-200"
-                    >
-                      Generate
-                    </Button>
-                  </div>
-                </div>
-                <div>
+                <div className="sm:col-span-2">
                   <Label className="text-sm font-semibold text-slate-700">Role</Label>
-                  <Select
-                    value={form.role}
-                    onValueChange={(value) => setForm({ ...form, role: value as InterviewerUser["role"] })}
-                  >
-                    <SelectTrigger className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50 focus:border-orange-400">
-                      <SelectValue placeholder="Select a role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {roleOptions.map((roleOption) => (
-                        <SelectItem key={roleOption} value={roleOption}>
-                          {roleOption}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                    {roleOptions.map((roleOption) => {
+                      const isSelected = form.role === roleOption;
+                      return (
+                        <button
+                          key={roleOption}
+                          type="button"
+                          onClick={() => setForm({ ...form, role: roleOption })}
+                          className={`rounded-2xl border px-4 py-3 text-left transition ${
+                            isSelected
+                              ? "border-orange-500 bg-orange-100 shadow-md"
+                              : "border-orange-200 bg-orange-50 hover:border-orange-400"
+                          }`}
+                        >
+                          <p className="text-sm font-semibold text-slate-900">{roleOption}</p>
+                          <p className="mt-1 text-xs text-slate-600">
+                            {roleOption === "Technical Interviewer"
+                              ? "Focuses on stack, architecture, and coding quality."
+                              : "Evaluates ownership, communication, and leadership fit."}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+
                 </div>
               </div>
               <div className="flex gap-3 pt-4">

@@ -23,6 +23,7 @@ import {
   Search,
   Sparkles,
   Target,
+  ThumbsDown,
   TrendingUp,
   Users,
 } from "lucide-react";
@@ -135,17 +136,15 @@ export default function EmployerOverview() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all");
   const [loadingOverview, setLoadingOverview] = useState(true);
   const [stats, setStats] = useState<RecruiterStat[]>([
-    { label: "Active Jobs", value: 0, desc: "Roles live across teams", icon: Briefcase },
-    { label: "Applications", value: 0, desc: "Candidates this month", icon: Users },
-    { label: "Interviews", value: 0, desc: "Upcoming conversations", icon: CalendarDays },
-    { label: "Offer Rate", value: "0%", desc: "Shortlist to offer", icon: TrendingUp },
+    { label: "Candidates", value: 0, desc: "Applications received", icon: Users },
+    { label: "Interviews", value: 0, desc: "Interview records", icon: CalendarDays },
+    { label: "Active Jobs", value: 0, desc: "Published roles", icon: Briefcase },
+    { label: "Outcomes", value: "0 hired · 0 declined", desc: "Final decisions", icon: Target },
   ]);
-  const [applicationOpenings, setApplicationOpenings] = useState<ApplicationOpening[]>([]);
-  const [hiringRateItems, setHiringRateItems] = useState<HiringRateItem[]>([]);
+  const [hiredCount, setHiredCount] = useState(0);
+  const [declinedCount, setDeclinedCount] = useState(0);
 
   useEffect(() => {
     let ignore = false;
@@ -155,13 +154,16 @@ export default function EmployerOverview() {
 
       if (!user?.id) {
         if (!ignore) {
-          setApplicationOpenings([]);
-          setHiringRateItems([]);
           setStats((previous) =>
-            previous.map((stat) =>
-              stat.label === "Offer Rate" ? { ...stat, value: "0%" } : { ...stat, value: 0 },
-            ),
+            previous.map((stat) => {
+              if (stat.label === "Outcomes") {
+                return { ...stat, value: "0 hired · 0 declined" };
+              }
+              return { ...stat, value: 0 };
+            }),
           );
+          setHiredCount(0);
+          setDeclinedCount(0);
           setLoadingOverview(false);
         }
         return;
@@ -188,17 +190,11 @@ export default function EmployerOverview() {
           user.name ||
           "Recruiter";
 
-        if (!employerId) {
-          if (!ignore) {
-            setApplicationOpenings([]);
-            setHiringRateItems([]);
-          }
-          return;
-        }
+        if (!employerId) return;
 
         const { data: jobRows, error: jobsError } = await supabase
           .from("jobs")
-          .select("id, title, profession, location, positions_available, status, created_at")
+          .select("id, status")
           .eq("employer_id", employerId)
           .order("created_at", { ascending: false });
 
@@ -213,7 +209,7 @@ export default function EmployerOverview() {
         const { data: appRows, error: appsError } = jobIds.length
           ? await supabase
               .from("applications")
-              .select("id, job_id, talent_id, stage, applied_at")
+              .select("id, job_id, talent_id, status, stage")
               .in("job_id", jobIds)
           : { data: [], error: null };
 
@@ -223,12 +219,8 @@ export default function EmployerOverview() {
 
         const applications = (appRows || []).map((row) => asRecord(row));
         const applicationIds = applications.map((app) => asNullableString(app.id)).filter(Boolean) as string[];
-        const talentIds = Array.from(
-          new Set(applications.map((app) => asNullableString(app.talent_id)).filter(Boolean) as string[]),
-        );
 
-        const [talentsResult, offersResult, interviewsResult] = await Promise.all([
-          talentIds.length ? supabase.from("talents").select("id, full_name").in("id", talentIds) : { data: [], error: null },
+        const [offersResult, interviewsResult] = await Promise.all([
           applicationIds.length
             ? supabase
                 .from("offers")
@@ -237,25 +229,9 @@ export default function EmployerOverview() {
                 .order("updated_at", { ascending: false })
             : { data: [], error: null },
           applicationIds.length
-            ? supabase.from("interviews").select("application_id, scheduled_date, status").in("application_id", applicationIds)
+            ? supabase.from("interviews").select("application_id, status").in("application_id", applicationIds)
             : { data: [], error: null },
         ]);
-
-        if (talentsResult.error) {
-          throw talentsResult.error;
-        }
-
-        const talentNameById = new Map<string, string>(
-          (talentsResult.data || [])
-            .map((row) => {
-              const record = asRecord(row);
-              const id = asNullableString(record.id);
-              const name = asNullableString(record.full_name);
-              if (!id || !name) return null;
-              return [id, name] as const;
-            })
-            .filter(Boolean) as Array<readonly [string, string]>,
-        );
 
         const offerStatusByApplicationId = new Map<string, string>();
         if (!offersResult.error && offersResult.data) {
@@ -270,175 +246,41 @@ export default function EmployerOverview() {
           }
         }
 
-        const now = new Date();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const weekAgo = new Date(now);
-        weekAgo.setDate(weekAgo.getDate() - 7);
-
-        const toEffectiveStage = (app: Record<string, unknown>) => {
+        const isHired = (app: Record<string, unknown>) => {
           const appId = asNullableString(app.id);
           const offerStatus = appId ? offerStatusByApplicationId.get(appId) : undefined;
-          if (offerStatus === "accepted") return "hired";
-          if (offerStatus === "refused" || offerStatus === "rejected") return "rejected-offer";
-          return asNullableString(app.stage);
+          if (offerStatus === "accepted") return true;
+          return asNullableString(app.stage) === "hired";
         };
 
-        const applicationsThisMonth = applications.filter((app) => {
-          const appliedAt = asNullableString(app.applied_at);
-          if (!appliedAt) return false;
-          const date = new Date(appliedAt);
-          return !Number.isNaN(date.getTime()) && date >= startOfMonth;
-        });
+        const isDeclined = (app: Record<string, unknown>) => {
+          const appId = asNullableString(app.id);
+          const offerStatus = appId ? offerStatusByApplicationId.get(appId) : undefined;
+          if (offerStatus === "refused" || offerStatus === "rejected") return true;
+          const status = asNullableString(app.status);
+          const stage = asNullableString(app.stage);
+          return status === "rejected" || stage === "rejected-offer";
+        };
 
-        const interviews = (interviewsResult.data || []).map((row) => asRecord(row));
-        const upcomingInterviews = interviews.filter((row) => {
-          const scheduled = asNullableString(row.scheduled_date);
-          const status = asNullableString(row.status)?.toLowerCase();
-          if (!scheduled) return false;
-          const date = new Date(scheduled);
-          if (Number.isNaN(date.getTime()) || date < now) return false;
-          return status === "scheduled" || status === "confirmed" || status === "rescheduled";
-        });
-
-        const totalOffers = (offersResult.data || []).length;
-        const offerRateValue =
-          applications.length > 0 ? `${Math.round((totalOffers / applications.length) * 100)}%` : "0%";
-
-        const appsByJobId = new Map<string, Record<string, unknown>[]>(jobIds.map((id) => [id, []]));
-        for (const app of applications) {
-          const jobId = asNullableString(app.job_id);
-          if (!jobId) continue;
-          const list = appsByJobId.get(jobId) ?? [];
-          list.push(app);
-          appsByJobId.set(jobId, list);
-        }
-
-        const computedOpenings: ApplicationOpening[] = activeJobs.map((job) => {
-          const jobId = asString(job.id);
-          const title = asString(job.title) || "Open role";
-          const profession = asNullableString(job.profession);
-          const location = asString(job.location) || "Remote";
-          const createdAt = asNullableString(job.created_at);
-          const team = toTeamFilter(profession, title);
-          const appsForJob = appsByJobId.get(jobId) ?? [];
-
-          const monthlyApplications = appsForJob.filter((app) => {
-            const appliedAt = asNullableString(app.applied_at);
-            if (!appliedAt) return false;
-            const date = new Date(appliedAt);
-            return !Number.isNaN(date.getTime()) && date >= startOfMonth;
-          }).length;
-
-          const newThisWeek = appsForJob.filter((app) => {
-            const appliedAt = asNullableString(app.applied_at);
-            if (!appliedAt) return false;
-            const date = new Date(appliedAt);
-            return !Number.isNaN(date.getTime()) && date >= weekAgo;
-          }).length;
-
-          const priority = toPriority(monthlyApplications, newThisWeek, createdAt);
-
-          const applicants = appsForJob
-            .slice()
-            .sort((a, b) => {
-              const aDate = new Date(asNullableString(a.applied_at) ?? 0).getTime();
-              const bDate = new Date(asNullableString(b.applied_at) ?? 0).getTime();
-              return bDate - aDate;
-            })
-            .slice(0, 3)
-            .map((app) => talentNameById.get(asString(app.talent_id)) ?? "Candidate");
-
-          return {
-            id: jobId,
-            role: title,
-            team,
-            location,
-            monthlyApplications,
-            newThisWeek,
-            recruiter: recruiterName,
-            priority,
-            applicants,
-          };
-        });
-
-        const computedHiringRates: HiringRateItem[] = activeJobs.map((job) => {
-          const jobId = asString(job.id);
-          const title = asString(job.title) || "Open role";
-          const profession = asNullableString(job.profession);
-          const team = toTeamFilter(profession, title);
-          const appsForJob = appsByJobId.get(jobId) ?? [];
-
-          const positionsAvailable = Number(asString(job.positions_available) || "1") || 1;
-          const hiredApps = appsForJob.filter((app) => toEffectiveStage(app) === "hired");
-          const hired = hiredApps.length;
-
-          const interviewing = appsForJob.filter((app) => {
-            const stage = toEffectiveStage(app);
-            return stage === "talent-acquisition" || stage === "technical" || stage === "leadership";
-          }).length;
-
-          const openSeats = Math.max(positionsAvailable - hired, 0);
-          const fillRate = Math.max(0, Math.min(100, Math.round((hired / positionsAvailable) * 100)));
-
-          const avgDays = (() => {
-            const durations = hiredApps
-              .map((app) => {
-                const appliedAt = asNullableString(app.applied_at);
-                if (!appliedAt) return null;
-                const applied = new Date(appliedAt);
-                if (Number.isNaN(applied.getTime())) return null;
-                return Math.max(0, Math.round((now.getTime() - applied.getTime()) / (1000 * 60 * 60 * 24)));
-              })
-              .filter((value): value is number => typeof value === "number");
-
-            if (durations.length === 0) return 0;
-            return Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length);
-          })();
-
-          const monthlyApplications = appsForJob.filter((app) => {
-            const appliedAt = asNullableString(app.applied_at);
-            if (!appliedAt) return false;
-            const date = new Date(appliedAt);
-            return !Number.isNaN(date.getTime()) && date >= startOfMonth;
-          }).length;
-
-          const newThisWeek = appsForJob.filter((app) => {
-            const appliedAt = asNullableString(app.applied_at);
-            if (!appliedAt) return false;
-            const date = new Date(appliedAt);
-            return !Number.isNaN(date.getTime()) && date >= weekAgo;
-          }).length;
-
-          const priority = toPriority(monthlyApplications, newThisWeek, asNullableString(job.created_at));
-
-          return {
-            id: jobId,
-            role: title,
-            team,
-            fillRate,
-            hired,
-            interviewing,
-            avgDays,
-            openSeats,
-            priority,
-          };
-        });
+        const hired = applications.filter(isHired).length;
+        const declined = applications.filter(isDeclined).length;
+        const interviews = (interviewsResult.data || []).length;
 
         if (!ignore) {
+          setHiredCount(hired);
+          setDeclinedCount(declined);
           setStats([
-            { label: "Active Jobs", value: activeJobs.length, desc: "Roles live across teams", icon: Briefcase },
-            { label: "Applications", value: applicationsThisMonth.length, desc: "Candidates this month", icon: Users },
-            { label: "Interviews", value: upcomingInterviews.length, desc: "Upcoming conversations", icon: CalendarDays },
-            { label: "Offer Rate", value: offerRateValue, desc: "Shortlist to offer", icon: TrendingUp },
+            { label: "Candidates", value: applications.length, desc: "Applications received", icon: Users },
+            { label: "Interviews", value: interviews, desc: "Interview records", icon: CalendarDays },
+            { label: "Active Jobs", value: activeJobs.length, desc: "Published roles", icon: Briefcase },
+            { label: "Outcomes", value: `${hired} hired · ${declined} declined`, desc: "Final decisions", icon: Target },
           ]);
-          setApplicationOpenings(computedOpenings);
-          setHiringRateItems(computedHiringRates);
         }
       } catch (error) {
         console.error("Failed to load recruiter overview", error);
         if (!ignore) {
-          setApplicationOpenings([]);
-          setHiringRateItems([]);
+          setHiredCount(0);
+          setDeclinedCount(0);
           toast({
             title: "Unable to load overview",
             description: "Please try again later.",
@@ -456,42 +298,7 @@ export default function EmployerOverview() {
     };
   }, [toast, user?.id, user?.name]);
 
-  const filteredApplicationOpenings = useMemo(() => {
-    const normalizedSearch = searchQuery.trim().toLowerCase();
-
-    return applicationOpenings.filter((opening) => {
-      const matchesSearch =
-        normalizedSearch.length === 0 ||
-        opening.role.toLowerCase().includes(normalizedSearch) ||
-        opening.recruiter.toLowerCase().includes(normalizedSearch) ||
-        opening.applicants.some((applicant) => applicant.toLowerCase().includes(normalizedSearch));
-      const matchesPriority = priorityFilter === "all" || opening.priority === priorityFilter;
-
-      return matchesSearch && matchesPriority;
-    });
-  }, [applicationOpenings, priorityFilter, searchQuery]);
-
-  const filteredHiringRateItems = useMemo(() => {
-    const normalizedSearch = searchQuery.trim().toLowerCase();
-
-    return hiringRateItems.filter((item) => {
-      const matchesSearch = normalizedSearch.length === 0 || item.role.toLowerCase().includes(normalizedSearch);
-      const matchesPriority = priorityFilter === "all" || item.priority === priorityFilter;
-
-      return matchesSearch && matchesPriority;
-    });
-  }, [hiringRateItems, priorityFilter, searchQuery]);
-
-  const overviewLabel = loadingOverview
-    ? "Loading overview..."
-    : filteredApplicationOpenings.length === applicationOpenings.length
-      ? `Showing all ${applicationOpenings.length} active openings`
-      : `Showing ${filteredApplicationOpenings.length} of ${applicationOpenings.length} active openings`;
-
-  const resetFilters = () => {
-    setSearchQuery("");
-    setPriorityFilter("all");
-  };
+  const overviewLabel = loadingOverview ? "Loading overview..." : "Recruiter performance snapshot";
 
   return (
     <RecruiterLayout>
@@ -538,177 +345,81 @@ export default function EmployerOverview() {
           </div>
         </section>
 
-        <div className="mb-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-          <div className="rounded-3xl border border-orange-100 bg-white p-4 shadow-lg">
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-orange-400" />
-              <Input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search roles, recruiters, or candidates..."
-                className="h-12 rounded-2xl border-orange-200 pl-12 focus:border-orange-400 focus:ring-orange-400"
-              />
+        <section className="rounded-[2rem] border border-orange-100 bg-white p-6 shadow-lg">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-orange-600">
+                <Sparkles className="h-3.5 w-3.5" />
+                Hiring Health
+              </div>
+              <h2 className="mt-3 text-2xl font-bold text-slate-900">Team outcomes at a glance</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                Track pipeline momentum from applications to interviews and outcomes so every recruiter sees the live status.
+              </p>
             </div>
+            <Button
+              onClick={() => navigate("/recruiter/pipeline")}
+              className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 px-5 text-white shadow-lg hover:from-orange-700 hover:to-orange-600"
+            >
+              <ArrowRight className="h-4 w-4" />
+              Open Pipeline
+            </Button>
           </div>
 
-          <Select value={priorityFilter} onValueChange={(value) => setPriorityFilter(value as PriorityFilter)}>
-            <SelectTrigger className="h-full min-h-14 rounded-3xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-lg">
-              <SelectValue placeholder="Priority" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All priorities</SelectItem>
-              <SelectItem value="Urgent">Urgent</SelectItem>
-              <SelectItem value="Steady">Steady</SelectItem>
-              <SelectItem value="New">New</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+          <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+            <div className="rounded-3xl border border-orange-100 bg-orange-50/50 p-5">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-orange-600">Outcome Breakdown</h3>
+              <div className="mt-5 space-y-4">
+                <div>
+                  <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+                    <span className="inline-flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-orange-500" />Hired</span>
+                    <span>{hiredCount}</span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-orange-100">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-orange-600 to-orange-500"
+                      style={{
+                        width: `${Math.min(100, Math.round((hiredCount / Math.max(hiredCount + declinedCount, 1)) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+                    <span className="inline-flex items-center gap-2"><ThumbsDown className="h-4 w-4 text-orange-500" />Declined</span>
+                    <span>{declinedCount}</span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-orange-100">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-orange-500 to-orange-400"
+                      style={{
+                        width: `${Math.min(100, Math.round((declinedCount / Math.max(hiredCount + declinedCount, 1)) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
 
-        <div className="mb-8 flex flex-col gap-3 rounded-3xl border border-orange-100 bg-white p-4 shadow-lg md:flex-row md:items-center md:justify-between">
-          <div className="text-sm font-semibold text-slate-700">
-            Focus on priority openings, latest applicants, and positions most likely to close this sprint.
+            <div className="rounded-3xl border border-orange-100 bg-white p-5 shadow-sm">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-orange-600">Totals</h3>
+              <div className="mt-4 grid gap-3">
+                <div className="flex items-center justify-between rounded-2xl border border-orange-100 bg-orange-50/50 px-4 py-3">
+                  <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700"><Users className="h-4 w-4 text-orange-500" />Candidates</span>
+                  <span className="text-lg font-bold text-slate-900">{stats.find((stat) => stat.label === "Candidates")?.value ?? 0}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl border border-orange-100 bg-orange-50/50 px-4 py-3">
+                  <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700"><CalendarDays className="h-4 w-4 text-orange-500" />Interviews</span>
+                  <span className="text-lg font-bold text-slate-900">{stats.find((stat) => stat.label === "Interviews")?.value ?? 0}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl border border-orange-100 bg-orange-50/50 px-4 py-3">
+                  <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700"><Briefcase className="h-4 w-4 text-orange-500" />Active jobs</span>
+                  <span className="text-lg font-bold text-slate-900">{stats.find((stat) => stat.label === "Active Jobs")?.value ?? 0}</span>
+                </div>
+              </div>
+            </div>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={resetFilters}
-            className="whitespace-nowrap rounded-full border-orange-600 bg-gradient-to-r from-orange-600 to-orange-500 text-white hover:from-orange-700 hover:to-orange-600 hover:text-white"
-          >
-            <span className="flex items-center gap-2">
-              <RefreshCw className="h-4 w-4" />
-              Reset Filters
-            </span>
-          </Button>
-        </div>
-
-        <div className="grid gap-6 xl:grid-cols-2">
-          <section className="rounded-[2rem] border border-orange-100 bg-white p-6 shadow-lg">
-            <div className="mb-5 flex items-start justify-between gap-4">
-              <div>
-                <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-orange-600">
-                  <Users className="h-3.5 w-3.5" />
-                  Applications per Month
-                </div>
-                <h2 className="text-2xl font-bold text-slate-900">Openings with the highest inbound flow</h2>
-                <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">
-                  Scroll through active roles, see who is applying, and quickly spot which recruiters are carrying the most volume.
-                </p>
-              </div>
-              <div className="inline-flex rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-700 shadow-sm">
-                {filteredApplicationOpenings.length} roles
-              </div>
-            </div>
-
-            <div className="max-h-[520px] space-y-4 overflow-y-auto pr-2">
-              {filteredApplicationOpenings.map((opening) => (
-                <article key={opening.id} className="rounded-3xl border border-orange-100 bg-orange-50/40 p-5 shadow-sm">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-lg font-bold text-slate-900">{opening.role}</h3>
-                        <Badge className={getPriorityClasses(opening.priority)}>{opening.priority}</Badge>
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-600">
-                        <span className="inline-flex items-center gap-1.5"><Building2 className="h-4 w-4 text-orange-500" />{opening.team}</span>
-                        <span className="inline-flex items-center gap-1.5"><MapPin className="h-4 w-4 text-orange-500" />{opening.location}</span>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-slate-900">{opening.monthlyApplications}</p>
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Applications</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-2xl border border-orange-100 bg-white px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">New this week</p>
-                      <p className="mt-1 text-lg font-bold text-orange-600">+{opening.newThisWeek}</p>
-                    </div>
-                    <div className="rounded-2xl border border-orange-100 bg-white px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Recruiter owner</p>
-                      <p className="mt-1 text-lg font-bold text-slate-900">{opening.recruiter}</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 border-t border-orange-100 pt-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Recent applicants</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {opening.applicants.map((applicant) => (
-                        <div key={applicant} className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">
-                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-xs font-bold text-white">
-                            {getInitials(applicant)}
-                          </span>
-                          {applicant}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-
-          <section className="rounded-[2rem] border border-orange-100 bg-white p-6 shadow-lg">
-            <div className="mb-5 flex items-start justify-between gap-4">
-              <div>
-                <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-orange-600">
-                  <Target className="h-3.5 w-3.5" />
-                  Hiring Rate per Position
-                </div>
-                <h2 className="text-2xl font-bold text-slate-900">Positions closest to conversion</h2>
-                <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">
-                  Track fill rate, active interviews, and average closing speed in one scrollable list so high-conversion roles stay visible.
-                </p>
-              </div>
-              <div className="inline-flex rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-700 shadow-sm">
-                {filteredHiringRateItems.length} positions
-              </div>
-            </div>
-
-            <div className="max-h-[520px] space-y-4 overflow-y-auto pr-2">
-              {filteredHiringRateItems.map((item) => (
-                <article key={item.id} className="rounded-3xl border border-orange-100 bg-orange-50/40 p-5 shadow-sm">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-lg font-bold text-slate-900">{item.role}</h3>
-                        <Badge className={getPriorityClasses(item.priority)}>{item.priority}</Badge>
-                      </div>
-                      <p className="mt-2 text-sm font-medium text-slate-600">{item.team}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-slate-900">{item.fillRate}%</p>
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Fill rate</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 h-2 overflow-hidden rounded-full bg-orange-100">
-                    <div className="h-full rounded-full bg-gradient-to-r from-orange-600 to-orange-500" style={{ width: `${item.fillRate}%` }} />
-                  </div>
-
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-2xl border border-orange-100 bg-white px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Hired</p>
-                      <p className="mt-1 inline-flex items-center gap-2 text-lg font-bold text-slate-900"><CheckCircle2 className="h-4 w-4 text-orange-500" />{item.hired}</p>
-                    </div>
-                    <div className="rounded-2xl border border-orange-100 bg-white px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Interviewing</p>
-                      <p className="mt-1 inline-flex items-center gap-2 text-lg font-bold text-slate-900"><Users className="h-4 w-4 text-orange-500" />{item.interviewing}</p>
-                    </div>
-                    <div className="rounded-2xl border border-orange-100 bg-white px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Avg. time</p>
-                      <p className="mt-1 inline-flex items-center gap-2 text-lg font-bold text-slate-900"><Clock3 className="h-4 w-4 text-orange-500" />{item.avgDays} days</p>
-                    </div>
-                    <div className="rounded-2xl border border-orange-100 bg-white px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Open seats</p>
-                      <p className="mt-1 inline-flex items-center gap-2 text-lg font-bold text-slate-900"><Briefcase className="h-4 w-4 text-orange-500" />{item.openSeats}</p>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-        </div>
+        </section>
       </div>
     </RecruiterLayout>
   );

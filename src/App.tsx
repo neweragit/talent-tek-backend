@@ -2,8 +2,10 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Navigate, Routes, Route, useNavigate, useParams } from "react-router-dom";
+import { useEffect } from "react";
 import { AuthProvider } from "./contexts/AuthContext";
+import { useAuth } from "@/contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Home from "./pages/Home";
 import ForRecruiters from "./pages/ForRecruiters";
@@ -66,6 +68,30 @@ import PrivacyPolicy from "./pages/PrivacyPolicy";
 import GlobalChatbot from "@/components/GlobalChatbot";
 
 const queryClient = new QueryClient();
+
+const JobRedirect = () => {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (!id) {
+      navigate("/jobs", { replace: true });
+      return;
+    }
+
+    const redirectTo = `/talent/overview?jobId=${id}`;
+
+    if (!user || user.role !== "talent") {
+      navigate("/login", { state: { redirectTo } });
+      return;
+    }
+
+    navigate(redirectTo, { replace: true });
+  }, [id, navigate, user]);
+
+  return null;
+};
 
 const App = () => {
   return (
@@ -163,15 +189,6 @@ const App = () => {
                   </ProtectedRoute>
                 }
               />
-              <Route
-                path="/talent/job/:id"
-                element={
-                  <ProtectedRoute allowedRoles={['talent']}>
-                    <JobDetails />
-                  </ProtectedRoute>
-                }
-              />
-
               {/* Recruiter Routes - Protected */}
               <Route path="/recruiter/login" element={<RecruiterLogin />} />
               <Route

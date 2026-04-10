@@ -98,7 +98,6 @@ export default function EmployerAdminUsers() {
     firstName: "",
     lastName: "",
     email: "",
-    password: "",
     phone: "",
   });
 
@@ -212,7 +211,6 @@ export default function EmployerAdminUsers() {
       firstName: "",
       lastName: "",
       email: "",
-      password: generateRandomPassword(),
       phone: "",
     });
     setOpenDialog(true);
@@ -224,7 +222,6 @@ export default function EmployerAdminUsers() {
       firstName: companyUser.firstName,
       lastName: companyUser.lastName,
       email: companyUser.email,
-      password: "",
       phone: companyUser.phone,
     });
     setOpenDialog(true);
@@ -275,15 +272,6 @@ export default function EmployerAdminUsers() {
           return;
         }
 
-        if (!form.password) {
-          toast({
-            title: "Error",
-            description: "Password is required for new recruiter account.",
-            variant: "destructive",
-          });
-          return;
-        }
-
         const { data: existingAccount, error: existingAccountError } = await supabase
           .from("users")
           .select("id,email")
@@ -301,7 +289,8 @@ export default function EmployerAdminUsers() {
           return;
         }
 
-        const passwordHash = await bcrypt.hash(form.password, 10);
+        const generatedPassword = generateRandomPassword();
+        const passwordHash = await bcrypt.hash(generatedPassword, 10);
 
         const { data: createdUser, error: createUserError } = await supabase
           .from("users")
@@ -362,7 +351,6 @@ export default function EmployerAdminUsers() {
         firstName: "",
         lastName: "",
         email: "",
-        password: "",
         phone: "",
       });
 
@@ -764,31 +752,6 @@ export default function EmployerAdminUsers() {
                   className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50 focus:border-orange-400"
                 />
               </div>
-
-              {!editingUser && (
-                <div>
-                  <Label className="text-sm font-semibold text-slate-700">Password</Label>
-                  <div className="mt-2 flex gap-2">
-                    <Input
-                      type="password"
-                      value={form.password}
-                      readOnly
-                      placeholder="Generated password"
-                      autoComplete="new-password"
-                      className="h-12 rounded-xl border-orange-200 bg-orange-50 focus:border-orange-400"
-                      required
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setForm({ ...form, password: generateRandomPassword() })}
-                      className="h-12 whitespace-nowrap rounded-xl border-orange-200"
-                    >
-                      Generate
-                    </Button>
-                  </div>
-                </div>
-              )}
 
               <div className="flex gap-3 pt-2 sm:col-span-2">
                 <Button

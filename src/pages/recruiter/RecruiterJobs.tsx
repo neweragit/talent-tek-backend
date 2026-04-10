@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Archive, Briefcase, CalendarDays, Edit, Loader2, MapPin, Plus, Share2, Sparkles, Upload } from "lucide-react";
+import citiesData from "../../../cities.json";
 import type { JobDetailsData } from "@/data/talentJobs";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -42,16 +43,15 @@ type JobFormState = {
   experienceLevel: string;
   jobLevel: string;
   educationRequired: string;
-  skillsRequired: string;
+  skillsRequired: string[];
   positionsAvailable: string;
-  whatYouWillDo: string;
-  requirements: string;
 };
 
 const statusOptions: JobPublishStatus[] = ["Published", "Unpublished", "Archived"];
-const employmentTypeOptions = ["Full-time", "Part-time"];
+const employmentTypeOptions = ["Full-time", "Part-time", "Contract", "Internship"];
+const professionOptions = ["Design", "Product", "Engineering"];
 const workplaceOptions = ["On-site", "Hybrid", "Remote"];
-const contractTypeOptions = ["Permanent (CDI)", "Fixed-term (CDD)","Freelance"];
+const contractTypeOptions = ["Permanent (CDI)", "Fixed-term (CDD)", "Freelance", "Self-Entrepreneur (auto-entrepreneur)"];
 const educationRequiredOptions = ["Bachelor (Licence)", "Master", "PhD (Doctorat)"];
 const experienceLevelOptions = ["0–1 years", "1–3 years", "3–5 years", "5–8 years", "8+ years"];
 const jobLevelOptions = ["Internship", "Junior", "Mid", "Senior", "Lead", "Manager", "Director"];
@@ -67,17 +67,9 @@ const emptyForm: JobFormState = {
   experienceLevel: "",
   jobLevel: "",
   educationRequired: "",
-  skillsRequired: "",
+  skillsRequired: [],
   positionsAvailable: "1",
-  whatYouWillDo: "",
-  requirements: "",
 };
-
-const splitLines = (value: string) =>
-  value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
 
 const toDbStatus = (status: JobPublishStatus) => {
   if (status === "Published") return "published";
@@ -177,6 +169,71 @@ const truncateText = (value: string, maxLength: number) => {
   return `${text.slice(0, maxLength).trimEnd()}…`;
 };
 
+const wilayaOptions = (() => {
+  const wilayas = Array.isArray((citiesData as any)?.wilayas) ? (citiesData as any).wilayas : [];
+  return wilayas
+    .filter((item: any) => Number(item?.wilaya_id) >= 1 && Number(item?.wilaya_id) <= 58)
+    .map((item: any) => ({
+      id: Number(item.wilaya_id),
+      name: String(item.wilaya_name_latin || "").trim(),
+    }))
+    .filter((item: any) => item.name);
+})();
+
+const skillLibrary = [
+  "JavaScript",
+  "TypeScript",
+  "React",
+  "Vue",
+  "Angular",
+  "Node.js",
+  "Express",
+  "Python",
+  "Django",
+  "Flask",
+  "Java",
+  "Spring",
+  "C",
+  "C++",
+  "C#",
+  ".NET",
+  "Go",
+  "Rust",
+  "PHP",
+  "Laravel",
+  "Ruby",
+  "Rails",
+  "SQL",
+  "PostgreSQL",
+  "MySQL",
+  "MongoDB",
+  "Redis",
+  "Docker",
+  "Kubernetes",
+  "AWS",
+  "Azure",
+  "GCP",
+  "CI/CD",
+  "Testing",
+  "QA",
+  "Cypress",
+  "Playwright",
+  "Figma",
+  "Sketch",
+  "Adobe XD",
+  "UX Research",
+  "UI Design",
+  "Product Design",
+  "Graphic Design",
+  "Leadership",
+  "Teamwork",
+  "Communication",
+  "Problem Solving",
+  "Agile",
+  "Scrum",
+  "Git",
+];
+
 export default function EmployerJobs() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -193,14 +250,14 @@ export default function EmployerJobs() {
   const [isSavingJob, setIsSavingJob] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [form, setForm] = useState<JobFormState>(emptyForm);
+  const [skillsQuery, setSkillsQuery] = useState("");
 
-  const totalSteps = 4;
+  const totalSteps = 3;
 
   const stepTitles = [
     "Role Basics",
     "Job Conditions",
     "Job Description",
-    "Responsibilities & Requirements",
   ];
 
   const handleAiGeneratePlaceholder = () => {
@@ -233,8 +290,7 @@ export default function EmployerJobs() {
         form.title.trim() &&
           form.profession.trim() &&
           form.location.trim() &&
-          form.workplace.trim() &&
-          form.employmentType.trim()
+          form.workplace.trim()
       );
     }
 
@@ -242,10 +298,11 @@ export default function EmployerJobs() {
       const positions = Number(form.positionsAvailable);
       return Boolean(
         form.contractType.trim() &&
+          form.employmentType.trim() &&
           form.experienceLevel.trim() &&
           form.jobLevel.trim() &&
           form.educationRequired.trim() &&
-          form.skillsRequired.trim() &&
+          form.skillsRequired.length > 0 &&
           Number.isInteger(positions) &&
           positions > 0
       );
@@ -420,29 +477,20 @@ export default function EmployerJobs() {
       form.experienceLevel,
       form.jobLevel,
       form.educationRequired,
-      form.skillsRequired,
       form.positionsAvailable,
-      form.whatYouWillDo,
-      form.requirements,
     ];
 
     if (requiredValues.some((value) => !value.trim())) {
       return;
     }
 
-    const skills = form.skillsRequired
-      .split(",")
-      .map((skill) => skill.trim())
-      .filter(Boolean);
-
-    const responsibilities = splitLines(form.whatYouWillDo);
-    const requirements = splitLines(form.requirements);
+    const skills = form.skillsRequired;
     const positionsAvailable = Number(form.positionsAvailable);
 
-    if (skills.length === 0 || responsibilities.length === 0 || requirements.length === 0 || !Number.isInteger(positionsAvailable) || positionsAvailable < 1) {
+    if (skills.length === 0 || !Number.isInteger(positionsAvailable) || positionsAvailable < 1) {
       toast({
         title: "Invalid Form",
-        description: "Please provide valid skills, responsibilities, requirements, and positions available.",
+        description: "Please provide valid skills and positions available.",
         variant: "destructive",
       });
       return;
@@ -471,8 +519,6 @@ export default function EmployerJobs() {
       education_required: form.educationRequired.trim(),
       skills_required: skills,
       positions_available: positionsAvailable,
-      what_you_will_do: responsibilities,
-      requirements,
       status: toDbStatus(submitStatus),
       published_at: submitStatus === "Published" ? new Date().toISOString() : null,
       updated_at: new Date().toISOString(),
@@ -587,10 +633,8 @@ export default function EmployerJobs() {
       experienceLevel: selectedJob.job.experience,
       jobLevel: selectedJob.jobLevel,
       educationRequired: selectedJob.educationRequired,
-      skillsRequired: selectedJob.job.skills.join(", "),
+      skillsRequired: selectedJob.job.skills,
       positionsAvailable: String(selectedJob.positionsAvailable),
-      whatYouWillDo: selectedJob.responsibilities.join("\n"),
-      requirements: selectedJob.requirements.join("\n"),
     });
     setCurrentStep(1);
     setOpenDialog(true);
@@ -917,17 +961,39 @@ export default function EmployerJobs() {
                   </div>
                   <div>
                     <Label className="text-sm font-semibold text-slate-700">Profession</Label>
-                    <Input value={form.profession} onChange={(e) => setForm((c) => ({ ...c, profession: e.target.value }))} className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50" required />
+                    <Select value={form.profession} onValueChange={(value) => setForm((c) => ({ ...c, profession: value }))}>
+                      <SelectTrigger className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50">
+                        <SelectValue placeholder="Select profession" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from(new Set([form.profession, ...professionOptions].filter(Boolean))).map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <Label className="text-sm font-semibold text-slate-700">Location</Label>
-                    <Input value={form.location} onChange={(e) => setForm((c) => ({ ...c, location: e.target.value }))} className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50" required />
+                    <Select value={form.location} onValueChange={(value) => setForm((c) => ({ ...c, location: value }))}>
+                      <SelectTrigger className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50">
+                        <SelectValue placeholder="Select wilaya" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-64 overflow-y-auto">
+                        {wilayaOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.name}>
+                            {String(option.id).padStart(2, "0")} - {option.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
-                    <Label className="text-sm font-semibold text-slate-700">Workplace</Label>
+                    <Label className="text-sm font-semibold text-slate-700">Work Mode</Label>
                     <Select value={form.workplace} onValueChange={(value) => setForm((c) => ({ ...c, workplace: value }))}>
                       <SelectTrigger className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50">
-                        <SelectValue placeholder="Select workplace" />
+                        <SelectValue placeholder="Select work mode" />
                       </SelectTrigger>
                       <SelectContent>
                         {workplaceOptions.map((workplaceOption) => (
@@ -939,19 +1005,8 @@ export default function EmployerJobs() {
                     </Select>
                   </div>
                   <div className="md:col-span-2">
-                    <Label className="text-sm font-semibold text-slate-700">Employment Type</Label>
-                    <Select value={form.employmentType} onValueChange={(value) => setForm((c) => ({ ...c, employmentType: value }))}>
-                      <SelectTrigger className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50">
-                        <SelectValue placeholder="Select employment type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Array.from(new Set([form.employmentType, ...employmentTypeOptions].filter(Boolean))).map((employmentTypeOption) => (
-                          <SelectItem key={employmentTypeOption} value={employmentTypeOption}>
-                            {employmentTypeOption}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Label className="text-sm font-semibold text-slate-700">Positions Available</Label>
+                    <Input type="number" min={1} value={form.positionsAvailable} onChange={(e) => setForm((c) => ({ ...c, positionsAvailable: e.target.value }))} className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50" required />
                   </div>
                 </div>
               ) : null}
@@ -974,7 +1029,7 @@ export default function EmployerJobs() {
                     </Select>
                   </div>
                   <div>
-                    <Label className="text-sm font-semibold text-slate-700">Experience Level</Label>
+                    <Label className="text-sm font-semibold text-slate-700">Seniority</Label>
                     <Select value={form.experienceLevel} onValueChange={(value) => setForm((c) => ({ ...c, experienceLevel: value }))}>
                       <SelectTrigger className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50">
                         <SelectValue placeholder="Select experience" />
@@ -983,6 +1038,21 @@ export default function EmployerJobs() {
                         {Array.from(new Set([form.experienceLevel, ...experienceLevelOptions].filter(Boolean))).map((option) => (
                           <SelectItem key={option} value={option}>
                             {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-semibold text-slate-700">Employment Type</Label>
+                    <Select value={form.employmentType} onValueChange={(value) => setForm((c) => ({ ...c, employmentType: value }))}>
+                      <SelectTrigger className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50">
+                        <SelectValue placeholder="Select employment type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from(new Set([form.employmentType, ...employmentTypeOptions].filter(Boolean))).map((employmentTypeOption) => (
+                          <SelectItem key={employmentTypeOption} value={employmentTypeOption}>
+                            {employmentTypeOption}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1034,13 +1104,49 @@ export default function EmployerJobs() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div>
-                    <Label className="text-sm font-semibold text-slate-700">Positions Available</Label>
-                    <Input type="number" min={1} value={form.positionsAvailable} onChange={(e) => setForm((c) => ({ ...c, positionsAvailable: e.target.value }))} className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50" required />
-                  </div>
-                  <div>
-                    <Label className="text-sm font-semibold text-slate-700">Skills Required (comma separated)</Label>
-                    <Input value={form.skillsRequired} onChange={(e) => setForm((c) => ({ ...c, skillsRequired: e.target.value }))} className="mt-2 h-12 rounded-xl border-orange-200 bg-orange-50" placeholder="React, TypeScript, Tailwind" required />
+                  <div className="md:col-span-2 space-y-3">
+                    <Label className="text-sm font-semibold text-slate-700">Skills Required</Label>
+                    <Input
+                      value={skillsQuery}
+                      onChange={(e) => setSkillsQuery(e.target.value)}
+                      placeholder="Search skills..."
+                      className="h-11 rounded-xl border-orange-200 bg-orange-50"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      {Array.from(new Set([...skillLibrary, ...form.skillsRequired]))
+                        .filter((skill) => skill.toLowerCase().includes(skillsQuery.trim().toLowerCase()))
+                        .map((skill) => {
+                          const selected = form.skillsRequired.includes(skill);
+                          return (
+                            <button
+                              key={skill}
+                              type="button"
+                              onClick={() =>
+                                setForm((current) => {
+                                  const next = new Set(current.skillsRequired);
+                                  if (selected) {
+                                    next.delete(skill);
+                                  } else {
+                                    next.add(skill);
+                                  }
+                                  return { ...current, skillsRequired: Array.from(next) };
+                                })
+                              }
+                              className={[
+                                "rounded-full border px-3 py-1 text-xs font-semibold transition-all",
+                                selected
+                                  ? "border-orange-300 bg-orange-600 text-white shadow-sm"
+                                  : "border-orange-200 bg-white text-orange-700 hover:bg-orange-50",
+                              ].join(" ")}
+                            >
+                              {skill}
+                            </button>
+                          );
+                        })}
+                    </div>
+                    {form.skillsRequired.length === 0 ? (
+                      <p className="text-xs font-semibold text-slate-500">Select at least one skill to continue.</p>
+                    ) : null}
                   </div>
                 </div>
               ) : null}
@@ -1055,31 +1161,6 @@ export default function EmployerJobs() {
                     </Button>
                   </div>
                   <Textarea value={form.description} onChange={(e) => setForm((c) => ({ ...c, description: e.target.value }))} className="min-h-40 rounded-xl border-orange-200 bg-orange-50" required />
-                </div>
-              ) : null}
-
-              {currentStep === 4 ? (
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2 md:col-span-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <Label className="text-sm font-semibold text-slate-700">What You Will Do (one item per line)</Label>
-                      <Button type="button" variant="outline" onClick={handleAiGeneratePlaceholder} className="rounded-full border-orange-200 text-orange-700 hover:bg-orange-50">
-                        <Sparkles className="mr-2 h-4 w-4" />
-                        Generate with AI
-                      </Button>
-                    </div>
-                    <Textarea value={form.whatYouWillDo} onChange={(e) => setForm((c) => ({ ...c, whatYouWillDo: e.target.value }))} className="min-h-40 rounded-xl border-orange-200 bg-orange-50" required />
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <Label className="text-sm font-semibold text-slate-700">Requirements (one item per line)</Label>
-                      <Button type="button" variant="outline" onClick={handleAiGeneratePlaceholder} className="rounded-full border-orange-200 text-orange-700 hover:bg-orange-50">
-                        <Sparkles className="mr-2 h-4 w-4" />
-                        Generate with AI
-                      </Button>
-                    </div>
-                    <Textarea value={form.requirements} onChange={(e) => setForm((c) => ({ ...c, requirements: e.target.value }))} className="min-h-40 rounded-xl border-orange-200 bg-orange-50" required />
-                  </div>
                 </div>
               ) : null}
 

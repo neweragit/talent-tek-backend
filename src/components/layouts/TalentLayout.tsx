@@ -29,11 +29,12 @@ const TalentLayout = ({ children }: TalentLayoutProps) => {
         { name: "Leadership Interviews", path: "/talent/interviews/leadership" },
       ],
     },
-    { name: "Applications", path: "/talent/applications", icon: FileText },
+    { name: "My Applications", path: "/talent/applications", icon: FileText },
     { name: "Offers", path: "/talent/offers", icon: Gift },
     { name: "Profile", path: "/talent/profile", icon: User },
-    { name: "Support Tickets", path: "/talent/support-tickets", icon: MessageSquare },
     { name: "My Services", path: "/talent/services", icon: Briefcase },
+    { name: "Support Tickets", path: "/talent/support-tickets", icon: MessageSquare },
+
   ];
 
   const isActive = (path: string | null) => path && location.pathname === path;

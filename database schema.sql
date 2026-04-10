@@ -24,6 +24,7 @@ CREATE TABLE public.applications (
   applied_at timestamp with time zone DEFAULT now(),
   reviewed_at timestamp with time zone,
   updated_at timestamp with time zone DEFAULT now(),
+  resume_url text,
   CONSTRAINT applications_pkey PRIMARY KEY (id),
   CONSTRAINT fk_application_job FOREIGN KEY (job_id) REFERENCES public.jobs(id),
   CONSTRAINT fk_application_talent FOREIGN KEY (talent_id) REFERENCES public.talents(id)
@@ -82,7 +83,6 @@ CREATE TABLE public.interviewers (
   employer_id uuid,
   full_name text NOT NULL,
   email text NOT NULL UNIQUE,
-  expertise ARRAY,
   interview_type text NOT NULL CHECK (interview_type = ANY (ARRAY['technical'::text, 'leadership'::text, 'talent-acquisition'::text])),
   role text NOT NULL,
   status text NOT NULL DEFAULT 'active'::text CHECK (status = ANY (ARRAY['active'::text, 'inactive'::text])),
@@ -168,11 +168,13 @@ CREATE TABLE public.offers (
   position character varying NOT NULL,
   salary character varying NOT NULL,
   start_date date NOT NULL,
+  response_deadline timestamp with time zone,
   work_location character varying,
   benefits_perks text,
   status character varying NOT NULL DEFAULT 'pending'::character varying CHECK (status::text = ANY (ARRAY['pending'::character varying, 'accepted'::character varying, 'refused'::character varying]::text[])),
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
+    text,
   CONSTRAINT offers_pkey PRIMARY KEY (id),
   CONSTRAINT offers_application_id_fkey FOREIGN KEY (application_id) REFERENCES public.applications(id)
 );
@@ -304,7 +306,7 @@ CREATE TABLE public.talents (
   portfolio_url text,
   has_carte_entrepreneur boolean DEFAULT false,
   skills ARRAY,
-  resume_url text,
+  resume_url ARRAY CHECK (array_length(resume_url, 1) = 3),
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   CONSTRAINT talents_pkey PRIMARY KEY (id),

@@ -69,6 +69,19 @@ export default function CompanyProfile() {
   const { toast } = useToast();
   const { user } = useAuth();
 
+  const formatReadableDateTime = (value?: string | null) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
   const [activeTab, setActiveTab] = useState<TabType>('company');
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -129,15 +142,18 @@ export default function CompanyProfile() {
 
     const checkpoints = [
       profile.company_name,
+      profile.tagline,
       profile.industry,
       profile.company_size,
       profile.year_founded,
       profile.address,
       profile.city,
+      profile.zip_code,
       profile.country,
       profile.description,
       profile.website,
       profile.linkedin_url,
+      profile.facebook_url,
       profile.rep_first_name,
       profile.rep_last_name,
     ];
@@ -300,6 +316,16 @@ export default function CompanyProfile() {
               </div>
             </div>
 
+            <div className="space-y-2 md:col-span-2">
+              <Label className="text-sm font-semibold text-slate-700">Tagline</Label>
+              <Input
+                value={profile.tagline ?? ''}
+                onChange={(e) => setProfile({ ...profile, tagline: e.target.value })}
+                disabled={!isEditing}
+                className="h-11 rounded-xl border-orange-200 bg-orange-50/30 focus:border-orange-400 focus:ring-orange-400"
+              />
+            </div>
+
             <div className="space-y-2">
               <Label className="text-sm font-semibold text-slate-700">Industry</Label>
               <div className="relative">
@@ -364,6 +390,29 @@ export default function CompanyProfile() {
                 />
               </div>
             </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold text-slate-700">Address</Label>
+              <div className="relative">
+                <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-orange-400" />
+                <Input
+                  value={profile.address ?? ''}
+                  onChange={(e) => setProfile({ ...profile, address: e.target.value })}
+                  disabled={!isEditing}
+                  className="h-11 rounded-xl border-orange-200 bg-orange-50/30 pl-10 focus:border-orange-400 focus:ring-orange-400"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold text-slate-700">ZIP Code</Label>
+              <Input
+                value={profile.zip_code ?? ''}
+                onChange={(e) => setProfile({ ...profile, zip_code: e.target.value })}
+                disabled={!isEditing}
+                className="h-11 rounded-xl border-orange-200 bg-orange-50/30 focus:border-orange-400 focus:ring-orange-400"
+              />
+            </div>
           </div>
         </section>
 
@@ -406,6 +455,19 @@ export default function CompanyProfile() {
             </div>
 
             <div className="space-y-2">
+              <Label className="text-sm font-semibold text-slate-700">Facebook</Label>
+              <div className="relative">
+                <Globe className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-orange-400" />
+                <Input
+                  value={profile.facebook_url ?? ''}
+                  onChange={(e) => setProfile({ ...profile, facebook_url: e.target.value })}
+                  disabled={!isEditing}
+                  className="h-11 rounded-xl border-orange-200 bg-orange-50/30 pl-10 focus:border-orange-400 focus:ring-orange-400"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
               <Label className="text-sm font-semibold text-slate-700">LinkedIn</Label>
               <div className="relative">
                 <Linkedin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-orange-400" />
@@ -416,6 +478,26 @@ export default function CompanyProfile() {
                   className="h-11 rounded-xl border-orange-200 bg-orange-50/30 pl-10 focus:border-orange-400 focus:ring-orange-400"
                 />
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-orange-100 bg-white p-6 shadow-sm">
+          <div className="mb-5 flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md">
+              <Shield className="h-5 w-5" />
+            </div>
+            <h4 className="text-lg font-bold text-slate-900">System Fields</h4>
+          </div>
+
+          <div className="grid grid-cols-1 gap-5">
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold text-slate-700">Created At</Label>
+              <Input
+                value={formatReadableDateTime(profile.created_at)}
+                disabled
+                className="h-11 rounded-xl border-orange-200 bg-orange-50/30"
+              />
             </div>
           </div>
         </section>

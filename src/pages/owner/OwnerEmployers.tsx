@@ -5,7 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { PasswordInput } from "@/components/ui/password-input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -42,7 +41,6 @@ import {
   Building2,
   Calendar,
   CheckCircle,
-  Copy,
   Eye,
   Loader2,
   Mail,
@@ -112,6 +110,41 @@ const normalizeEmail = (email: string) =>
 const toNullable = (value: string) => {
   const trimmed = value.trim();
   return trimmed.length === 0 ? null : trimmed;
+};
+
+const generateRandomPassword = (length = 12) => {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnopqrstuvwxyz";
+  const digits = "23456789";
+  const all = `${upper}${lower}${digits}`;
+
+  const randomInt = (max: number) => {
+    if (max <= 0) return 0;
+    const cryptoObj = typeof window !== "undefined" ? window.crypto : undefined;
+    if (cryptoObj?.getRandomValues) {
+      const array = new Uint32Array(1);
+      cryptoObj.getRandomValues(array);
+      return array[0] % max;
+    }
+    return Math.floor(Math.random() * max);
+  };
+
+  const chars = [
+    upper[randomInt(upper.length)],
+    lower[randomInt(lower.length)],
+    digits[randomInt(digits.length)],
+  ];
+
+  while (chars.length < length) {
+    chars.push(all[randomInt(all.length)]);
+  }
+
+  for (let i = chars.length - 1; i > 0; i -= 1) {
+    const j = randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+
+  return chars.join("");
 };
 
 const formatJoined = (iso: string | null) => {
@@ -235,18 +268,10 @@ export default function OwnerEmployers() {
   const [createStep, setCreateStep] = useState<1 | 2 | 3 | 4>(1);
   const [createValidating, setCreateValidating] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [credentialsOpen, setCredentialsOpen] = useState(false);
-  const [createdCredentials, setCreatedCredentials] = useState<{
-    email: string;
-    password: string;
-    companyName: string;
-  } | null>(null);
   const [createForm, setCreateForm] = useState({
     repFirstName: "",
     repLastName: "",
     email: "",
-    password: "",
-    confirmPassword: "",
     companyName: "",
     industry: "",
     city: "",
@@ -603,8 +628,6 @@ export default function OwnerEmployers() {
       repFirstName: "",
       repLastName: "",
       email: "",
-      password: "",
-      confirmPassword: "",
       companyName: "",
       industry: "",
       city: "",
@@ -638,24 +661,6 @@ export default function OwnerEmployers() {
           }
 
           const email = normalizeEmail(createForm.email);
-          if (createForm.password.length < 8) {
-            toast({
-              title: "Weak password",
-              description: "Password must be at least 8 characters.",
-              variant: "destructive",
-            });
-            return false;
-          }
-
-          if (createForm.password !== createForm.confirmPassword) {
-            toast({
-              title: "Password mismatch",
-              description: "Password and confirm password do not match.",
-              variant: "destructive",
-            });
-            return false;
-          }
-
           const { data: existingUsers, error: checkError } = await supabase
             .from("users")
             .select("id")
@@ -710,7 +715,8 @@ export default function OwnerEmployers() {
     setCreating(true);
     try {
       const normalizedEmail = normalizeEmail(createForm.email);
-      const passwordHash = await bcrypt.hash(createForm.password, 10);
+      const generatedPassword = generateRandomPassword();
+      const passwordHash = await bcrypt.hash(generatedPassword, 10);
 
       const { data: createdUser, error: userError } = await supabase
         .from("users")
@@ -770,12 +776,6 @@ export default function OwnerEmployers() {
       if (employerError || !createdEmployer?.id) throw employerError || new Error("Could not create employer.");
 
       toast({ title: "Company admin created", description: `${createForm.companyName} is ready.` });
-      setCreatedCredentials({
-        email: normalizeEmail(createForm.email),
-        password: createForm.password,
-        companyName: createForm.companyName.trim(),
-      });
-      setCredentialsOpen(true);
       closeCreate();
       await loadEmployers();
     } catch (err: any) {
@@ -985,29 +985,6 @@ export default function OwnerEmployers() {
                           value={createForm.email}
                           onChange={(e) => setCreateForm((p) => ({ ...p, email: e.target.value }))}
                           autoComplete="email"
-                          required
-                          className="bg-orange-50"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="ownerPassword">Password</Label>
-                        <PasswordInput
-                          id="ownerPassword"
-                          disabled={createValidating || creating}
-                          value={createForm.password}
-                          onChange={(e) => setCreateForm((p) => ({ ...p, password: e.target.value }))}
-                          required
-                          className="bg-orange-50"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">Use at least 8 characters.</p>
-                      </div>
-                      <div>
-                        <Label htmlFor="ownerConfirmPassword">Confirm Password</Label>
-                        <PasswordInput
-                          id="ownerConfirmPassword"
-                          disabled={createValidating || creating}
-                          value={createForm.confirmPassword}
-                          onChange={(e) => setCreateForm((p) => ({ ...p, confirmPassword: e.target.value }))}
                           required
                           className="bg-orange-50"
                         />
@@ -1271,116 +1248,6 @@ export default function OwnerEmployers() {
             </DialogContent>
           </Dialog>
         </div>
-
-        <AlertDialog open={credentialsOpen} onOpenChange={setCredentialsOpen}>
-          <AlertDialogContent className="rounded-3xl">
-            <AlertDialogHeader>
-              <div className="mb-2 flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 shadow-lg">
-                  <Mail className="h-6 w-6 text-white" />
-                </div>
-                <AlertDialogTitle className="text-xl">Company Admin Credentials</AlertDialogTitle>
-              </div>
-              <AlertDialogDescription className="text-base">
-                {createdCredentials ? (
-                  <span>
-                    Save these credentials now. This is the <strong>only time</strong> the password will be shown (it’s stored hashed).
-                  </span>
-                ) : (
-                  "Credentials are ready."
-                )}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-
-            {createdCredentials ? (
-              <div className="mt-2 rounded-3xl border border-orange-100 bg-orange-50/40 p-5 text-sm text-slate-700">
-                <div className="grid gap-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Email</div>
-                      <div className="mt-1 break-all font-semibold text-slate-900">{createdCredentials.email}</div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="shrink-0 rounded-full"
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(createdCredentials.email);
-                          toast({ title: "Copied", description: "Email copied to clipboard." });
-                        } catch {
-                          toast({ title: "Copy failed", description: "Could not copy email.", variant: "destructive" });
-                        }
-                      }}
-                    >
-                      <Copy className="h-4 w-4" />
-                      Copy
-                    </Button>
-                  </div>
-
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Password</div>
-                      <div className="mt-1 break-all font-mono font-semibold text-slate-900">{createdCredentials.password}</div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="shrink-0 rounded-full"
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(createdCredentials.password);
-                          toast({ title: "Copied", description: "Password copied to clipboard." });
-                        } catch {
-                          toast({ title: "Copy failed", description: "Could not copy password.", variant: "destructive" });
-                        }
-                      }}
-                    >
-                      <Copy className="h-4 w-4" />
-                      Copy
-                    </Button>
-                  </div>
-
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Company</div>
-                      <div className="mt-1 font-semibold text-slate-900">{createdCredentials.companyName}</div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="shrink-0 rounded-full"
-                      onClick={async () => {
-                        const text = `Company: ${createdCredentials.companyName}\nEmail: ${createdCredentials.email}\nPassword: ${createdCredentials.password}`;
-                        try {
-                          await navigator.clipboard.writeText(text);
-                          toast({ title: "Copied", description: "Credentials copied to clipboard." });
-                        } catch {
-                          toast({ title: "Copy failed", description: "Could not copy credentials.", variant: "destructive" });
-                        }
-                      }}
-                    >
-                      <Copy className="h-4 w-4" />
-                      Copy all
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            <AlertDialogFooter>
-              <AlertDialogAction
-                className="rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white hover:from-orange-700 hover:to-orange-600"
-                onClick={() => {
-                  setCredentialsOpen(false);
-                  setCreatedCredentials(null);
-                }}
-              >
-                Done
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
 
         {loading ? (
           <div className="rounded-[2rem] border border-orange-100 bg-white px-6 py-16 text-center shadow-sm">

@@ -21,8 +21,9 @@ import {
   Star,
   Video,
 } from "lucide-react";
+import CvViewer from "@/components/CvViewer";
 
-type InterviewStatus = "scheduled" | "confirmed" | "completed" | "rescheduled" | "cancelled" | "no-show";
+type InterviewStatus = "scheduled" | "completed" | "no-show";
 type InterviewFilter = "All" | InterviewStatus;
 
 type InterviewRecord = {
@@ -44,20 +45,18 @@ type InterviewRecord = {
   submittedOn?: string;
   feedbackState?: "pending" | "sent";
   reviewText?: string;
+  resumeUrl?: string;
 };
 
 const filters: InterviewFilter[] = [
   "All",
   "scheduled",
-  "confirmed",
   "completed",
-  "rescheduled",
-  "cancelled",
   "no-show",
 ];
 
 const isUpcomingStatus = (status: InterviewStatus) => {
-  return status === "scheduled" || status === "confirmed" || status === "rescheduled";
+  return status === "scheduled";
 };
 
 const safeTitle = (value?: string | null) => {
@@ -70,22 +69,14 @@ const safeTitle = (value?: string | null) => {
 
 const getStatusClasses = (status: InterviewStatus) => {
   if (status === "completed") {
-    return "border-green-200 bg-green-50 text-green-700";
+    return "border-orange-200 bg-orange-100 text-orange-700";
   }
 
-  if (status === "confirmed") {
-    return "border-blue-200 bg-blue-50 text-blue-700";
+  if (status === "scheduled") {
+    return "border-orange-300 bg-orange-50 text-orange-800";
   }
 
-  if (status === "scheduled" || status === "rescheduled") {
-    return "border-orange-200 bg-orange-50 text-orange-700";
-  }
-
-  if (status === "no-show") {
-    return "border-amber-200 bg-amber-50 text-amber-700";
-  }
-
-  return "border-slate-200 bg-slate-50 text-slate-700";
+  return "border-orange-200 bg-orange-50/70 text-orange-700";
 };
 
 const renderRatingStars = (rating?: number, sizeClass = "h-4 w-4") => {
@@ -104,6 +95,25 @@ const renderRatingStars = (rating?: number, sizeClass = "h-4 w-4") => {
   );
 };
 
+const toFixed3ResumeUrls = (value: unknown): [string, string, string] => {
+  if (Array.isArray(value)) {
+    const a = value.map((v) => (typeof v === "string" ? v : "")).slice(0, 3);
+    return [(a[0] ?? "").trim(), (a[1] ?? "").trim(), (a[2] ?? "").trim()];
+  }
+  if (typeof value === "string" && value.trim()) {
+    const trimmed = value.trim();
+    return [trimmed, "", ""];
+  }
+  return ["", "", ""];
+};
+
+const firstNonEmptyResumeUrl = (urls: readonly string[]) => urls.find((u) => String(u).trim()) ?? "";
+
+const extractCvsObjectPathFromResumeUrl = (resumeUrl: string): string | null => {
+  const match = resumeUrl.match(/cvs\/(.+)$/);
+  return match ? match[1] : null;
+};
+
 const TechnicalInterviewInterviews = () => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -117,7 +127,11 @@ const TechnicalInterviewInterviews = () => {
   const [reviewRating, setReviewRating] = useState<number>(5);
   const [reviewText, setReviewText] = useState<string>("");
   const [reviewSaving, setReviewSaving] = useState(false);
-  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [noShowLoadingId, setNoShowLoadingId] = useState<string | null>(null);
+  const [cvDialogOpen, setCvDialogOpen] = useState(false);
+  const [cvDialogUrl, setCvDialogUrl] = useState("");
+  const [cvLoading, setCvLoading] = useState(false);
+  const [cvDialogError, setCvDialogError] = useState("");
 
   useEffect(() => {
     const load = async () => {
@@ -157,12 +171,13 @@ const TechnicalInterviewInterviews = () => {
               "scheduled_date,",
               "duration_minutes,",
               "meet_link,",
-              "application:applications(id,job:jobs(title,location,workplace,employment_type),talent:talents(full_name,phone_number,city)),",
+              "application:applications(id,job:jobs(title,location,workplace,employment_type),talent:talents(full_name,phone_number,city,resume_url)),",
               "review:interview_reviews(rating,review_text,created_at)",
             ].join("")
           )
           .eq("interviewer_id", interviewerId)
           .eq("interview_type", "technical")
+          .in("status", ["scheduled", "completed", "no-show"])
           .order("scheduled_date", { ascending: false });
 
         if (interviewsRes.error) throw interviewsRes.error;
@@ -178,20 +193,21 @@ const TechnicalInterviewInterviews = () => {
           const review = Array.isArray(row.review) ? row.review[0] : row.review;
           const rating = review?.rating ? Number(review.rating) : undefined;
           const reviewText = review?.review_text || "";
+          const resumeUrl = firstNonEmptyResumeUrl(toFixed3ResumeUrls(talent?.resume_url));
           const submittedOn = review?.created_at ? format(new Date(review.created_at), "dd/MM/yyyy") : undefined;
           const scheduledAt = scheduled.toISOString();
           const isUpcoming = isUpcomingStatus(status);
 
           const evaluationLabel =
-            status === "cancelled"
-              ? "Session cancelled"
-              : status === "completed"
+            status === "completed"
               ? reviewText
                 ? "Feedback submitted"
                 : "Needs feedback"
+              : status === "no-show"
+              ? "No-show session"
               : isUpcoming
               ? "Upcoming session"
-              : "In progress";
+              : "Interview";
 
           const workModeParts = [safeTitle(job?.employment_type), safeTitle(job?.workplace)].filter(Boolean);
           const workMode = workModeParts.length ? workModeParts.join(" - ") : "";
@@ -216,6 +232,7 @@ const TechnicalInterviewInterviews = () => {
             submittedOn,
             feedbackState: reviewText ? "sent" : "pending",
             reviewText: reviewText || "",
+            resumeUrl: resumeUrl || undefined,
           };
         });
 
@@ -252,6 +269,42 @@ const TechnicalInterviewInterviews = () => {
     setReviewRating(interview.rating ?? 5);
     setReviewText(interview.reviewText ?? "");
     setReviewOpen(true);
+  };
+
+  const openCvPreview = async (interview: InterviewRecord) => {
+    if (cvLoading) return;
+    setCvDialogError("");
+    setCvLoading(true);
+
+    try {
+      if (!interview.resumeUrl) {
+        throw new Error("No resume available for this candidate.");
+      }
+
+      const objectPath = extractCvsObjectPathFromResumeUrl(interview.resumeUrl);
+      if (!objectPath) {
+        throw new Error("Could not resolve resume storage path.");
+      }
+
+      const { data, error } = await supabase.storage.from("cvs").createSignedUrl(objectPath, 60);
+      if (error) throw error;
+
+      const signedUrl = data?.signedUrl;
+      if (!signedUrl) throw new Error("Signed URL was not returned.");
+
+      const response = await fetch(signedUrl);
+      if (!response.ok) throw new Error("Failed to fetch resume");
+
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      setCvDialogUrl(blobUrl);
+      setCvDialogOpen(true);
+    } catch (err) {
+      setCvDialogError(err instanceof Error ? err.message : "Failed to open resume preview.");
+      setCvDialogOpen(true);
+    } finally {
+      setCvLoading(false);
+    }
   };
 
   const submitReview = async () => {
@@ -302,25 +355,43 @@ const TechnicalInterviewInterviews = () => {
     }
   };
 
-  const updateInterviewStatus = async (interview: InterviewRecord, nextStatus: InterviewStatus) => {
-    setActionLoadingId(interview.id);
+  const markInterviewNoShow = async (interview: InterviewRecord) => {
+    const confirmed = window.confirm(
+      "Mark this interview as no-show? Use this when the candidate did not attend or a technical issue prevented the interview."
+    );
+    if (!confirmed) return;
+
+    setNoShowLoadingId(interview.id);
     try {
       const { error } = await supabase
         .from("interviews")
-        .update({ status: nextStatus, updated_at: new Date().toISOString() })
+        .update({ status: "no-show", updated_at: new Date().toISOString() })
         .eq("id", interview.id);
 
       if (error) throw error;
 
-      setRecords((prev) => prev.map((it) => (it.id === interview.id ? { ...it, status: nextStatus } : it)));
+      setRecords((prev) =>
+        prev.map((it) =>
+          it.id === interview.id
+            ? {
+                ...it,
+                status: "no-show",
+                evaluationLabel: "No-show session",
+                notes: "Marked as no-show. Candidate did not attend or technical issues blocked the interview.",
+              }
+            : it
+        )
+      );
+
+      toast({ title: "Marked as no-show", description: "Interview status updated to no-show." });
     } catch (err) {
       toast({
         title: "Error",
-        description: err instanceof Error ? err.message : "Failed to update interview",
+        description: err instanceof Error ? err.message : "Failed to update interview status",
         variant: "destructive",
       });
     } finally {
-      setActionLoadingId(null);
+      setNoShowLoadingId(null);
     }
   };
 
@@ -391,16 +462,9 @@ const TechnicalInterviewInterviews = () => {
                 {(() => {
                   const isCompleted = interview.status === "completed";
                   const isUpcoming = isUpcomingStatus(interview.status);
-                  const isFeedbackSent = isCompleted && interview.feedbackState === "sent";
-                  const canJoin = isUpcoming && !!interview.meetLink && !isFeedbackSent;
-                  const actionLabel =
-                    isUpcoming && interview.meetLink
-                      ? "Join Now"
-                      : isCompleted
-                      ? isFeedbackSent
-                        ? "Feedback Sent"
-                        : "Leave Feedback"
-                      : "View Details";
+                  const isFeedbackSent = interview.feedbackState === "sent";
+                  const canJoin = isUpcoming && !!interview.meetLink;
+                  const canMarkNoShow = interview.status === "scheduled";
 
                   const formattedDate = interview.scheduledAt
                     ? format(new Date(interview.scheduledAt), "EEEE, MMMM d, yyyy")
@@ -423,19 +487,7 @@ const TechnicalInterviewInterviews = () => {
                         </Badge>
                       </div>
 
-                      <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                        <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
-                          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Location</p>
-                          <p className="mt-2 text-base font-semibold text-slate-900">{interview.locationLine}</p>
-                        </div>
-                        <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
-                          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Track</p>
-                          <p className="mt-2 text-base font-semibold text-slate-900">Technical</p>
-                        </div>
-                        <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
-                          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Phone</p>
-                          <p className="mt-2 text-base font-semibold text-slate-900">{interview.phone || "\u2014"}</p>
-                        </div>
+                      <div className="mb-6 grid gap-3 sm:grid-cols-2">
                         <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
                           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Date</p>
                           <p className="mt-2 text-base font-semibold text-slate-900">{formattedDate}</p>
@@ -446,96 +498,88 @@ const TechnicalInterviewInterviews = () => {
                             {formattedTime} ({interview.durationMinutes} minutes)
                           </p>
                         </div>
-                        <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
-                          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Mode</p>
-                          <p className="mt-2 text-base font-semibold text-slate-900">{interview.workMode || "\u2014"}</p>
-                        </div>
                       </div>
 
-                      <div className="mb-6 rounded-2xl border border-orange-200 bg-gradient-to-r from-orange-50 to-white p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="inline-flex items-center gap-2 text-sm font-bold text-orange-700">
-                              {isUpcoming ? <Clock3 className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
-                              {interview.evaluationLabel}
+                      <div className="grid gap-4 rounded-2xl border border-orange-100 bg-orange-50/40 p-4 md:grid-cols-[1fr_auto] md:items-center">
+                        <div>
+                          <p className="inline-flex items-center gap-2 text-sm font-bold text-orange-700">
+                            {isCompleted ? <CheckCircle2 className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
+                            {interview.evaluationLabel}
+                          </p>
+                          <p className="mt-2 text-sm font-semibold text-slate-700">{interview.notes}</p>
+                          {interview.submittedOn ? (
+                            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              {isCompleted ? `Submitted on ${interview.submittedOn}` : interview.submittedOn}
                             </p>
-                            <p className="mt-2 text-sm font-semibold text-slate-700">{interview.notes}</p>
-                            {interview.submittedOn ? (
-                              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                                {isCompleted ? `Submitted on ${interview.submittedOn}` : interview.submittedOn}
-                              </p>
-                            ) : null}
-                          </div>
+                          ) : null}
+                        </div>
 
-                          <div className="flex flex-col items-end gap-3">
-                            {interview.rating ? (
-                              <div className="inline-flex items-center justify-center gap-1 rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-700">
-                                {renderRatingStars(interview.rating)}
-                              </div>
-                            ) : (
-                              <div className="inline-flex items-center justify-center rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-700">
-                                Pending
-                              </div>
-                            )}
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          {interview.rating ? (
+                            <div className="inline-flex items-center justify-center gap-1 rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-700">
+                              {renderRatingStars(interview.rating)}
+                            </div>
+                          ) : (
+                            <div className="inline-flex items-center justify-center rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-700">
+                              Pending
+                            </div>
+                          )}
 
+                          {canJoin && (
                             <Button
-                              disabled={isFeedbackSent}
-                              className={`gap-2 rounded-full text-white shadow-md ${
-                                isFeedbackSent ? "bg-orange-300 hover:bg-orange-300" : "bg-orange-600 hover:bg-orange-700"
-                              }`}
+                              className="gap-2 rounded-full bg-orange-600 text-white shadow-md hover:bg-orange-700"
                               onClick={() => {
-                                if (isFeedbackSent) return;
-                                if (canJoin) {
-                                  window.open(interview.meetLink as string, "_blank", "noopener,noreferrer");
-                                  if (interview.status === "scheduled") {
-                                    void updateInterviewStatus(interview, "confirmed");
-                                  }
-                                  return;
-                                }
-                                if (isCompleted) {
-                                  openReview(interview);
-                                  return;
-                                }
+                                window.open(interview.meetLink as string, "_blank", "noopener,noreferrer");
                               }}
                             >
-                              {isUpcoming ? (
-                                <Video className="h-4 w-4" />
-                              ) : isFeedbackSent ? (
-                                <CheckCircle2 className="h-4 w-4" />
-                              ) : isCompleted ? (
-                                <MessageSquare className="h-4 w-4" />
-                              ) : (
-                                <Briefcase className="h-4 w-4" />
-                              )}
-                              {actionLabel}
+                              <Video className="h-4 w-4" />
+                              Join Now
                             </Button>
-                          </div>
-                        </div>
-                      </div>
+                          )}
 
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {isUpcomingStatus(interview.status) && (
+                          <Button
+                            disabled={isFeedbackSent}
+                            className={`gap-2 rounded-full text-white shadow-md ${
+                              isFeedbackSent ? "bg-orange-300 hover:bg-orange-300" : "bg-orange-600 hover:bg-orange-700"
+                            }`}
+                            onClick={() => {
+                              if (isFeedbackSent) return;
+                              openReview(interview);
+                            }}
+                          >
+                            {isFeedbackSent ? <CheckCircle2 className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
+                            {isFeedbackSent ? "Feedback Sent" : "Submit Feedback"}
+                          </Button>
+
                           <Button
                             type="button"
                             variant="outline"
-                            disabled={actionLoadingId === interview.id}
+                            disabled={cvLoading}
                             className="rounded-full border-orange-200 text-slate-700 hover:bg-orange-50"
-                            onClick={() => void updateInterviewStatus(interview, "completed")}
+                            onClick={() => openCvPreview(interview)}
                           >
-                            Mark completed
+                            View Resume
                           </Button>
-                        )}
-                        {interview.status !== "cancelled" && interview.status !== "completed" && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            disabled={actionLoadingId === interview.id}
-                            className="rounded-full border-orange-200 text-slate-700 hover:bg-orange-50"
-                            onClick={() => void updateInterviewStatus(interview, "cancelled")}
-                          >
-                            Cancel
-                          </Button>
-                        )}
+
+                          {canMarkNoShow && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              disabled={noShowLoadingId === interview.id}
+                              className="rounded-full border-orange-300 text-orange-700 hover:bg-orange-50"
+                              onClick={() => void markInterviewNoShow(interview)}
+                            >
+                              {noShowLoadingId === interview.id ? "Saving..." : "No-show"}
+                            </Button>
+                          )}
+
+                          {canMarkNoShow && (
+                            <p className="basis-full text-right text-xs font-medium text-slate-500">
+                              Use No-show when the candidate did not attend or a technical issue prevented the interview.
+                            </p>
+                          )}
+
+                        </div>
                       </div>
                     </>
                   );
@@ -616,6 +660,30 @@ const TechnicalInterviewInterviews = () => {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={cvDialogOpen} onOpenChange={setCvDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Resume Preview</DialogTitle>
+            <DialogDescription className="sr-only">Preview the candidate resume document.</DialogDescription>
+          </DialogHeader>
+          {cvLoading && (
+            <div className="flex items-center justify-center h-96">
+              <Clock3 className="w-8 h-8 animate-spin text-orange-600" />
+            </div>
+          )}
+          {cvDialogError && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+              {cvDialogError}
+            </div>
+          )}
+          {cvDialogUrl && !cvLoading && !cvDialogError && (
+            <div className="flex-1 overflow-hidden rounded-xl border border-orange-100">
+              <CvViewer fileUrl={cvDialogUrl} />
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </TechnicalInterviewLayout>

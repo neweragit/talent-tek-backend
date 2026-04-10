@@ -17,17 +17,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Bookmark,
   Briefcase,
+  BriefcaseBusiness,
   CalendarDays,
   Building2,
   ArrowLeft,
   Clock,
   Eye,
   ExternalLink,
+  Link,
   FileText,
   GraduationCap,
   Loader2,
+  Mail,
   MapPin,
   MousePointerClick,
   RefreshCw,
@@ -37,7 +39,6 @@ import {
   SlidersHorizontal,
   Sparkles,
   Send,
-  Trash2,
   TrendingUp,
   Upload,
   Users,
@@ -427,7 +428,7 @@ const getTalentProfileSnapshot = (): TalentProfileSnapshot => {
   }
 };
 
-const inferExperienceFromProfile = (experienceText: string): "all" | ExperienceLevel => {
+const inferExperienceFromProfile = (experienceText: string): " " | ExperienceLevel => {
   const normalizedExperience = experienceText.toLowerCase();
 
   if (normalizedExperience.includes("lead") || normalizedExperience.includes("10")) {
@@ -458,11 +459,11 @@ const inferExperienceFromProfile = (experienceText: string): "all" | ExperienceL
     return "Entry";
   }
 
-  return "all";
+  return " ";
 };
 
 const matchesSalaryBand = (job: Job, salaryBand: string) => {
-  if (salaryBand === "all") {
+  if (salaryBand === " ") {
     return true;
   }
 
@@ -486,7 +487,7 @@ const matchesSalaryBand = (job: Job, salaryBand: string) => {
 };
 
 const matchesDistance = (job: Job, distanceFilter: string) => {
-  if (distanceFilter === "all") {
+  if (distanceFilter === " ") {
     return true;
   }
 
@@ -508,14 +509,14 @@ const matchesDistance = (job: Job, distanceFilter: string) => {
 function TalentOverviewLegacy() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
-  const [locationFilter, setLocationFilter] = useState("all");
-  const [jobTypeFilter, setJobTypeFilter] = useState("all");
-  const [workModeFilter, setWorkModeFilter] = useState("all");
-  const [experienceFilter, setExperienceFilter] = useState("all");
-  const [postedFilter, setPostedFilter] = useState("all");
-  const [distanceFilter, setDistanceFilter] = useState("all");
-  const [companySizeFilter, setCompanySizeFilter] = useState("all");
-  const [visaFilter, setVisaFilter] = useState("all");
+  const [locationFilter, setLocationFilter] = useState(" ");
+  const [jobTypeFilter, setJobTypeFilter] = useState(" ");
+  const [workModeFilter, setWorkModeFilter] = useState(" ");
+  const [experienceFilter, setExperienceFilter] = useState(" ");
+  const [postedFilter, setPostedFilter] = useState(" ");
+  const [distanceFilter, setDistanceFilter] = useState(" ");
+  const [companySizeFilter, setCompanySizeFilter] = useState(" ");
+  const [visaFilter, setVisaFilter] = useState(" ");
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [manualSkillFilterValue, setManualSkillFilterValue] = useState("");
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
@@ -531,16 +532,16 @@ function TalentOverviewLegacy() {
         job.company.toLowerCase().includes(normalizedSearch) ||
         job.skills.some((skill) => skill.toLowerCase().includes(normalizedSearch));
 
-      const matchesLocation = locationFilter === "all" || job.location === locationFilter;
-      const matchesJobType = jobTypeFilter === "all" || job.jobType === jobTypeFilter;
-      const matchesWorkMode = workModeFilter === "all" || job.workMode === workModeFilter;
-      const matchesExperience = experienceFilter === "all" || job.experience === experienceFilter;
-      const matchesCompanySize = companySizeFilter === "all" || job.companySize === companySizeFilter;
+      const matchesLocation = locationFilter === " " || job.location === locationFilter;
+      const matchesJobType = jobTypeFilter === " " || job.jobType === jobTypeFilter;
+      const matchesWorkMode = workModeFilter === " " || job.workMode === workModeFilter;
+      const matchesExperience = experienceFilter === " " || job.experience === experienceFilter;
+      const matchesCompanySize = companySizeFilter === " " || job.companySize === companySizeFilter;
       const matchesVisa =
-        visaFilter === "all" ||
+        visaFilter === " " ||
         (visaFilter === "yes" && job.visaSupport) ||
         (visaFilter === "no" && !job.visaSupport);
-      const matchesPosted = postedFilter === "all" || job.postedDays <= Number(postedFilter);
+      const matchesPosted = postedFilter === " " || job.postedDays <= Number(postedFilter);
       const matchesSkills = selectedSkills.every((skill) => job.skills.includes(skill));
 
       return (
@@ -591,14 +592,14 @@ function TalentOverviewLegacy() {
 
   const resetFilters = () => {
     setSearchQuery("");
-    setLocationFilter("all");
-    setJobTypeFilter("all");
-    setWorkModeFilter("all");
-    setExperienceFilter("all");
-    setPostedFilter("all");
-    setDistanceFilter("all");
-    setCompanySizeFilter("all");
-    setVisaFilter("all");
+    setLocationFilter(" ");
+    setJobTypeFilter(" ");
+    setWorkModeFilter(" ");
+    setExperienceFilter(" ");
+    setPostedFilter(" ");
+    setDistanceFilter(" ");
+    setCompanySizeFilter(" ");
+    setVisaFilter(" ");
     setSelectedSkills([]);
     setManualSkillFilterValue("");
   };
@@ -618,7 +619,7 @@ function TalentOverviewLegacy() {
 
     const profileLocation = `${profile.city}, ${profile.country}`;
     const locationExistsInJobs = jobs.some((job) => job.location === profileLocation);
-    setLocationFilter(locationExistsInJobs ? profileLocation : "all");
+    setLocationFilter(locationExistsInJobs ? profileLocation : " ");
   };
 
   const handleAiMatch = () => {
@@ -631,7 +632,7 @@ function TalentOverviewLegacy() {
 
   const jobsResultsLabel =
     filteredJobs.length === jobs.length
-      ? `Showing all ${jobs.length} open roles`
+      ? `Showing   ${jobs.length} open roles`
       : `Showing ${filteredJobs.length} of ${jobs.length} open roles`;
 
   return (
@@ -685,7 +686,7 @@ function TalentOverviewLegacy() {
               <SelectValue placeholder="Location" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All wilayas</SelectItem>
+              <SelectItem value=" ">  wilayas</SelectItem>
               <SelectItem value="Adrar">Adrar</SelectItem>
               <SelectItem value="Algiers">Algiers</SelectItem>
               <SelectItem value="Annaba">Annaba</SelectItem>
@@ -708,7 +709,7 @@ function TalentOverviewLegacy() {
               <SelectValue placeholder="Job type" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All job types</SelectItem>
+              <SelectItem value=" ">  job types</SelectItem>
               <SelectItem value="Full-time">Full-time</SelectItem>
               <SelectItem value="Part-time">Part-time</SelectItem>
               <SelectItem value="Contract">Contract</SelectItem>
@@ -724,7 +725,7 @@ function TalentOverviewLegacy() {
               <SelectValue placeholder="Work mode" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Any work mode</SelectItem>
+              <SelectItem value=" ">Any work mode</SelectItem>
               <SelectItem value="Remote">Remote</SelectItem>
               <SelectItem value="Hybrid">Hybrid</SelectItem>
               <SelectItem value="On-site">On-site</SelectItem>
@@ -736,7 +737,7 @@ function TalentOverviewLegacy() {
               <SelectValue placeholder="Experience level" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All levels</SelectItem>
+              <SelectItem value=" ">  levels</SelectItem>
               <SelectItem value="Entry">Entry</SelectItem>
               <SelectItem value="Mid">Mid</SelectItem>
               <SelectItem value="Senior">Senior</SelectItem>
@@ -749,7 +750,7 @@ function TalentOverviewLegacy() {
               <SelectValue placeholder="Date posted" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Any time</SelectItem>
+              <SelectItem value=" ">  dates</SelectItem>
               <SelectItem value="1">Last 24 hours</SelectItem>
               <SelectItem value="3">Last 3 days</SelectItem>
               <SelectItem value="7">Last 7 days</SelectItem>
@@ -802,7 +803,7 @@ function TalentOverviewLegacy() {
                   <SelectValue placeholder="Distance from home" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Any distance</SelectItem>
+                  <SelectItem value=" ">Any distance</SelectItem>
                   <SelectItem value="remote-only">Remote only</SelectItem>
                   <SelectItem value="under-10">Under 10 km</SelectItem>
                   <SelectItem value="under-25">Under 25 km</SelectItem>
@@ -815,7 +816,7 @@ function TalentOverviewLegacy() {
                   <SelectValue placeholder="Company size" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All company sizes</SelectItem>
+                  <SelectItem value=" ">  company sizes</SelectItem>
                   <SelectItem value="Startup">Startup</SelectItem>
                   <SelectItem value="SME">SME</SelectItem>
                   <SelectItem value="Enterprise">Enterprise</SelectItem>
@@ -827,7 +828,7 @@ function TalentOverviewLegacy() {
                   <SelectValue placeholder="Visa support" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Visa support: any</SelectItem>
+                  <SelectItem value=" ">Visa support: any</SelectItem>
                   <SelectItem value="yes">Offers visa support</SelectItem>
                   <SelectItem value="no">No visa support</SelectItem>
                 </SelectContent>
@@ -860,7 +861,7 @@ function TalentOverviewLegacy() {
 	                      key={`${skill}-${index}`}
 	                      type="button"
 	                      onClick={() => toggleSkill(skill)}
-	                      className={`rounded-full border px-4 py-2 text-sm font-medium transition-all ${
+                        className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
                         isSelected
                           ? "border-orange-500 bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md"
                           : "border-orange-200 bg-white text-orange-700 hover:bg-orange-50"
@@ -880,7 +881,7 @@ function TalentOverviewLegacy() {
             {filteredJobs.map((job) => (
               <article
                 key={job.id}
-                className="group relative overflow-hidden rounded-3xl border border-orange-100 bg-white p-6 shadow-lg transition-all hover:-translate-y-1 hover:shadow-2xl"
+                className="group relative overflow-hidden rounded-3xl border border-orange-100 bg-white p-6 shadow-lg transition hover:-translate-y-1 hover:shadow-2xl"
               >
                 <div className="mb-5 flex items-start justify-between gap-4">
                   <div className="flex items-start gap-4">
@@ -901,7 +902,7 @@ function TalentOverviewLegacy() {
                       <Share2 className="h-4 w-4" />
                     </button>
                     <button type="button" className="rounded-full p-2 text-orange-600 hover:bg-orange-50" aria-label="Save job">
-                      <Bookmark className="h-4 w-4" />
+                      <Share2 className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
@@ -930,10 +931,10 @@ function TalentOverviewLegacy() {
                     Strong fit for candidates looking for {job.workMode.toLowerCase()} {job.jobType.toLowerCase()} roles.
                   </div>
                   <Button
-                    onClick={() => navigate(`/talent/job/${job.id}`, { state: { job, from: "/talent/overview" } })}
+                    onClick={() => navigate(`/jobs/${job.id}`)}
                     className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md hover:from-orange-700 hover:to-orange-600"
                   >
-                    <ExternalLink className="h-4 w-4" />
+                    <Link className="h-4 w-4" />
                     View Job
                   </Button>
                 </div>
@@ -954,7 +955,7 @@ function TalentOverviewLegacy() {
               className="mt-6 gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white hover:from-orange-700 hover:to-orange-600"
             >
               <RefreshCw className="h-4 w-4" />
-              Clear All Filters
+              Clear   Filters
             </Button>
           </div>
         )}
@@ -969,7 +970,7 @@ function TalentOverviewLegacy() {
               </div>
               <h3 className="text-2xl font-bold text-slate-900 mb-2">We're matching you with jobs</h3>
               <p className="text-sm text-gray-600">
-                Analyzing your profile title, skills, location, and experience to surface the best-fit opportunities from all employers.
+                Analyzing your profile title, skills, location, and experience to surface the best-fit opportunities from   employers.
               </p>
             </div>
           </div>
@@ -1040,6 +1041,32 @@ const toSafeEmailFolder = (email: string) =>
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "") || "user";
 
+const toSafeFileName = (fileName: string) => {
+  const trimmed = fileName.trim();
+  if (!trimmed) return "resume.pdf";
+  const safe = trimmed.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  return safe.replace(/^_+|_+$/g, "") || "resume.pdf";
+};
+
+const getResumeDisplayName = (url: string, fallbackLabel: string) => {
+  if (!url) return fallbackLabel;
+  try {
+    const path = new URL(url).pathname;
+    const raw = decodeURIComponent(path.split("/").pop() || "");
+    if (!raw) return fallbackLabel;
+    if (raw.includes("__")) {
+      return raw.split("__").pop() || fallbackLabel;
+    }
+    if (raw.includes("_cv_")) {
+      const ext = raw.split(".").pop();
+      return ext ? `Resume.${ext}` : "Resume";
+    }
+    return raw;
+  } catch {
+    return fallbackLabel;
+  }
+};
+
 const normalizeTextArray = (value: unknown): string[] => {
   if (!value) return [];
   if (Array.isArray(value)) {
@@ -1068,7 +1095,7 @@ const formatPostedAgo = (value: string) => {
   return `Posted ${diffDays} days ago`;
 };
 
-const isAllowedCvFile = (file: File) => {
+const isValidCvFile = (file: File) => {
   const maxSizeBytes = 5 * 1024 * 1024;
   const name = file.name.toLowerCase();
   const okExt = name.endsWith(".pdf") || name.endsWith(".doc") || name.endsWith(".docx");
@@ -1087,12 +1114,13 @@ export default function TalentOverview() {
 	  const [jobs, setJobs] = useState<TalentJob[]>([]);
 	  const [linkedJob, setLinkedJob] = useState<TalentJob | null>(null);
 	  const [searchQuery, setSearchQuery] = useState("");
-	  const [showFilters, setShowFilters] = useState(false);
-	  const [locationFilter, setLocationFilter] = useState("all");
-	  const [employmentFilter, setEmploymentFilter] = useState("all");
-	  const [workplaceFilter, setWorkplaceFilter] = useState("all");
-	  const [experienceFilter, setExperienceFilter] = useState("all");
-	  const [postedFilter, setPostedFilter] = useState("all");
+	  const [locationFilter, setLocationFilter] = useState(" ");
+	  const [employmentFilter, setEmploymentFilter] = useState(" ");
+	  const [workplaceFilter, setWorkplaceFilter] = useState(" ");
+	  const [experienceFilter, setExperienceFilter] = useState(" ");
+	  const [postedFilter, setPostedFilter] = useState(" ");
+	  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+	  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
 	  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 	  const [detailsOpen, setDetailsOpen] = useState(false);
 
@@ -1128,6 +1156,17 @@ export default function TalentOverview() {
 	    };
 	  }, [jobs]);
 
+	  const availableSkills = useMemo(() => {
+	    const skillSet = new Set<string>();
+	    jobs.forEach((job) => {
+	      job.skillsRequired.forEach((skill) => {
+	        const trimmed = String(skill || "").trim();
+	        if (trimmed) skillSet.add(trimmed);
+	      });
+	    });
+	    return Array.from(skillSet).sort((a, b) => a.localeCompare(b));
+	  }, [jobs]);
+
 	  const filteredJobs = useMemo(() => {
 	    const term = searchQuery.trim().toLowerCase();
 
@@ -1145,15 +1184,23 @@ export default function TalentOverview() {
 	        job.companyName.toLowerCase().includes(term) ||
 	        job.skillsRequired.some((s) => String(s).toLowerCase().includes(term));
 
-	      const matchesLocation = locationFilter === "all" || String(job.location || "") === locationFilter;
-	      const matchesEmployment = employmentFilter === "all" || String(job.employmentType || "") === employmentFilter;
-	      const matchesWorkplace = workplaceFilter === "all" || String(job.workplace || "") === workplaceFilter;
-	      const matchesExperience = experienceFilter === "all" || String(job.experienceLevel || "") === experienceFilter;
-	      const matchesPosted = postedFilter === "all" || getAgeDays(job.createdAt) <= Number(postedFilter);
+	      const matchesLocation = locationFilter === " " || String(job.location || "") === locationFilter;
+	      const matchesEmployment = employmentFilter === " " || String(job.employmentType || "") === employmentFilter;
+	      const matchesWorkplace = workplaceFilter === " " || String(job.workplace || "") === workplaceFilter;
+	      const matchesExperience = experienceFilter === " " || String(job.experienceLevel || "") === experienceFilter;
+	      const matchesPosted = postedFilter === " " || getAgeDays(job.createdAt) <= Number(postedFilter);
+	      const matchesSkills =
+	        selectedSkills.length === 0 || selectedSkills.every((skill) => job.skillsRequired.includes(skill));
 
-	      return matchesSearch && matchesLocation && matchesEmployment && matchesWorkplace && matchesExperience && matchesPosted;
+	      return matchesSearch && matchesLocation && matchesEmployment && matchesWorkplace && matchesExperience && matchesPosted && matchesSkills;
 	    });
-	  }, [employmentFilter, experienceFilter, jobs, locationFilter, postedFilter, searchQuery, workplaceFilter]);
+	  }, [employmentFilter, experienceFilter, jobs, locationFilter, postedFilter, searchQuery, workplaceFilter, selectedSkills]);
+
+	  const toggleSkillFilter = (skill: string) => {
+	    setSelectedSkills((current) =>
+	      current.includes(skill) ? current.filter((item) => item !== skill) : [...current, skill],
+	    );
+	  };
 
   const updateTalentResumeUrls = async (next: [string, string, string]) => {
     if (!talent?.talentId) return;
@@ -1288,6 +1335,16 @@ export default function TalentOverview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
+  const displayName = talent?.fullName?.trim() || user?.email?.split("@")[0] || "there";
+  const newRolesCount = useMemo(() => {
+    return jobs.filter((job) => {
+      const createdAt = new Date(job.createdAt);
+      const diffMs = Date.now() - createdAt.getTime();
+      if (Number.isNaN(diffMs)) return false;
+      return diffMs <= 7 * 24 * 60 * 60 * 1000;
+    }).length;
+  }, [jobs]);
+
 	  useEffect(() => {
 	    const jobIdFromUrl = searchParams.get("jobId");
 	    if (!jobIdFromUrl) return;
@@ -1392,13 +1449,13 @@ export default function TalentOverview() {
     const current = talent.resumeUrls ?? ["", "", ""];
     const url = String(current[slotIndex] ?? "").trim();
     if (!url) {
-      toast({ title: "No CV", description: "This slot is empty.", variant: "destructive" });
+      toast({ title: "No resume", description: "This slot is empty.", variant: "destructive" });
       return;
     }
 
     const objectPath = getStoragePathFromPublicUrl(url);
     if (!objectPath) {
-      toast({ title: "Remove failed", description: "Could not determine CV file path.", variant: "destructive" });
+      toast({ title: "Remove failed", description: "Could not determine resume file path.", variant: "destructive" });
       return;
     }
 
@@ -1410,16 +1467,16 @@ export default function TalentOverview() {
       next[slotIndex] = "";
       await updateTalentResumeUrls(next);
 
-      toast({ title: "CV removed" });
+      toast({ title: "Resume removed" });
     } catch (error: any) {
-      toast({ title: "Remove failed", description: error?.message || "Could not remove this CV.", variant: "destructive" });
+      toast({ title: "Remove failed", description: error?.message || "Could not remove this resume.", variant: "destructive" });
     }
   };
 
   const uploadCvToSlot = async (file: File, slotIndex: number, mode: "upload" | "replace") => {
     if (!talent?.email || !user?.id) return;
 
-    if (!isAllowedCvFile(file)) {
+    if (!isValidCvFile(file)) {
       toast({ title: "Invalid file", description: "PDF, DOC, or DOCX up to 5 MB.", variant: "destructive" });
       return;
     }
@@ -1428,14 +1485,15 @@ export default function TalentOverview() {
     const oldUrl = String(current[slotIndex] ?? "").trim();
 
     if (mode === "upload" && oldUrl) {
-      toast({ title: "Slot filled", description: "This CV slot already has a file. Use Replace instead.", variant: "destructive" });
+      toast({ title: "Slot filled", description: "This resume slot already has a file. Use Replace instead.", variant: "destructive" });
       return;
     }
 
     try {
       const fileExt = file.name.split(".").pop() || "pdf";
       const safeExt = String(fileExt).toLowerCase();
-      const fileName = `${user.id}_cv_${Date.now()}.${safeExt}`;
+      const baseName = toSafeFileName(file.name.replace(/\.[^/.]+$/, ""));
+      const fileName = `${user.id}_${Date.now()}__${baseName}.${safeExt}`;
       const folder = toSafeEmailFolder(talent.email);
       const path = `resumes/${folder}/${fileName}`;
 
@@ -1444,7 +1502,7 @@ export default function TalentOverview() {
 
       const { data: publicData } = supabase.storage.from("cvs").getPublicUrl(path);
       const url = publicData?.publicUrl ?? "";
-      if (!url) throw new Error("Could not get public URL for the uploaded CV.");
+      if (!url) throw new Error("Could not get public URL for the uploaded resume.");
 
       const next = [...current] as [string, string, string];
       next[slotIndex] = url;
@@ -1459,11 +1517,11 @@ export default function TalentOverview() {
         }
       }
 
-      toast({ title: mode === "replace" ? "CV replaced" : "CV uploaded" });
+      toast({ title: mode === "replace" ? "Resume replaced" : "Resume uploaded" });
     } catch (error: any) {
       toast({
         title: mode === "replace" ? "Replace failed" : "Upload failed",
-        description: error?.message || "Could not upload this CV.",
+        description: error?.message || "Could not upload this resume.",
         variant: "destructive",
       });
     }
@@ -1473,7 +1531,7 @@ export default function TalentOverview() {
     if (!talent?.talentId || !selectedJob?.id || !user?.id) return;
 
     if (!selectedCvUrl) {
-      toast({ title: "CV required", description: "Select a CV slot that has a file, or upload one first.", variant: "destructive" });
+      toast({ title: "Resume required", description: "Select a resume slot that has a file, or upload one first.", variant: "destructive" });
       return;
     }
 
@@ -1539,7 +1597,7 @@ export default function TalentOverview() {
 	      <Dialog open={cvDialogOpen} onOpenChange={setCvDialogOpen}>
 	        <DialogContent className="max-w-5xl">
           <DialogHeader>
-            <DialogTitle>CV Preview</DialogTitle>
+            <DialogTitle>Resume preview</DialogTitle>
           </DialogHeader>
           {cvDialogUrl ? <CvViewer fileUrl={cvDialogUrl} /> : null}
         </DialogContent>
@@ -1577,27 +1635,72 @@ export default function TalentOverview() {
 	                  <Building2 className="h-3.5 w-3.5" />
 	                  Talent Overview
 	                </div>
-	                <h1 className="text-4xl font-bold tracking-tighter leading-tight text-slate-900 sm:text-5xl lg:text-6xl">Jobs & Applications</h1>
-	                <p className="mt-4 max-w-2xl text-base font-medium leading-7 text-slate-600 sm:text-lg">Browse jobs and apply using your profile information and CV.</p>
-	              </div>
+                <h1 className="text-4xl font-bold tracking-tighter leading-tight text-slate-900 sm:text-5xl lg:text-6xl">
+                  Hello, {displayName}👋
+                </h1>
+                <p className="mt-4 max-w-2xl text-base font-medium leading-7 text-slate-600 sm:text-lg">
+                  Track your job search progress, discover fresh platform roles, and use the same clean application-style surfaces across your dashboard.
+                </p>
+                <div className="mt-6 flex flex-wrap items-center gap-3 sm:flex-nowrap">
+                  <div className="inline-flex items-center rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-700 shadow-sm whitespace-nowrap">
+                    {filteredJobs.length === jobs.length
+                      ? `Showing   ${jobs.length} open roles`
+                      : `Showing ${filteredJobs.length} of ${jobs.length} open roles`}
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery("");
+                      setLocationFilter(" ");
+                      setEmploymentFilter(" ");
+                      setWorkplaceFilter(" ");
+                      setExperienceFilter(" ");
+                      setPostedFilter(" ");
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 px-5 text-white shadow-lg hover:from-orange-700 hover:to-orange-600 whitespace-nowrap"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    Get Matched with AI
+                  </Button>
+                </div>
+              </div>
 
-	              <div className="grid w-full max-w-xl grid-cols-2 gap-3">
-	                <div className="rounded-3xl border border-white/70 bg-white/85 p-5 shadow-lg backdrop-blur-sm">
-	                  <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md">
-	                    <Briefcase className="h-5 w-5" />
-	                  </div>
-	                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Applications</p>
-	                  <p className="mt-2 text-3xl font-bold text-slate-900">{applicationsCount}</p>
-	                </div>
-	                <div className="rounded-3xl border border-white/70 bg-white/85 p-5 shadow-lg backdrop-blur-sm">
-	                  <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md">
-	                    <CalendarDays className="h-5 w-5" />
-	                  </div>
-	                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Interviews</p>
-	                  <p className="mt-2 text-3xl font-bold text-slate-900">{interviewsCount}</p>
-	                </div>
-	              </div>
-	            </div>
+              <div className="grid w-full max-w-xl grid-cols-2 gap-3">
+                <div className="rounded-3xl border border-white/70 bg-white/85 p-5 shadow-lg backdrop-blur-sm">
+                  <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md">
+                    <Briefcase className="h-5 w-5" />
+                  </div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Applications</p>
+                  <p className="mt-2 text-3xl font-bold text-slate-900">{applicationsCount}</p>
+                  <p className="mt-1 text-xs text-slate-500">Active applications</p>
+                </div>
+                <div className="rounded-3xl border border-white/70 bg-white/85 p-5 shadow-lg backdrop-blur-sm">
+                  <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md">
+                    <CalendarDays className="h-5 w-5" />
+                  </div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Interviews</p>
+                  <p className="mt-2 text-3xl font-bold text-slate-900">{interviewsCount}</p>
+                  <p className="mt-1 text-xs text-slate-500">Upcoming interviews</p>
+                </div>
+                <div className="rounded-3xl border border-white/70 bg-white/85 p-5 shadow-lg backdrop-blur-sm">
+                  <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md">
+                    <Building2 className="h-5 w-5" />
+                  </div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Open Roles</p>
+                  <p className="mt-2 text-3xl font-bold text-slate-900">{jobs.length}</p>
+                  <p className="mt-1 text-xs text-slate-500">Platform openings</p>
+                </div>
+                <div className="rounded-3xl border border-white/70 bg-white/85 p-5 shadow-lg backdrop-blur-sm">
+                  <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md">
+                    <TrendingUp className="h-5 w-5" />
+                  </div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">New Roles</p>
+                  <p className="mt-2 text-3xl font-bold text-slate-900">{newRolesCount}</p>
+                  <p className="mt-1 text-xs text-slate-500">Last 7 days</p>
+                </div>
+              </div>
+            </div>
 		          ) : (
 		            <div className="overflow-hidden rounded-[2rem] border border-orange-100 bg-[#fff7ed] shadow-xl">
 		              <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-start sm:justify-between sm:p-6">
@@ -1655,16 +1758,13 @@ export default function TalentOverview() {
 		                    type="button"
 		                    className="rounded-full p-2 text-orange-600 hover:bg-orange-50"
 		                    aria-label="Share job"
-		                    onClick={async () => {
-		                      const url = `${window.location.origin}/jobs/${selectedJob.id}`;
-		                      await navigator.clipboard.writeText(url);
-		                      toast({ title: "Link copied to clipboard" });
+                        onClick={async () => {
+                          const url = `${window.location.origin}/jobs/${selectedJob.id}`;
+                          await navigator.clipboard.writeText(url);
+                          toast({ title: "Link copied to clipboard" });
 		                    }}
 		                  >
 		                    <Share2 className="h-4 w-4" />
-		                  </button>
-		                  <button type="button" className="rounded-full p-2 text-orange-600 hover:bg-orange-50" aria-label="Save job">
-		                    <Bookmark className="h-4 w-4" />
 		                  </button>
 		                </div>
 		              </div>
@@ -1680,7 +1780,7 @@ export default function TalentOverview() {
 		                  </div>
 		                  <div className="rounded-2xl border border-orange-200 bg-orange-50/40 p-4 shadow-sm">
 		                    <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
-		                      <Briefcase className="h-4 w-4 text-orange-600" />
+		                      <FileText className="h-4 w-4 text-orange-600" />
 		                      Contract Type
 		                    </div>
 		                    <p className="mt-2 text-base font-bold text-slate-900">{selectedJob.contractType || "Not specified"}</p>
@@ -1694,7 +1794,7 @@ export default function TalentOverview() {
 		                  </div>
 		                  <div className="rounded-2xl border border-orange-200 bg-orange-50/40 p-4 shadow-sm">
 		                    <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
-		                      <GraduationCap className="h-4 w-4 text-orange-600" />
+		                      <BriefcaseBusiness className="h-4 w-4 text-orange-600" />
 		                      Experience
 		                    </div>
 		                    <p className="mt-2 text-base font-bold text-slate-900">
@@ -1709,116 +1809,145 @@ export default function TalentOverview() {
 
 	        {viewMode === "list" ? (
 	          <section>
-	            <div className="mb-7 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-	              <div className="relative w-full max-w-xl">
-	                <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-orange-400" />
-	                <Input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search jobs..." className="h-12 rounded-2xl border-orange-200 pl-11 focus:border-orange-400 focus:ring-orange-400" />
-	              </div>
-	              <div className="flex flex-wrap items-center gap-2">
-	                <button
-	                  type="button"
-	                  onClick={() => setShowFilters((v) => !v)}
-	                  className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-orange-600 hover:bg-orange-50"
-	                >
-	                  <SlidersHorizontal className="h-3.5 w-3.5" />
-	                  Filters
-	                </button>
-	                <div className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-orange-600">
-	                  <Users className="h-3.5 w-3.5" />
-	                  {filteredJobs.length} jobs
-	                </div>
-	              </div>
-	            </div>
+            <div className="mb-5 space-y-3 rounded-3xl border border-orange-100 bg-white/80 p-4 shadow-sm backdrop-blur-sm">
+              <div className="grid gap-3 md:grid-cols-2">
+                <Select value={locationFilter} onValueChange={setLocationFilter}>
+                  <SelectTrigger className="h-12 rounded-2xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700">
+                    <SelectValue placeholder="Location" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value=" ">  locations</SelectItem>
+                    {jobFilterOptions.locations.map((loc, index) => (
+                      <SelectItem key={`${loc}-${index}`} value={loc}>
+                        {loc}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-	            {showFilters ? (
-	              <div className="mb-7 grid gap-3 rounded-3xl border border-orange-100 bg-white/80 p-4 shadow-sm backdrop-blur-sm md:grid-cols-5">
-	                <Select value={locationFilter} onValueChange={setLocationFilter}>
-	                  <SelectTrigger className="h-11 rounded-2xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700">
-	                    <SelectValue placeholder="Location" />
-	                  </SelectTrigger>
-	                  <SelectContent>
-	                    <SelectItem value="all">All locations</SelectItem>
-	                    {jobFilterOptions.locations.map((loc, index) => (
-	                      <SelectItem key={`${loc}-${index}`} value={loc}>
-	                        {loc}
-	                      </SelectItem>
-	                    ))}
-	                  </SelectContent>
-	                </Select>
+                <Select value={employmentFilter} onValueChange={setEmploymentFilter}>
+                  <SelectTrigger className="h-12 rounded-2xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700">
+                    <SelectValue placeholder="Employment" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value=" ">  types</SelectItem>
+                    {jobFilterOptions.employmentTypes.map((value, index) => (
+                      <SelectItem key={`${value}-${index}`} value={value}>
+                        {value}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-	                <Select value={employmentFilter} onValueChange={setEmploymentFilter}>
-	                  <SelectTrigger className="h-11 rounded-2xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700">
-	                    <SelectValue placeholder="Employment" />
-	                  </SelectTrigger>
-	                  <SelectContent>
-	                    <SelectItem value="all">All types</SelectItem>
-	                    {jobFilterOptions.employmentTypes.map((value, index) => (
-	                      <SelectItem key={`${value}-${index}`} value={value}>
-	                        {value}
-	                      </SelectItem>
-	                    ))}
-	                  </SelectContent>
-	                </Select>
+              <div className="grid gap-3 md:grid-cols-3">
+                <Select value={workplaceFilter} onValueChange={setWorkplaceFilter}>
+                  <SelectTrigger className="h-12 rounded-2xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700">
+                    <SelectValue placeholder="Workplace" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value=" ">work mode</SelectItem>
+                    {jobFilterOptions.workplaces.map((value, index) => (
+                      <SelectItem key={`${value}-${index}`} value={value}>
+                        {value}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-	                <Select value={workplaceFilter} onValueChange={setWorkplaceFilter}>
-	                  <SelectTrigger className="h-11 rounded-2xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700">
-	                    <SelectValue placeholder="Workplace" />
-	                  </SelectTrigger>
-	                  <SelectContent>
-	                    <SelectItem value="all">Any workplace</SelectItem>
-	                    {jobFilterOptions.workplaces.map((value, index) => (
-	                      <SelectItem key={`${value}-${index}`} value={value}>
-	                        {value}
-	                      </SelectItem>
-	                    ))}
-	                  </SelectContent>
-	                </Select>
+                <Select value={experienceFilter} onValueChange={setExperienceFilter}>
+                  <SelectTrigger className="h-12 rounded-2xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700">
+                    <SelectValue placeholder="Experience" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value=" ">  levels</SelectItem>
+                    {jobFilterOptions.experienceLevels.map((value, index) => (
+                      <SelectItem key={`${value}-${index}`} value={value}>
+                        {value}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-	                <Select value={experienceFilter} onValueChange={setExperienceFilter}>
-	                  <SelectTrigger className="h-11 rounded-2xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700">
-	                    <SelectValue placeholder="Experience" />
-	                  </SelectTrigger>
-	                  <SelectContent>
-	                    <SelectItem value="all">All levels</SelectItem>
-	                    {jobFilterOptions.experienceLevels.map((value, index) => (
-	                      <SelectItem key={`${value}-${index}`} value={value}>
-	                        {value}
-	                      </SelectItem>
-	                    ))}
-	                  </SelectContent>
-	                </Select>
+                <Select value={postedFilter} onValueChange={setPostedFilter}>
+                  <SelectTrigger className="h-12 rounded-2xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700">
+                    <SelectValue placeholder="Posted" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value=" ">  dates</SelectItem>
+                    <SelectItem value="1">Last 24 hours</SelectItem>
+                    <SelectItem value="3">Last 3 days</SelectItem>
+                    <SelectItem value="7">Last 7 days</SelectItem>
+                    <SelectItem value="14">Last 14 days</SelectItem>
+                    <SelectItem value="30">Last 30 days</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
-	                <Select value={postedFilter} onValueChange={setPostedFilter}>
-	                  <SelectTrigger className="h-11 rounded-2xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700">
-	                    <SelectValue placeholder="Posted" />
-	                  </SelectTrigger>
-	                  <SelectContent>
-	                    <SelectItem value="all">Any time</SelectItem>
-	                    <SelectItem value="1">Last 24 hours</SelectItem>
-	                    <SelectItem value="3">Last 3 days</SelectItem>
-	                    <SelectItem value="7">Last 7 days</SelectItem>
-	                    <SelectItem value="14">Last 14 days</SelectItem>
-	                    <SelectItem value="30">Last 30 days</SelectItem>
-	                  </SelectContent>
-	                </Select>
+            <div className="mb-7 flex flex-col gap-3 rounded-3xl border border-orange-100 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
+              <div className="relative w-full md:max-w-xl">
+                <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-orange-400" />
+                <Input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search role, company, or skill..." className="h-12 rounded-2xl border-orange-200 pl-11 focus:border-orange-400 focus:ring-orange-400" />
+              </div>
+              <div className="flex flex-wrap gap-2 sm:flex-nowrap">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setLocationFilter(" ");
+                    setEmploymentFilter(" ");
+                    setWorkplaceFilter(" ");
+                    setExperienceFilter(" ");
+                    setPostedFilter(" ");
+                    setSearchQuery("");
+                    setSelectedSkills([]);
+                  }}
+                  className="whitespace-nowrap rounded-full border-orange-600 bg-gradient-to-r from-orange-600 to-orange-500 text-white hover:from-orange-700 hover:to-orange-600 hover:text-white"
+                >
+                  <span className="flex items-center gap-2">
+                    <RefreshCw className="h-4 w-4" />
+                    Reset Filters
+                  </span>
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => setShowAdvancedFilters((currentState) => !currentState)}
+                  className="whitespace-nowrap rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white hover:from-orange-700 hover:to-orange-600"
+                >
+                  <span className="flex items-center gap-2">
+                    <SlidersHorizontal className="h-4 w-4" />
+                    {showAdvancedFilters ? "Hide Advanced" : "Show Advanced"}
+                  </span>
+                </Button>
+              </div>
+            </div>
 
-	                <div className="md:col-span-5 flex flex-wrap gap-2 pt-1">
-	                  <button
-	                    type="button"
-	                    onClick={() => {
-	                      setLocationFilter("all");
-	                      setEmploymentFilter("all");
-	                      setWorkplaceFilter("all");
-	                      setExperienceFilter("all");
-	                      setPostedFilter("all");
-	                    }}
-	                    className="rounded-full border border-orange-200 bg-orange-50 px-4 py-2 text-xs font-semibold text-orange-700 hover:bg-orange-100"
-	                  >
-	                    Clear filters
-	                  </button>
-	                </div>
-	              </div>
-	            ) : null}
+            {showAdvancedFilters ? (
+              <div className="mb-7 rounded-3xl border border-orange-100 bg-white p-5 shadow-lg">
+                <p className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">Skill match</p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {availableSkills.length > 0 ? (
+                    availableSkills.map((skill) => (
+                      <button
+                        key={skill}
+                        type="button"
+                        onClick={() => toggleSkillFilter(skill)}
+                        className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                          selectedSkills.includes(skill)
+                            ? "border-orange-600 bg-orange-600 text-white"
+                            : "border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100"
+                        }`}
+                      >
+                        {skill}
+                      </button>
+                    ))
+                  ) : (
+                    <span className="text-sm text-slate-600">No skills found yet.</span>
+                  )}
+                </div>
+              </div>
+            ) : null}
 
             {loading ? (
               <div className="rounded-2xl border border-dashed border-orange-200 bg-orange-50/50 px-6 py-10 text-orange-700">
@@ -1839,7 +1968,7 @@ export default function TalentOverview() {
                     .join("");
 
 	                  return (
-	                    <article key={job.id} className="group relative overflow-hidden rounded-3xl border border-orange-100 bg-white p-6 shadow-lg transition-all hover:-translate-y-1 hover:shadow-2xl">
+                      <article key={job.id} className="group relative overflow-hidden rounded-3xl border border-orange-100 bg-white p-6 shadow-lg transition hover:-translate-y-1 hover:shadow-2xl">
 	                      <div className="mb-5 flex items-start justify-between gap-4">
 	                        <div className="flex items-start gap-4">
 	                          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-lg font-bold text-white shadow-lg">
@@ -1859,16 +1988,13 @@ export default function TalentOverview() {
 	                            type="button"
 	                            className="rounded-full p-2 text-orange-600 hover:bg-orange-50"
 	                            aria-label="Share job"
-	                            onClick={async () => {
-	                              const url = `${window.location.origin}/jobs/${job.id}`;
-	                              await navigator.clipboard.writeText(url);
-	                              toast({ title: "Link copied to clipboard" });
+                              onClick={async () => {
+                                const url = `${window.location.origin}/jobs/${job.id}`;
+                                await navigator.clipboard.writeText(url);
+                                toast({ title: "Link copied to clipboard" });
 	                            }}
 	                          >
 	                            <Share2 className="h-4 w-4" />
-	                          </button>
-	                          <button type="button" className="rounded-full p-2 text-orange-600 hover:bg-orange-50" aria-label="Save job">
-	                            <Bookmark className="h-4 w-4" />
 	                          </button>
 	                        </div>
 	                      </div>
@@ -1907,14 +2033,15 @@ export default function TalentOverview() {
                         </div>
                         <Button
                           type="button"
-                          onClick={() => {
-                            setSelectedJobId(job.id);
-                            setViewMode("details");
-                            window.scrollTo({ top: 0, behavior: "smooth" });
-                          }}
+                            onClick={() => {
+                              setLinkedJob(null);
+                              setSelectedJobId(job.id);
+                              setViewMode("details");
+                              window.scrollTo({ top: 0, behavior: "smooth" });
+                            }}
                           className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md hover:from-orange-700 hover:to-orange-600"
                         >
-                          <ExternalLink className="h-4 w-4" />
+                            <ExternalLink className="h-4 w-4" />
                           View Job
                         </Button>
                       </div>
@@ -1930,40 +2057,22 @@ export default function TalentOverview() {
 	          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
 	            <div className="space-y-6">
 	              <div className="rounded-[2rem] border border-orange-100 bg-white p-7 shadow-lg">
-	                <h2 className="text-3xl font-bold text-slate-900">Role Overview</h2>
+                  <h2 className="text-3xl font-bold text-slate-900">Job Description</h2>
 	                <p className="mt-4 whitespace-pre-line text-base leading-7 text-slate-600">{selectedJob.description || "—"}</p>
 	              </div>
 
               <div className="rounded-[2rem] border border-orange-100 bg-white p-7 shadow-lg">
-                <h3 className="text-3xl font-bold text-slate-900">What You Will Do</h3>
-                {selectedJob.whatYouWillDo.length > 0 ? (
-                  <ul className="mt-5 space-y-3">
-                    {selectedJob.whatYouWillDo.map((item, index) => (
-                      <li key={`${item}-${index}`} className="flex gap-3 text-base leading-7 text-slate-700">
-                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500" />
-                        <span>{item}</span>
-                      </li>
+                <h3 className="text-2xl font-bold text-slate-900">Role details</h3>
+                <p className="mt-4 text-base leading-7 text-slate-600">Full role specifics are shared during the hiring process.</p>
+                {selectedJob.skillsRequired.length > 0 ? (
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    {selectedJob.skillsRequired.map((skill, index) => (
+                      <span key={`${skill}-${index}`} className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700">
+                        {skill}
+                      </span>
                     ))}
-                  </ul>
-                ) : (
-                  <p className="mt-4 text-base leading-7 text-slate-600">Details will be shared during the process.</p>
-                )}
-              </div>
-
-              <div className="rounded-[2rem] border border-orange-100 bg-white p-7 shadow-lg">
-                <h3 className="text-3xl font-bold text-slate-900">Requirements</h3>
-                {selectedJob.requirements.length > 0 ? (
-                  <ul className="mt-5 space-y-3">
-                    {selectedJob.requirements.map((item, index) => (
-                      <li key={`${item}-${index}`} className="flex gap-3 text-base leading-7 text-slate-700">
-                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500" />
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-4 text-base leading-7 text-slate-600">No requirements provided yet.</p>
-                )}
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -2000,18 +2109,33 @@ export default function TalentOverview() {
                 ) : null}
               </div>
 
-              <Button
-                type="button"
-                onClick={() => {
-                  setViewMode("apply");
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
-                disabled={appliedJobIds.has(selectedJob.id)}
-                className="mt-7 h-14 w-full rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-base font-semibold text-white shadow-md hover:from-orange-700 hover:to-orange-600 disabled:opacity-60"
-              >
-                <ExternalLink className="mr-2 h-5 w-5" />
-                {appliedJobIds.has(selectedJob.id) ? "Already applied" : "Apply for this position"}
-              </Button>
+              <div className="mt-7 space-y-3">
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setViewMode("apply");
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  disabled={appliedJobIds.has(selectedJob.id)}
+                  className="h-14 w-full rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-base font-semibold text-white shadow-md hover:from-orange-700 hover:to-orange-600 disabled:from-orange-400 disabled:to-orange-300 disabled:text-white disabled:opacity-100"
+                >
+                  <Link className="mr-2 h-5 w-5" />
+                  {appliedJobIds.has(selectedJob.id) ? "Already applied" : "Apply"}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    toast({
+                      title: "Job alert set",
+                      description: `You will receive updates for ${selectedJob.title}.`,
+                    });
+                  }}
+                  className="h-14 w-full rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-base font-semibold text-white shadow-md hover:from-orange-700 hover:to-orange-600"
+                >
+                  <Mail className="mr-2 h-5 w-5" />
+                  Set Job Alert
+                </Button>
+              </div>
             </aside>
           </div>
         ) : null}
@@ -2055,8 +2179,8 @@ export default function TalentOverview() {
                 </div>
 
 	                <div className="mt-10 rounded-[2rem] border border-orange-100 bg-orange-50/40 p-6">
-	                  <h3 className="text-lg font-bold text-slate-900">CV for this application</h3>
-	                  <p className="mt-2 text-sm font-semibold text-slate-600">Choose an existing CV from your profile documents or upload a new version for this role.</p>
+	                  <h3 className="text-lg font-bold text-slate-900">Resume for this application</h3>
+	                  <p className="mt-2 text-sm font-semibold text-slate-600">Choose an existing resume from your profile documents or upload a new version for this role.</p>
 
 	                  <input
 	                    ref={cvFileInputRef}
@@ -2079,6 +2203,7 @@ export default function TalentOverview() {
 		                  {(() => {
 		                    const resumeUrls = talent.resumeUrls ?? ["", "", ""];
 		                    const selectedUrl = String(resumeUrls[selectedCvSlot] ?? "").trim();
+		                    const selectedName = getResumeDisplayName(selectedUrl, `Resume ${selectedCvSlot + 1}`);
 		                    const hasSelected = Boolean(selectedUrl);
 			                    const firstEmptySlot = resumeUrls.findIndex((u) => !String(u).trim());
 			                    const hasFreeSlot = firstEmptySlot >= 0;
@@ -2086,7 +2211,7 @@ export default function TalentOverview() {
 			                      .map((u, i) => ({ slot: i, has: Boolean(String(u).trim()) }))
 			                      .filter((x) => x.has);
 			                    const canUpload = hasSelected || hasFreeSlot;
-			                    const uploadText = hasSelected ? "Replace CV" : "Upload your CV";
+		                    const uploadText = hasSelected ? "Replace resume" : "Upload your resume";
 
 			                    return (
 			                      <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -2097,25 +2222,25 @@ export default function TalentOverview() {
 			                            </span>
 			                            <FileText className="mt-0.5 h-5 w-5 text-orange-600" />
 			                            <div className="min-w-0">
-			                              <p className="text-sm font-bold text-slate-900">Select CV from profile</p>
-			                              <p className="mt-1 text-xs font-semibold text-slate-600">Use a CV you already have saved under your profile documents.</p>
+			                              <p className="text-sm font-bold text-slate-900">Select resume from profile</p>
+			                              <p className="mt-1 text-xs font-semibold text-slate-600">Use a resume you already have saved under your profile documents.</p>
 			                            </div>
 			                          </div>
 
 		                          <div className="mt-4">
 		                            <Select value={String(selectedCvSlot)} onValueChange={(v) => setSelectedCvSlot(Number(v))}>
 		                              <SelectTrigger className="h-11 rounded-2xl border-orange-200">
-		                                <SelectValue placeholder={existingSlots.length ? "Choose a CV" : "Add new CV"} />
+		                                <SelectValue placeholder={existingSlots.length ? "Choose a resume" : "Add new resume"} />
 		                              </SelectTrigger>
 		                              <SelectContent>
 		                                {existingSlots.map(({ slot }) => (
 		                                  <SelectItem key={`cv-option-${slot}`} value={String(slot)}>
-		                                    CV {slot + 1}
+		                                    {getResumeDisplayName(String(resumeUrls[slot] ?? ""), `Resume ${slot + 1}`)}
 		                                  </SelectItem>
 		                                ))}
 		                                {hasFreeSlot ? (
 		                                  <SelectItem key={`cv-option-add-${firstEmptySlot}`} value={String(firstEmptySlot)}>
-		                                    Add new CV
+		                                    Add new resume
 		                                  </SelectItem>
 		                                ) : null}
 		                              </SelectContent>
@@ -2124,20 +2249,20 @@ export default function TalentOverview() {
 
 			                          {hasSelected ? (
 			                            <div className="mt-4 rounded-2xl border border-orange-100 bg-orange-50/40 p-4">
-			                              <p className="text-sm font-semibold text-slate-900">CV {selectedCvSlot + 1}</p>
-			                              <p className="mt-1 text-xs font-semibold text-slate-600">Preview the CV you’ll submit with this application.</p>
+			                              <p className="text-sm font-semibold text-slate-900">Resume</p>
+			                              <p className="mt-1 text-xs font-semibold text-slate-600">{selectedName}</p>
 			                              <button
 			                                type="button"
 			                                onClick={() => handleViewCv(selectedUrl)}
 			                                className="mt-4 inline-flex items-center justify-center gap-2 rounded-full border border-orange-200 bg-white px-4 py-2 text-xs font-semibold text-orange-700 transition hover:bg-orange-50"
 			                              >
 			                                <Eye className="h-4 w-4" />
-			                                Preview CV
+			                                Preview resume
 			                              </button>
 			                            </div>
 		                          ) : (
 		                            <div className="mt-4 rounded-2xl border border-orange-100 bg-orange-50 p-4 text-center text-sm text-slate-700">
-		                              {hasFreeSlot ? "Select “Add new CV” then upload on the right." : "No CV selected."}
+		                              {hasFreeSlot ? "Select Add new resume then upload on the right." : "No resume selected."}
 		                            </div>
 		                          )}
 		                        </div>
@@ -2148,9 +2273,9 @@ export default function TalentOverview() {
 			                            <div className="min-w-0">
 			                              <div className="flex items-center gap-2">
 			                                <Upload className="h-5 w-5 text-orange-600" />
-			                                <p className="text-sm font-bold text-slate-900">Upload a new CV</p>
+			                                <p className="text-sm font-bold text-slate-900">Upload a new resume</p>
 			                              </div>
-			                              <p className="mt-1 text-xs font-semibold text-slate-600">Attach a tailored CV for this specific job application.</p>
+			                              <p className="mt-1 text-xs font-semibold text-slate-600">Attach a tailored resume for this specific job application.</p>
 			                            </div>
 			                          </div>
 
@@ -2162,12 +2287,12 @@ export default function TalentOverview() {
 			                              cvFileInputRef.current?.click();
 			                            }}
 			                            disabled={!canUpload}
-			                            className="mt-5 w-full rounded-[1.5rem] border-2 border-dashed border-orange-300 bg-orange-50/40 p-6 text-center transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                  className="mt-5 w-full rounded-[1.5rem] border-2 border-dashed border-orange-300 bg-orange-50/40 p-6 text-center transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60"
 			                          >
 			                            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-100 text-orange-600">
 			                              <Upload className="h-7 w-7" />
 			                            </div>
-			                            <p className="mt-4 text-base font-bold text-slate-900">{canUpload ? uploadText : "3 CVs saved"}</p>
+			                            <p className="mt-4 text-base font-bold text-slate-900">{canUpload ? uploadText : "3 resumes saved"}</p>
 			                            <p className="mt-2 text-xs font-semibold text-slate-600">PDF, DOC, or DOCX up to 5 MB</p>
 			                          </button>
 			                        </div>
@@ -2235,7 +2360,7 @@ export default function TalentOverview() {
                 <h4 className="text-sm font-bold text-slate-900">Before you submit</h4>
                 <ul className="mt-4 space-y-3 text-sm font-semibold text-slate-600">
                   <li>Use the same email you monitor for recruiter follow-up.</li>
-                  <li>Choose a CV from your profile or upload a fresh version tailored to this role.</li>
+                  <li>Choose a resume from your profile or upload a fresh version tailored to this role.</li>
                 </ul>
               </div>
             </aside>

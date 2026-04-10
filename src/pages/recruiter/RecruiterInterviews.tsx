@@ -21,9 +21,11 @@ import {
   Star,
   Video,
 } from "lucide-react";
+import CvViewer from "@/components/CvViewer";
 
-type InterviewStatus = "scheduled" | "confirmed" | "completed" | "rescheduled" | "cancelled" | "no-show";
+type InterviewStatus = "scheduled" | "completed" | "no-show";
 type InterviewFilter = "All" | InterviewStatus;
+type InterviewTypeFilter = "all" | "talent-acquisition" | "technical" | "leadership";
 
 type InterviewRecord = {
   id: string;
@@ -31,53 +33,60 @@ type InterviewRecord = {
   applyingFor: string;
   company: string;
   status: InterviewStatus;
-  locationLine: string;
   interviewType: "technical" | "leadership" | "talent-acquisition";
-  phone: string;
   scheduledAt: string;
   durationMinutes: number;
   meetLink?: string | null;
-  workMode: string;
   evaluationLabel: string;
   rating?: number;
   notes: string;
   submittedOn?: string;
   feedbackState?: "pending" | "sent";
   reviewText?: string;
+  resumeUrl?: string;
 };
 
 const filters: InterviewFilter[] = [
   "All",
   "scheduled",
-  "confirmed",
   "completed",
-  "rescheduled",
-  "cancelled",
   "no-show",
 ];
 
+const interviewTypeFilters: Array<{ id: InterviewTypeFilter; label: string }> = [
+  { id: "all", label: "All Types" },
+  { id: "talent-acquisition", label: "TA" },
+  { id: "technical", label: "Technical" },
+  { id: "leadership", label: "Leadership" },
+];
+
+const getInterviewTypeLabel = (type: InterviewRecord["interviewType"]) => {
+  if (type === "talent-acquisition") return "Talent Acquisition";
+  if (type === "technical") return "Technical";
+  return "Leadership";
+};
+
 const isUpcomingStatus = (status: InterviewStatus) => {
-  return status === "scheduled" || status === "confirmed" || status === "rescheduled";
+  return status === "scheduled";
 };
 
 const getStatusClasses = (status: InterviewStatus) => {
   if (status === "completed") {
-    return "border-green-200 bg-green-50 text-green-700";
+    return "border-orange-200 bg-orange-100 text-orange-700";
   }
 
-  if (status === "confirmed") {
-    return "border-blue-200 bg-blue-50 text-blue-700";
+  if (status === "scheduled") {
+    return "border-orange-300 bg-orange-50 text-orange-800";
   }
 
-  if (status === "scheduled" || status === "rescheduled") {
-    return "border-orange-200 bg-orange-50 text-orange-700";
-  }
+  return "border-orange-200 bg-orange-50/70 text-orange-700";
+};
 
-  if (status === "no-show") {
-    return "border-amber-200 bg-amber-50 text-amber-700";
-  }
-
-  return "border-slate-200 bg-slate-50 text-slate-700";
+const toLocalDateTimeInputValue = (iso: string) => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 };
 
 const renderRatingStars = (rating?: number, sizeClass = "h-4 w-4") => {
@@ -96,11 +105,31 @@ const renderRatingStars = (rating?: number, sizeClass = "h-4 w-4") => {
   );
 };
 
+const toFixed3ResumeUrls = (value: unknown): [string, string, string] => {
+  if (Array.isArray(value)) {
+    const a = value.map((v) => (typeof v === "string" ? v : "")).slice(0, 3);
+    return [(a[0] ?? "").trim(), (a[1] ?? "").trim(), (a[2] ?? "").trim()];
+  }
+  if (typeof value === "string" && value.trim()) {
+    const trimmed = value.trim();
+    return [trimmed, "", ""];
+  }
+  return ["", "", ""];
+};
+
+const firstNonEmptyResumeUrl = (urls: readonly string[]) => urls.find((u) => String(u).trim()) ?? "";
+
+const extractCvsObjectPathFromResumeUrl = (resumeUrl: string): string | null => {
+  const match = resumeUrl.match(/cvs\/(.+)$/);
+  return match ? match[1] : null;
+};
+
 const EmployerInterviews = () => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<InterviewFilter>("All");
+  const [activeInterviewType, setActiveInterviewType] = useState<InterviewTypeFilter>("all");
   const [loading, setLoading] = useState(true);
   const [records, setRecords] = useState<InterviewRecord[]>([]);
 
@@ -109,7 +138,14 @@ const EmployerInterviews = () => {
   const [reviewRating, setReviewRating] = useState<number>(5);
   const [reviewText, setReviewText] = useState<string>("");
   const [reviewSaving, setReviewSaving] = useState(false);
-  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [rescheduleTarget, setRescheduleTarget] = useState<InterviewRecord | null>(null);
+  const [rescheduleDateTime, setRescheduleDateTime] = useState("");
+  const [rescheduleSaving, setRescheduleSaving] = useState(false);
+  const [cvDialogOpen, setCvDialogOpen] = useState(false);
+  const [cvDialogUrl, setCvDialogUrl] = useState("");
+  const [cvLoading, setCvLoading] = useState(false);
+  const [cvDialogError, setCvDialogError] = useState("");
 
   useEffect(() => {
     const load = async () => {
@@ -124,45 +160,93 @@ const EmployerInterviews = () => {
       try {
         const membershipRes = await supabase
           .from("employer_team_members")
-          .select("id, employer:employers(company_name)")
+          .select("id, employer_id, employer:employers(company_name)")
           .eq("user_id", user.id)
           .maybeSingle();
 
         const teamMemberId = membershipRes.data?.id ?? null;
+        const employerId = membershipRes.data?.employer_id ?? null;
         const companyName =
           (Array.isArray((membershipRes.data as any)?.employer)
             ? (membershipRes.data as any)?.employer?.[0]?.company_name
             : (membershipRes.data as any)?.employer?.company_name) || "";
 
-        if (!teamMemberId) {
+        if (!teamMemberId || !employerId) {
           setRecords([]);
           setLoading(false);
           return;
         }
 
-        const interviewsRes = await supabase
+        const selectQuery = [
+          "id,",
+          "interview_type,",
+          "status,",
+          "scheduled_date,",
+          "duration_minutes,",
+          "meet_link,",
+          "application_id,",
+          "application:applications(id,job:jobs(title,location,workplace,employment_type),talent:talents(full_name,phone_number,city,resume_url)),",
+          "review:interview_reviews(rating,review_text,created_at)",
+        ].join("");
+
+        const taInterviewsRes = await supabase
           .from("interviews")
-          .select(
-            [
-              "id,",
-              "interview_type,",
-              "status,",
-              "scheduled_date,",
-              "duration_minutes,",
-              "meet_link,",
-              "application:applications(id,job:jobs(title,location,workplace,employment_type),talent:talents(full_name,phone_number,city)),",
-              "review:interview_reviews(rating,review_text,created_at)",
-            ].join("")
-          )
+          .select(selectQuery)
+          .eq("interview_type", "talent-acquisition")
           .eq("team_member_id", teamMemberId)
+          .in("status", ["scheduled", "completed", "no-show"])
           .order("scheduled_date", { ascending: false });
 
-        if (interviewsRes.error) throw interviewsRes.error;
+        if (taInterviewsRes.error) throw taInterviewsRes.error;
 
-        const mapped: InterviewRecord[] = (interviewsRes.data ?? []).map((row: any) => {
+        const jobsRes = await supabase.from("jobs").select("id").eq("employer_id", employerId);
+        if (jobsRes.error) throw jobsRes.error;
+
+        const employerJobIds = (jobsRes.data ?? []).map((job: { id: string }) => job.id).filter(Boolean);
+        let employerApplicationIds: string[] = [];
+
+        if (employerJobIds.length > 0) {
+          const applicationsRes = await supabase
+            .from("applications")
+            .select("id")
+            .in("job_id", employerJobIds);
+
+          if (applicationsRes.error) throw applicationsRes.error;
+          employerApplicationIds = (applicationsRes.data ?? [])
+            .map((application: { id: string }) => application.id)
+            .filter(Boolean);
+        }
+
+        let employerTypeInterviews: any[] = [];
+
+        if (employerApplicationIds.length > 0) {
+          const otherTypesRes = await supabase
+            .from("interviews")
+            .select(selectQuery)
+            .in("application_id", employerApplicationIds)
+            .in("interview_type", ["technical", "leadership"])
+            .in("status", ["scheduled", "completed", "no-show"])
+            .order("scheduled_date", { ascending: false });
+
+          if (otherTypesRes.error) throw otherTypesRes.error;
+          employerTypeInterviews = otherTypesRes.data ?? [];
+        }
+
+        const uniqueRows = [
+          ...(taInterviewsRes.data ?? []),
+          ...employerTypeInterviews,
+        ].reduce<Map<string, any>>((acc, row) => {
+          if (row?.id && !acc.has(row.id)) {
+            acc.set(row.id, row);
+          }
+          return acc;
+        }, new Map());
+
+        const mapped: InterviewRecord[] = Array.from(uniqueRows.values()).map((row: any) => {
           const talent = Array.isArray(row?.application?.talent) ? row.application.talent[0] : row?.application?.talent;
           const job = Array.isArray(row?.application?.job) ? row.application.job[0] : row?.application?.job;
           const review = Array.isArray(row?.review) ? row.review[0] : row?.review;
+          const resumeUrl = firstNonEmptyResumeUrl(toFixed3ResumeUrls(talent?.resume_url));
 
           const interviewType = row.interview_type as InterviewRecord["interviewType"];
           const status = row.status as InterviewStatus;
@@ -174,19 +258,17 @@ const EmployerInterviews = () => {
             applyingFor: job?.title || "Role",
             company: companyName || "Company",
             status,
-            locationLine: talent?.city || job?.location || "Remote",
             interviewType,
-            phone: talent?.phone_number || "",
             scheduledAt: row.scheduled_date,
             durationMinutes: Number(row.duration_minutes) || 60,
             meetLink: row.meet_link,
-            workMode: `${job?.employment_type || ""}${job?.workplace ? ` - ${job.workplace}` : ""}`.trim() || "—",
             evaluationLabel: isCompleted ? "Evaluation Completed" : isUpcomingStatus(status) ? "Upcoming Session" : "Interview",
             rating: review?.rating ? Number(review.rating) : undefined,
             reviewText: review?.review_text || undefined,
             notes: review?.review_text || (isCompleted ? "No notes submitted yet." : "Ready when you are."),
             submittedOn: review?.created_at ? format(new Date(review.created_at), "dd/MM/yyyy") : undefined,
             feedbackState: review ? "sent" : isCompleted ? "pending" : undefined,
+            resumeUrl: resumeUrl || undefined,
           };
         });
 
@@ -206,6 +288,24 @@ const EmployerInterviews = () => {
     void load();
   }, [toast, user?.id]);
 
+  const interviewTypeCounts = useMemo(() => {
+    return records.reduce<Record<InterviewTypeFilter, number>>(
+      (acc, interview) => {
+        acc.all += 1;
+        if (interview.interviewType === "talent-acquisition") acc["talent-acquisition"] += 1;
+        if (interview.interviewType === "technical") acc.technical += 1;
+        if (interview.interviewType === "leadership") acc.leadership += 1;
+        return acc;
+      },
+      {
+        all: 0,
+        "talent-acquisition": 0,
+        technical: 0,
+        leadership: 0,
+      }
+    );
+  }, [records]);
+
   const filteredInterviews = useMemo(() => {
     return records.filter((interview) => {
       const normalizedSearch = searchQuery.toLowerCase();
@@ -215,16 +315,59 @@ const EmployerInterviews = () => {
         interview.applyingFor.toLowerCase().includes(normalizedSearch) ||
         interview.company.toLowerCase().includes(normalizedSearch);
       const matchesFilter = activeFilter === "All" || interview.status === activeFilter;
+      const matchesType = activeInterviewType === "all" || interview.interviewType === activeInterviewType;
 
-      return matchesSearch && matchesFilter;
+      return matchesSearch && matchesFilter && matchesType;
     });
-  }, [activeFilter, records, searchQuery]);
+  }, [activeFilter, activeInterviewType, records, searchQuery]);
 
   const openReview = (interview: InterviewRecord) => {
     setReviewTarget(interview);
     setReviewRating(interview.rating ?? 5);
     setReviewText(interview.reviewText ?? "");
     setReviewOpen(true);
+  };
+
+  const openReschedule = (interview: InterviewRecord) => {
+    setRescheduleTarget(interview);
+    setRescheduleDateTime(toLocalDateTimeInputValue(interview.scheduledAt));
+    setRescheduleOpen(true);
+  };
+
+  const openCvPreview = async (interview: InterviewRecord) => {
+    if (cvLoading) return;
+    setCvDialogError("");
+    setCvLoading(true);
+
+    try {
+      if (!interview.resumeUrl) {
+        throw new Error("No resume available for this candidate.");
+      }
+
+      const objectPath = extractCvsObjectPathFromResumeUrl(interview.resumeUrl);
+      if (!objectPath) {
+        throw new Error("Could not resolve resume storage path.");
+      }
+
+      const { data, error } = await supabase.storage.from("cvs").createSignedUrl(objectPath, 60);
+      if (error) throw error;
+
+      const signedUrl = data?.signedUrl;
+      if (!signedUrl) throw new Error("Signed URL was not returned.");
+
+      const response = await fetch(signedUrl);
+      if (!response.ok) throw new Error("Failed to fetch resume");
+
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      setCvDialogUrl(blobUrl);
+      setCvDialogOpen(true);
+    } catch (err) {
+      setCvDialogError(err instanceof Error ? err.message : "Failed to open resume preview.");
+      setCvDialogOpen(true);
+    } finally {
+      setCvLoading(false);
+    }
   };
 
   const submitReview = async () => {
@@ -259,13 +402,13 @@ const EmployerInterviews = () => {
         )
       );
 
-      toast({ title: "Review saved", description: "Interview review submitted successfully." });
+      toast({ title: "Feedback saved", description: "Interview feedback submitted successfully." });
       setReviewOpen(false);
       setReviewTarget(null);
     } catch (err) {
       toast({
         title: "Error",
-        description: err instanceof Error ? err.message : "Failed to save review",
+        description: err instanceof Error ? err.message : "Failed to save feedback",
         variant: "destructive",
       });
     } finally {
@@ -273,25 +416,55 @@ const EmployerInterviews = () => {
     }
   };
 
-  const updateInterviewStatus = async (interview: InterviewRecord, nextStatus: InterviewStatus) => {
-    setActionLoadingId(interview.id);
+  const saveReschedule = async () => {
+    if (!rescheduleTarget || !rescheduleDateTime) return;
+
+    setRescheduleSaving(true);
     try {
+      const nextIso = new Date(rescheduleDateTime).toISOString();
       const { error } = await supabase
         .from("interviews")
-        .update({ status: nextStatus, updated_at: new Date().toISOString() })
-        .eq("id", interview.id);
+        .update({
+          scheduled_date: nextIso,
+          status: "scheduled",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", rescheduleTarget.id);
 
       if (error) throw error;
 
-      setRecords((prev) => prev.map((it) => (it.id === interview.id ? { ...it, status: nextStatus } : it)));
+      setRecords((prev) =>
+        prev.map((it) =>
+          it.id === rescheduleTarget.id
+            ? {
+                ...it,
+                scheduledAt: nextIso,
+                status: "scheduled",
+                evaluationLabel: "Upcoming Session",
+              }
+            : it
+        )
+      );
+
+      toast({
+        title: "Interview updated",
+        description:
+          rescheduleTarget.interviewType === "talent-acquisition"
+            ? "Interview time updated successfully."
+            : "Interview rescheduled successfully.",
+      });
+
+      setRescheduleOpen(false);
+      setRescheduleTarget(null);
+      setRescheduleDateTime("");
     } catch (err) {
       toast({
         title: "Error",
-        description: err instanceof Error ? err.message : "Failed to update interview",
+        description: err instanceof Error ? err.message : "Failed to reschedule interview",
         variant: "destructive",
       });
     } finally {
-      setActionLoadingId(null);
+      setRescheduleSaving(false);
     }
   };
 
@@ -329,6 +502,30 @@ const EmployerInterviews = () => {
             />
           </div>
 
+          <div className="mb-4 flex flex-wrap gap-2">
+            {interviewTypeFilters.map((filter) => (
+              <button
+                key={filter.id}
+                type="button"
+                onClick={() => setActiveInterviewType(filter.id)}
+                className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-all ${
+                  activeInterviewType === filter.id
+                    ? "bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md"
+                    : "border border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100"
+                }`}
+              >
+                {filter.label}
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                    activeInterviewType === filter.id ? "bg-white/20 text-white" : "bg-white text-orange-700"
+                  }`}
+                >
+                  {interviewTypeCounts[filter.id]}
+                </span>
+              </button>
+            ))}
+          </div>
+
           <div className="flex flex-wrap gap-2">
             {filters.map((filter) => (
               <button
@@ -361,151 +558,139 @@ const EmployerInterviews = () => {
                 {(() => {
                   const isCompleted = interview.status === "completed";
                   const isUpcoming = isUpcomingStatus(interview.status);
-                  const actionLabel =
-                    isUpcoming && interview.meetLink
-                      ? "Join Now"
-                      : isCompleted
-                      ? interview.feedbackState === "sent"
-                        ? "Feedback Sent"
-                        : "Leave Feedback"
-                      : "View Details";
-                  const isFeedbackSent = isCompleted && interview.feedbackState === "sent";
-                  const canJoin = isUpcoming && !!interview.meetLink && !isFeedbackSent;
+                  const isTaInterview = interview.interviewType === "talent-acquisition";
+                  const isFeedbackSent = isTaInterview && interview.feedbackState === "sent";
+                  const canJoin = isUpcoming && !!interview.meetLink;
+                  const canPrimaryAction = canJoin;
+                  const primaryActionLabel = canJoin
+                    ? "Join Now"
+                    : "View Only";
                   const formattedDate = interview.scheduledAt
                     ? format(new Date(interview.scheduledAt), "EEEE, MMMM d, yyyy")
                     : "—";
                   const formattedTime = interview.scheduledAt ? format(new Date(interview.scheduledAt), "hh:mm a") : "—";
+                  const interviewTypeLabel = getInterviewTypeLabel(interview.interviewType);
 
                   return (
                     <>
-                <div className="mb-5 flex flex-col gap-4 border-b border-orange-100 pb-5 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <h2 className="text-2xl font-bold text-slate-900">{interview.candidateName}</h2>
-                    <p className="mt-2 text-base font-medium text-slate-600">
-                      Applying for {interview.applyingFor} at {interview.company}
-                    </p>
-                  </div>
-                  <Badge className={getStatusClasses(interview.status)}>{interview.status === "completed" ? "Completed" : interview.status}</Badge>
-                </div>
+                      <div className="mb-5 flex flex-col gap-4 border-b border-orange-100 pb-5 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <h2 className="text-2xl font-bold text-slate-900">{interview.candidateName}</h2>
+                          <p className="mt-2 text-base font-medium text-slate-600">
+                            Applying for {interview.applyingFor} at {interview.company}
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Badge className="border-orange-200 bg-orange-50 text-orange-700">{interviewTypeLabel}</Badge>
+                            <Badge className={getStatusClasses(interview.status)}>
+                              {interview.status === "completed" ? "Completed" : interview.status}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
 
-                <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Location</p>
-                    <p className="mt-2 text-base font-semibold text-slate-900">{interview.locationLine}</p>
-                  </div>
-                  <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Track</p>
-                    <p className="mt-2 text-base font-semibold text-slate-900">
-                      {interview.interviewType === "talent-acquisition"
-                        ? "Talent Acquisition"
-                        : interview.interviewType === "technical"
-                        ? "Technical"
-                        : "Leadership"}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Phone</p>
-                    <p className="mt-2 text-base font-semibold text-slate-900">{interview.phone || "—"}</p>
-                  </div>
-                  <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Date</p>
-                    <p className="mt-2 text-base font-semibold text-slate-900">{formattedDate}</p>
-                  </div>
-                  <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Time</p>
-                    <p className="mt-2 text-base font-semibold text-slate-900">
-                      {formattedTime} ({interview.durationMinutes} minutes)
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Mode</p>
-                    <p className="mt-2 text-base font-semibold text-slate-900">{interview.workMode}</p>
-                  </div>
-                </div>
+                      <div className="mb-6 grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Date</p>
+                          <p className="mt-2 text-base font-semibold text-slate-900">{formattedDate}</p>
+                        </div>
+                        <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Time</p>
+                          <p className="mt-2 text-base font-semibold text-slate-900">
+                            {formattedTime} ({interview.durationMinutes} minutes)
+                          </p>
+                        </div>
+                      </div>
 
-                <div className="grid gap-4 rounded-2xl border border-orange-100 bg-orange-50/40 p-4 md:grid-cols-[1fr_auto_auto] md:items-center">
-                  <div>
-                    <p className="inline-flex items-center gap-2 text-sm font-bold text-orange-700">
-                      {isCompleted ? <CheckCircle2 className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
-                      {interview.evaluationLabel}
-                    </p>
-                    <p className="mt-2 text-sm font-semibold text-slate-700">{interview.notes}</p>
-                    {interview.submittedOn ? (
-                      <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                        {isCompleted ? `Submitted on ${interview.submittedOn}` : interview.submittedOn}
-                      </p>
-                    ) : null}
-                  </div>
+                      <div className="grid gap-4 rounded-2xl border border-orange-100 bg-orange-50/40 p-4 md:grid-cols-[1fr_auto] md:items-center">
+                        <div>
+                          <p className="inline-flex items-center gap-2 text-sm font-bold text-orange-700">
+                            {isCompleted ? <CheckCircle2 className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
+                            {interview.evaluationLabel}
+                          </p>
+                          <p className="mt-2 text-sm font-semibold text-slate-700">{interview.notes}</p>
+                          {interview.submittedOn ? (
+                            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              {isCompleted ? `Submitted on ${interview.submittedOn}` : interview.submittedOn}
+                            </p>
+                          ) : null}
+                        </div>
 
-                  {interview.rating ? (
-                    <div className="inline-flex items-center justify-center gap-1 rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-700">
-                      {renderRatingStars(interview.rating)}
-                    </div>
-                  ) : (
-                    <div className="inline-flex items-center justify-center rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-700">
-                      Pending
-                    </div>
-                  )}
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          {interview.rating ? (
+                            <div className="inline-flex items-center justify-center gap-1 rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-700">
+                              {renderRatingStars(interview.rating)}
+                            </div>
+                          ) : (
+                            <div className="inline-flex items-center justify-center rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-700">
+                              Pending
+                            </div>
+                          )}
 
-                  <Button
-                    disabled={isFeedbackSent}
-                    className={`gap-2 rounded-full text-white shadow-md ${
-                      isFeedbackSent
-                        ? "bg-orange-300 hover:bg-orange-300"
-                        : "bg-orange-600 hover:bg-orange-700"
-                    }`}
-                    onClick={() => {
-                      if (isFeedbackSent) return;
-                      if (canJoin) {
-                        window.open(interview.meetLink as string, "_blank", "noopener,noreferrer");
-                        if (interview.status === "scheduled") {
-                          void updateInterviewStatus(interview, "confirmed");
-                        }
-                        return;
-                      }
-                      if (isCompleted) {
-                        openReview(interview);
-                        return;
-                      }
-                    }}
-                  >
-                    {isUpcoming ? (
-                      <Video className="h-4 w-4" />
-                    ) : isFeedbackSent ? (
-                      <CheckCircle2 className="h-4 w-4" />
-                    ) : isCompleted ? (
-                      <MessageSquare className="h-4 w-4" />
-                    ) : (
-                      <Briefcase className="h-4 w-4" />
-                    )}
-                    {actionLabel}
-                  </Button>
-                </div>
+                          {canPrimaryAction && (
+                            <Button
+                              disabled={isFeedbackSent}
+                              className={`gap-2 rounded-full text-white shadow-md ${
+                                isFeedbackSent
+                                  ? "bg-orange-300 hover:bg-orange-300"
+                                  : "bg-orange-600 hover:bg-orange-700"
+                              }`}
+                              onClick={() => {
+                                if (isFeedbackSent) return;
+                                if (canJoin) {
+                                  window.open(interview.meetLink as string, "_blank", "noopener,noreferrer");
+                                  return;
+                                }
+                              }}
+                            >
+                              {canJoin ? (
+                                <Video className="h-4 w-4" />
+                              ) : (
+                                <MessageSquare className="h-4 w-4" />
+                              )}
+                              {primaryActionLabel}
+                            </Button>
+                          )}
 
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {isUpcomingStatus(interview.status) && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={actionLoadingId === interview.id}
-                      className="rounded-full border-orange-200 text-slate-700 hover:bg-orange-50"
-                      onClick={() => void updateInterviewStatus(interview, "completed")}
-                    >
-                      Mark completed
-                    </Button>
-                  )}
-                  {interview.status !== "cancelled" && interview.status !== "completed" && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={actionLoadingId === interview.id}
-                      className="rounded-full border-orange-200 text-slate-700 hover:bg-orange-50"
-                      onClick={() => void updateInterviewStatus(interview, "cancelled")}
-                    >
-                      Cancel
-                    </Button>
-                  )}
-                </div>
+                          {isTaInterview && (
+                            <Button
+                              disabled={isFeedbackSent}
+                              className={`gap-2 rounded-full text-white shadow-md ${
+                                isFeedbackSent
+                                  ? "bg-orange-300 hover:bg-orange-300"
+                                  : "bg-orange-600 hover:bg-orange-700"
+                              }`}
+                              onClick={() => {
+                                if (isFeedbackSent) return;
+                                openReview(interview);
+                              }}
+                            >
+                              {isFeedbackSent ? <CheckCircle2 className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
+                              {isFeedbackSent ? "Feedback Sent" : "Submit Feedback"}
+                            </Button>
+                          )}
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={cvLoading}
+                            className="rounded-full border-orange-200 text-slate-700 hover:bg-orange-50"
+                            onClick={() => openCvPreview(interview)}
+                          >
+                            View Resume
+                          </Button>
+
+                          {(interview.status !== "completed" || isFeedbackSent) && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="rounded-full border-orange-200 text-orange-700 hover:bg-orange-50"
+                              onClick={() => openReschedule(interview)}
+                            >
+                              {interview.interviewType === "talent-acquisition" ? "Edit Time" : "Reschedule"}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
                     </>
                   );
                 })()}
@@ -540,7 +725,7 @@ const EmployerInterviews = () => {
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold text-slate-900">Interview Feedback</DialogTitle>
-            <DialogDescription className="sr-only">Leave a rating and feedback for this interview.</DialogDescription>
+            <DialogDescription className="sr-only">Set rating and feedback for this interview.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-5">
@@ -581,10 +766,90 @@ const EmployerInterviews = () => {
                 disabled={reviewSaving || !reviewTarget}
                 onClick={() => void submitReview()}
               >
-                {reviewSaving ? "Saving..." : "Save Review"}
+                {reviewSaving ? "Saving..." : "Save Feedback"}
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={rescheduleOpen} onOpenChange={setRescheduleOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-slate-900">
+              {rescheduleTarget?.interviewType === "talent-acquisition" ? "Edit Interview Time" : "Reschedule Interview"}
+            </DialogTitle>
+            <DialogDescription className="text-slate-600">
+              {rescheduleTarget?.interviewType === "talent-acquisition"
+                ? "Update the date and time for this TA interview."
+                : "Set a new date and time for this interview."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm font-semibold text-slate-700">Candidate</p>
+              <p className="text-base font-bold text-slate-900">{rescheduleTarget?.candidateName}</p>
+              <p className="text-sm font-medium text-slate-600">{rescheduleTarget?.applyingFor}</p>
+            </div>
+
+            <div>
+              <label htmlFor="reschedule-date" className="mb-2 block text-sm font-semibold text-slate-700">
+                New Date & Time
+              </label>
+              <Input
+                id="reschedule-date"
+                type="datetime-local"
+                value={rescheduleDateTime}
+                onChange={(event) => setRescheduleDateTime(event.target.value)}
+                className="rounded-xl border-orange-200 focus:border-orange-400 focus:ring-orange-400"
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 rounded-xl border-orange-200 text-slate-700 hover:bg-orange-50"
+                disabled={rescheduleSaving}
+                onClick={() => setRescheduleOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="flex-1 rounded-xl bg-orange-600 text-white hover:bg-orange-700"
+                disabled={rescheduleSaving || !rescheduleDateTime || !rescheduleTarget}
+                onClick={() => void saveReschedule()}
+              >
+                {rescheduleSaving ? "Saving..." : "Save"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={cvDialogOpen} onOpenChange={setCvDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Resume Preview</DialogTitle>
+            <DialogDescription className="sr-only">Preview the candidate resume document.</DialogDescription>
+          </DialogHeader>
+          {cvLoading && (
+            <div className="flex items-center justify-center h-96">
+              <Clock3 className="w-8 h-8 animate-spin text-orange-600" />
+            </div>
+          )}
+          {cvDialogError && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+              {cvDialogError}
+            </div>
+          )}
+          {cvDialogUrl && !cvLoading && !cvDialogError && (
+            <div className="flex-1 overflow-hidden rounded-xl border border-orange-100">
+              <CvViewer fileUrl={cvDialogUrl} />
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </RecruiterLayout>
@@ -592,4 +857,5 @@ const EmployerInterviews = () => {
 };
 
 export default EmployerInterviews;
+
 

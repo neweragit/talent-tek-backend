@@ -4,6 +4,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -19,26 +29,27 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
-  ExternalLink,
+  Download,
   MapPin,
   Search,
   Sparkles,
-  User,
   XCircle,
 } from "lucide-react";
 
 interface Offer {
   id: string;
   applicationId: string;
+  offerUrl: string;
   company: string;
   companyLogo: string;
   jobTitle: string;
   status: "pending" | "accepted" | "rejected";
+  responseDeadline: string;
+  isExpired: boolean;
   location: string;
   sentDate: string;
   salary: string;
   employmentType: string;
-  recruiter: string;
   decisionNote: string;
 }
 
@@ -135,6 +146,11 @@ const TalentOffers = () => {
   const [statusFilter, setStatusFilter] = useState<"all" | OfferStatus>("all");
   const [loading, setLoading] = useState(true);
   const [offers, setOffers] = useState<Offer[]>([]);
+  const [downloadingOfferId, setDownloadingOfferId] = useState<string | null>(null);
+  const [decisionConfirm, setDecisionConfirm] = useState<{
+    offer: Offer;
+    nextStatus: Extract<OfferStatus, "accepted" | "rejected">;
+  } | null>(null);
 
   useEffect(() => {
     let ignore = false;
@@ -169,10 +185,12 @@ const TalentOffers = () => {
           .select(
             `
               id,
+              offre_url,
               status,
               position,
               salary,
               start_date,
+              response_deadline,
               work_location,
               benefits_perks,
               created_at,
@@ -194,25 +212,66 @@ const TalentOffers = () => {
           throw offersError;
         }
 
+        const nowMs = Date.now();
+        const expiredPendingOfferIds: string[] = [];
+
+        for (const record of records || []) {
+          const normalizedStatus = String(record?.status || "").toLowerCase();
+          const deadlineRaw = typeof record?.response_deadline === "string" ? record.response_deadline : "";
+          const deadlineMs = deadlineRaw ? new Date(deadlineRaw).getTime() : NaN;
+          const isExpiredPending = normalizedStatus === "pending" && Number.isFinite(deadlineMs) && deadlineMs < nowMs;
+          if (isExpiredPending) {
+            expiredPendingOfferIds.push(String(record.id));
+          }
+        }
+
+        if (expiredPendingOfferIds.length > 0) {
+          const { error: expireError } = await supabase
+            .from("offers")
+            .update({ status: "refused" })
+            .in("id", expiredPendingOfferIds)
+            .eq("status", "pending");
+
+          if (expireError) {
+            console.warn("Failed to auto-expire pending offers", expireError);
+          }
+        }
+
+        const expiredOfferSet = new Set(expiredPendingOfferIds);
+
         const mapped = (records || []).map((record: any) => {
           const companyName = record.applications?.jobs?.employers?.company_name || "Unknown Company";
           const startDate = formatDate(record.start_date);
           const createdAt = formatDate(record.created_at);
           const applicationId = String(record.applications?.id || "");
+          const offerId = String(record.id);
+          const responseDeadlineRaw = typeof record.response_deadline === "string" ? record.response_deadline : "";
+          const responseDeadline = formatDate(responseDeadlineRaw);
+          const deadlineMs = responseDeadlineRaw ? new Date(responseDeadlineRaw).getTime() : NaN;
+          const isExpired =
+            expiredOfferSet.has(offerId) ||
+            (toOfferStatus(record.status) === "pending" && Number.isFinite(deadlineMs) && deadlineMs < nowMs);
+          const mappedStatus: OfferStatus = isExpired ? "rejected" : toOfferStatus(record.status);
 
           return {
-            id: String(record.id),
+            id: offerId,
             applicationId,
+            offerUrl: typeof record.offre_url === "string" ? record.offre_url : "",
             company: companyName,
             companyLogo: getCompanyInitials(companyName),
             jobTitle: record.position || record.applications?.jobs?.title || "Offer",
-            status: toOfferStatus(record.status),
+            status: mappedStatus,
+            responseDeadline,
+            isExpired,
             location: record.work_location || record.applications?.jobs?.workplace || "Not specified",
             sentDate: createdAt,
             salary: record.salary || "Not specified",
             employmentType: startDate !== "Unknown" ? `Start date: ${startDate}` : "Start date: Not specified",
-            recruiter: "Hiring team",
-            decisionNote: record.benefits_perks ? String(record.benefits_perks) : "Review the offer details and respond when ready.",
+            decisionNote: isExpired
+              ? "Response time expired. This offer has been automatically declined."
+              : record.benefits_perks
+              ? String(record.benefits_perks)
+              : "Review   the offer details and respond when ready.",
           } satisfies Offer;
         });
 
@@ -245,8 +304,7 @@ const TalentOffers = () => {
       const matchesSearch =
         normalizedSearch.length === 0 ||
         offer.company.toLowerCase().includes(normalizedSearch) ||
-        offer.jobTitle.toLowerCase().includes(normalizedSearch) ||
-        offer.recruiter.toLowerCase().includes(normalizedSearch);
+        offer.jobTitle.toLowerCase().includes(normalizedSearch);
 
       return matchesStatus && matchesSearch;
     });
@@ -259,6 +317,41 @@ const TalentOffers = () => {
 
   const handleOfferDecision = async (offerId: string, nextStatus: OfferStatus) => {
     const offer = offers.find((item) => item.id === offerId);
+    if (!offer) {
+      return;
+    }
+
+    if (nextStatus === "accepted" && offer.isExpired) {
+      const { error: expireError } = await supabase
+        .from("offers")
+        .update({ status: "refused" })
+        .eq("id", offerId)
+        .eq("status", "pending");
+
+      if (expireError) {
+        console.warn("Failed to sync expired offer status", expireError);
+      }
+
+      setOffers((currentOffers) =>
+        currentOffers.map((item) =>
+          item.id === offerId
+            ? {
+                ...item,
+                status: "rejected",
+                decisionNote: "Response time expired. This offer has been automatically declined.",
+              }
+            : item,
+        ),
+      );
+
+      toast({
+        title: "Offer expired",
+        description: "This offer passed its response deadline and was automatically rejected.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const dbStatus = nextStatus === "rejected" ? "refused" : nextStatus;
     const { error } = await supabase.from("offers").update({ status: dbStatus }).eq("id", offerId);
 
@@ -304,11 +397,62 @@ const TalentOffers = () => {
     });
   };
 
-  const handleViewOffer = (offer: Offer) => {
-    toast({
-      title: `${offer.company} offer`,
-      description: `Offer for ${offer.jobTitle} is currently ${getStatusMeta(offer.status).label.toLowerCase()}.`,
-    });
+  const confirmAndHandleOfferDecision = (offer: Offer, nextStatus: OfferStatus) => {
+    if (nextStatus !== "accepted" && nextStatus !== "rejected") {
+      return;
+    }
+
+    setDecisionConfirm({ offer, nextStatus });
+  };
+
+  const confirmOfferDecision = async () => {
+    if (!decisionConfirm) return;
+
+    await handleOfferDecision(decisionConfirm.offer.id, decisionConfirm.nextStatus);
+    setDecisionConfirm(null);
+  };
+
+  const handleDownloadOffer = async (offer: Offer) => {
+    const url = String(offer.offerUrl || "").trim();
+
+    if (!url) {
+      toast({
+        title: "Offer PDF not available",
+        description: "This offer does not have an attached PDF URL yet.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setDownloadingOfferId(offer.id);
+
+      const response = await fetch(url, { method: "GET", cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`Failed to download offer PDF (${response.status})`);
+      }
+
+      const blob = await response.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const safeCompany = offer.company.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "company";
+      const safeTitle = offer.jobTitle.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "offer";
+
+      link.href = objectUrl;
+      link.download = `${safeCompany}_${safeTitle}_${offer.id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(objectUrl);
+    } catch (error: any) {
+      toast({
+        title: "Download failed",
+        description: error?.message || "Could not download offer PDF.",
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadingOfferId((current) => (current === offer.id ? null : current));
+    }
   };
 
   return (
@@ -337,7 +481,7 @@ const TalentOffers = () => {
             <div className="relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-orange-400" />
               <Input
-                placeholder="Search by company, role, or recruiter..."
+                placeholder="Search by company or role..."
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
                 className="h-12 rounded-xl border-orange-200 pl-12 focus:border-orange-400 focus:ring-orange-400"
@@ -426,14 +570,6 @@ const TalentOffers = () => {
                   </div>
 
                   <div className="flex items-center gap-2 text-sm text-slate-700">
-                    <User className="h-4 w-4 text-orange-600" />
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Recruiter</p>
-                      <p className="mt-1 text-sm font-semibold text-slate-900">{offer.recruiter}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 text-sm text-slate-700">
                     {(() => {
                       const StatusIcon = getStatusMeta(offer.status).icon;
                       return <StatusIcon className="h-4 w-4 text-orange-600" />;
@@ -441,6 +577,14 @@ const TalentOffers = () => {
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Status</p>
                       <p className="mt-1 text-sm font-semibold text-slate-900">{getStatusMeta(offer.status).label}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-sm text-slate-700">
+                    <Clock3 className="h-4 w-4 text-orange-600" />
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Respond By</p>
+                      <p className="mt-1 text-sm font-semibold text-slate-900">{offer.responseDeadline || "Not specified"}</p>
                     </div>
                   </div>
                 </div>
@@ -461,17 +605,18 @@ const TalentOffers = () => {
                   <div className="flex items-center gap-3">
                     <Button
                       type="button"
-                      onClick={() => handleViewOffer(offer)}
+                      onClick={() => void handleDownloadOffer(offer)}
+                      disabled={downloadingOfferId === offer.id}
                       className="gap-2 whitespace-nowrap rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md hover:from-orange-700 hover:to-orange-600"
                     >
-                      <ExternalLink className="h-4 w-4" />
-                      View Offer
+                      <Download className="h-4 w-4" />
+                      {downloadingOfferId === offer.id ? "Downloading..." : "Download Offer"}
                     </Button>
                     {offer.status === "pending" ? (
                       <>
                         <Button
                           type="button"
-                          onClick={() => handleOfferDecision(offer.id, "accepted")}
+                          onClick={() => confirmAndHandleOfferDecision(offer, "accepted")}
                           className="gap-2 whitespace-nowrap rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md hover:from-orange-700 hover:to-orange-600"
                         >
                           <CheckCircle2 className="h-4 w-4" />
@@ -479,7 +624,7 @@ const TalentOffers = () => {
                         </Button>
                         <Button
                           type="button"
-                          onClick={() => handleOfferDecision(offer.id, "rejected")}
+                          onClick={() => confirmAndHandleOfferDecision(offer, "rejected")}
                           className="gap-2 whitespace-nowrap rounded-full bg-gradient-to-r from-orange-500 to-orange-400 text-white shadow-md hover:from-orange-600 hover:to-orange-500"
                         >
                           <XCircle className="h-4 w-4" />
@@ -499,10 +644,40 @@ const TalentOffers = () => {
             </div>
             <h2 className="text-2xl font-bold text-slate-900">No offers match these filters</h2>
             <p className="mx-auto mt-3 max-w-2xl text-base leading-7 text-slate-600">
-              Try a different company, role, recruiter, or status filter. Your offers will appear here as soon as they match.
+              Try a different company, role, or status filter. Your offers will appear here as soon as they match.
             </p>
           </div>
         )}
+
+        <AlertDialog open={!!decisionConfirm} onOpenChange={(open) => !open && setDecisionConfirm(null)}>
+          <AlertDialogContent className="border-orange-100">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-slate-900">
+                {decisionConfirm?.nextStatus === "accepted" ? "Confirm Acceptance" : "Confirm Decline"}
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-slate-600">
+                {decisionConfirm
+                  ? decisionConfirm.nextStatus === "accepted"
+                    ? `You are about to accept ${decisionConfirm.offer.jobTitle} at ${decisionConfirm.offer.company}. This confirms your decision and updates your application stage.`
+                    : `You are about to decline ${decisionConfirm.offer.jobTitle} at ${decisionConfirm.offer.company}. This action will mark the offer as declined.`
+                  : ""}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="border-slate-200 text-slate-700 hover:bg-slate-50">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => void confirmOfferDecision()}
+                className={
+                  decisionConfirm?.nextStatus === "accepted"
+                    ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                    : "bg-red-600 text-white hover:bg-red-700"
+                }
+              >
+                {decisionConfirm?.nextStatus === "accepted" ? "Yes, Accept Offer" : "Yes, Decline Offer"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </TalentLayout>
   );
