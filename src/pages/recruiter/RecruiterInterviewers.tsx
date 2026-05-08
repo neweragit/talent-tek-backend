@@ -29,7 +29,6 @@ import {
   CheckCircle,
   XCircle,
   Users,
-  UserCheck,
   Calendar,
   Sparkles,
   Loader2,
@@ -106,6 +105,7 @@ export default function EmployerInterviewers() {
   const [isSaving, setIsSaving] = useState(false);
   const [employerId, setEmployerId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [roleFilter, setRoleFilter] = useState<"all" | "technical" | "leadership">("all");
   const [openDialog, setOpenDialog] = useState(false);
   const [editingUser, setEditingUser] = useState<InterviewerUser | null>(null);
   const [pendingDeleteUser, setPendingDeleteUser] = useState<InterviewerUser | null>(null);
@@ -119,12 +119,18 @@ export default function EmployerInterviewers() {
 
   const filteredUsers = useMemo(
     () =>
-      users.filter(
-        (member) =>
+      users.filter((member) => {
+        const matchesSearch =
           member.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          member.email.toLowerCase().includes(searchTerm.toLowerCase())
-      ),
-    [searchTerm, users]
+          member.email.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesRole =
+          roleFilter === "all" ||
+          (roleFilter === "technical" && member.role === "Technical Interviewer") ||
+          (roleFilter === "leadership" && member.role === "Leadership Interviewer");
+
+        return matchesSearch && matchesRole;
+      }),
+    [roleFilter, searchTerm, users]
   );
 
   const loadInterviewers = async () => {
@@ -577,47 +583,28 @@ export default function EmployerInterviewers() {
           </div>
         </section>
 
-        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {[
-            {
-              label: "Technical",
-              value: users.filter((u) => u.role === "Technical Interviewer").length,
-              desc: "Technical interviewers",
-              icon: UserCheck,
-            },
-            {
-              label: "Leadership",
-              value: users.filter((u) => u.role === "Leadership Interviewer").length,
-              desc: "Leadership interviewers",
-              icon: XCircle,
-            },
-            {
-              label: "Total",
-              value: users.filter((u) => u.status === "active" || u.status === "inactive").length,
-              desc: "Active + Inactive",
-              icon: Users,
-            },
-          ].map((stat) => (
-            <div key={stat.label} className="rounded-3xl border border-orange-100 bg-white p-6 shadow-lg">
-              <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-orange-600 text-white shadow-md">
-                <stat.icon className="h-5 w-5" />
-              </div>
-              <div className="text-3xl font-bold text-slate-900">{stat.value}</div>
-              <div className="mt-1 text-sm font-semibold text-slate-700">{stat.label}</div>
-              <div className="mt-1 text-xs text-slate-500">{stat.desc}</div>
-            </div>
-          ))}
-        </div>
-
         <div className="mb-8 rounded-3xl border border-orange-100 bg-white p-4 shadow-lg">
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-orange-400" />
-            <Input
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search interviewers by name or email..."
-              className="h-12 rounded-xl border-orange-200 pl-12 focus:border-orange-400 focus:ring-orange-400"
-            />
+          <div className="grid gap-3 lg:grid-cols-[1fr_220px] lg:items-center">
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-orange-400" />
+              <Input
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search interviewers by name or email..."
+                className="h-12 rounded-xl border-orange-200 pl-12 focus:border-orange-400 focus:ring-orange-400"
+              />
+            </div>
+
+            <Select value={roleFilter} onValueChange={(value) => setRoleFilter(value as typeof roleFilter)}>
+              <SelectTrigger className="h-12 rounded-xl border-orange-200 focus:ring-orange-400">
+                <SelectValue placeholder="Filter by role" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All roles</SelectItem>
+                <SelectItem value="technical">Technical</SelectItem>
+                <SelectItem value="leadership">Leadership</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 

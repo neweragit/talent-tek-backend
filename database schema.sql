@@ -168,13 +168,13 @@ CREATE TABLE public.offers (
   position character varying NOT NULL,
   salary character varying NOT NULL,
   start_date date NOT NULL,
-  response_deadline timestamp with time zone,
   work_location character varying,
   benefits_perks text,
   status character varying NOT NULL DEFAULT 'pending'::character varying CHECK (status::text = ANY (ARRAY['pending'::character varying, 'accepted'::character varying, 'refused'::character varying]::text[])),
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
-    text,
+  offre_url text,
+  response_deadline date,
   CONSTRAINT offers_pkey PRIMARY KEY (id),
   CONSTRAINT offers_application_id_fkey FOREIGN KEY (application_id) REFERENCES public.applications(id)
 );
@@ -289,6 +289,30 @@ CREATE TABLE public.subscriptions (
   CONSTRAINT fk_subscription_employer FOREIGN KEY (employer_id) REFERENCES public.employers(id),
   CONSTRAINT fk_subscription_talent FOREIGN KEY (talent_id) REFERENCES public.talents(id)
 );
+CREATE TABLE public.support_ticket_messages (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  ticket_id uuid NOT NULL,
+  sender_id uuid NOT NULL,
+  message text NOT NULL,
+  is_from_support boolean DEFAULT false,
+  read_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT support_ticket_messages_pkey PRIMARY KEY (id),
+  CONSTRAINT support_ticket_messages_ticket_id_fkey FOREIGN KEY (ticket_id) REFERENCES public.support_tickets(id),
+  CONSTRAINT support_ticket_messages_sender_id_fkey FOREIGN KEY (sender_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.support_tickets (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  assigned_to uuid,
+  subject text NOT NULL,
+  status text DEFAULT 'open'::text CHECK (status = ANY (ARRAY['open'::text, 'in-progress'::text, 'resolved'::text, 'closed'::text])),
+  priority text DEFAULT 'normal'::text CHECK (priority = ANY (ARRAY['low'::text, 'normal'::text, 'high'::text, 'urgent'::text])),
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT support_tickets_pkey PRIMARY KEY (id),
+  CONSTRAINT support_tickets_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
 CREATE TABLE public.talents (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   user_id uuid,
@@ -311,22 +335,6 @@ CREATE TABLE public.talents (
   updated_at timestamp with time zone DEFAULT now(),
   CONSTRAINT talents_pkey PRIMARY KEY (id),
   CONSTRAINT talents_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
-);
-CREATE TABLE public.tickets (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL,
-  sender_name text NOT NULL,
-  subject text NOT NULL,
-  message text NOT NULL,
-  ticket_type text DEFAULT 'Technical'::text CHECK (ticket_type = ANY (ARRAY['Technical'::text, 'Bug Report'::text, 'Feature Request'::text, 'Billing'::text, 'General'::text])),
-  status text DEFAULT 'open'::text CHECK (status = ANY (ARRAY['open'::text, 'viewed'::text, 'in-progress'::text, 'solved'::text, 'closed'::text])),
-  priority text DEFAULT 'medium'::text CHECK (priority = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text, 'urgent'::text])),
-  assigned_to uuid,
-  created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now(),
-  resolved_at timestamp with time zone,
-  CONSTRAINT tickets_pkey PRIMARY KEY (id),
-  CONSTRAINT fk_ticket_user FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
 CREATE TABLE public.users (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

@@ -236,33 +236,7 @@ export default function JobDetails() {
               <p className="text-sm leading-7 text-slate-700 whitespace-pre-line">{job.description}</p>
             </section>
 
-            {job.what_you_will_do?.length ? (
-              <section className="rounded-[2rem] border border-orange-100 bg-white p-6 shadow-lg">
-                <h3 className="text-lg font-bold text-slate-900">What You Will Do</h3>
-                <ul className="mt-3 space-y-2 text-sm text-slate-700">
-                  {job.what_you_will_do.map((item) => (
-                    <li key={item} className="flex gap-2">
-                      <span className="mt-1 text-orange-500">•</span>
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
 
-            {job.requirements?.length ? (
-              <section className="rounded-[2rem] border border-orange-100 bg-white p-6 shadow-lg">
-                <h3 className="text-lg font-bold text-slate-900">Requirements</h3>
-                <ul className="mt-3 space-y-2 text-sm text-slate-700">
-                  {job.requirements.map((item) => (
-                    <li key={item} className="flex gap-2">
-                      <span className="mt-1 text-orange-500">•</span>
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
 
             {job.skills_required?.length ? (
               <section className="rounded-[2rem] border border-orange-100 bg-white p-6 shadow-lg">

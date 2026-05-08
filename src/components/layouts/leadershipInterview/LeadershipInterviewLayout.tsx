@@ -1,8 +1,9 @@
-﻿import { useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Bell, Home, User, LogOut, Menu, X, Video } from "lucide-react";
+import { Bell, BellOff, Home, User, LogOut, Menu, X, Video } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import logo from "@/logo/logo.jfif";
 
@@ -17,16 +18,61 @@ const LeadershipInterviewLayout = ({ children }: { children: React.ReactNode }) 
     navigate("/login");
   };
 
-  const navLinks = [
-    { name: "Overview", path: "/leadership-interviewer/overview", icon: Home },
-    { name: "Interviews", path: "/leadership-interviewer/interviews", icon: Video },
-    { name: "Profile", path: "/leadership-interviewer/profile", icon: User },
-  ];
+  
 
   const isActive = (path: string) => location.pathname === path;
 
   const getInitials = (name: string) =>
     name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
+
+  const [pendingReviewsCount, setPendingReviewsCount] = useState(0);
+
+  useEffect(() => {
+    const loadPending = async () => {
+      if (!user?.id) {
+        setPendingReviewsCount(0);
+        return;
+      }
+
+      try {
+        const interviewerRes = await supabase
+          .from("interviewers")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("interview_type", "leadership")
+          .maybeSingle();
+
+        const interviewerId = interviewerRes.data?.id ?? null;
+        if (!interviewerId) {
+          setPendingReviewsCount(0);
+          return;
+        }
+
+        const interviewsRes = await supabase
+          .from("interviews")
+          .select("id")
+          .eq("interviewer_id", interviewerId)
+          .eq("interview_type", "leadership")
+          .eq("status", "scheduled");
+
+        if (interviewsRes.error) throw interviewsRes.error;
+
+        const scheduledCount = (interviewsRes.data ?? []).length;
+        setPendingReviewsCount(scheduledCount);
+      } catch (err) {
+        console.error("Failed to load leadership scheduled count:", err);
+        setPendingReviewsCount(0);
+      }
+    };
+
+    void loadPending();
+  }, [user?.id]);
+
+  const navLinks = [
+    { name: "Overview", path: "/leadership-interviewer/overview", icon: Home },
+    { name: "Interviews", path: "/leadership-interviewer/interviews", icon: Video, count: pendingReviewsCount },
+    { name: "Profile", path: "/leadership-interviewer/profile", icon: User },
+  ];
 
   return (
     <div className="min-h-screen w-full bg-gradient-to-br from-orange-100 via-white to-orange-50 flex">
@@ -54,6 +100,15 @@ const LeadershipInterviewLayout = ({ children }: { children: React.ReactNode }) 
               >
                 <link.icon className="h-5 w-5" />
                 {link.name}
+                {typeof (link as any).count === "number" ? (
+                  <span
+                    className={`ml-auto rounded-full px-2 py-0.5 text-xs font-bold ${
+                      isActive(link.path) ? "bg-white/20 text-white" : "bg-orange-100 text-orange-700"
+                    }`}
+                  >
+                    {(link as any).count}
+                  </span>
+                ) : null}
               </Link>
             ))}
           </div>
@@ -79,13 +134,13 @@ const LeadershipInterviewLayout = ({ children }: { children: React.ReactNode }) 
                   : "border-orange-200 bg-white text-orange-600 hover:bg-orange-50 hover:text-orange-700"
               }`}
             >
-              <Bell className="h-4 w-4" />
-              <span
-                aria-hidden="true"
-                className={`absolute right-1 top-1 h-1.5 w-1.5 rounded-full ${
-                  location.pathname === "/leadership-interviewer/notifications" ? "bg-white" : "bg-orange-500"
-                }`}
-              />
+              {pendingReviewsCount > 0 ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+              {pendingReviewsCount > 0 ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-red-500"
+                />
+              ) : null}
             </Link>
           </div>
           <Button
@@ -134,6 +189,15 @@ const LeadershipInterviewLayout = ({ children }: { children: React.ReactNode }) 
                   >
                     <link.icon className="h-5 w-5" />
                     {link.name}
+                    {typeof (link as any).count === "number" ? (
+                      <span
+                        className={`ml-auto rounded-full px-2 py-0.5 text-xs font-bold ${
+                          isActive(link.path) ? "bg-white/20 text-white" : "bg-orange-100 text-orange-700"
+                        }`}
+                      >
+                        {(link as any).count}
+                      </span>
+                    ) : null}
                   </Link>
                 ))}
               </div>

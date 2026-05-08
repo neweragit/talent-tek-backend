@@ -476,31 +476,31 @@ const TalentOffers = () => {
           </div>
         </section>
 
-        <div className="mb-8 grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-          <div className="rounded-3xl border border-orange-100 bg-white p-4 shadow-lg">
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-orange-400" />
-              <Input
-                placeholder="Search by company or role..."
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                className="h-12 rounded-xl border-orange-200 pl-12 focus:border-orange-400 focus:ring-orange-400"
-              />
-            </div>
+        <div className="relative z-[999] mb-8 flex flex-col gap-4 sm:flex-row sm:items-center">
+          <div className="relative w-full sm:flex-1">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-orange-400" />
+            <Input
+              placeholder="Search by company or role..."
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              className="h-12 w-full rounded-3xl border-orange-200 bg-white pl-12 shadow-sm focus:border-orange-400 focus:ring-orange-400"
+            />
           </div>
 
-          <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as "all" | OfferStatus)}>
-            <SelectTrigger className="h-full min-h-14 rounded-3xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-lg">
-              <SelectValue placeholder="All Status" />
-            </SelectTrigger>
-            <SelectContent>
-              {offerStatusOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="relative z-[999] isolate w-full sm:w-[200px]">
+            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as "all" | OfferStatus)}>
+              <SelectTrigger className="h-12 w-full rounded-3xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm">
+                <SelectValue placeholder="All Status" />
+              </SelectTrigger>
+              <SelectContent>
+                {offerStatusOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {loading ? (

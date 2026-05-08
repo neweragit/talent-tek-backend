@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { StarRatingInput } from "@/components/ui/star-rating";
 import { useAuth } from "@/contexts/AuthContext";
@@ -54,6 +55,22 @@ const filters: InterviewFilter[] = [
   "completed",
   "no-show",
 ];
+
+const statusCounts = (records: InterviewRecord[]) => {
+  return records.reduce<Record<InterviewFilter, number>>(
+    (acc, interview) => {
+      acc.All += 1;
+      acc[interview.status] += 1;
+      return acc;
+    },
+    {
+      All: 0,
+      scheduled: 0,
+      completed: 0,
+      "no-show": 0,
+    }
+  );
+};
 
 const isUpcomingStatus = (status: InterviewStatus) => {
   return status === "scheduled";
@@ -324,6 +341,14 @@ const LeadershipInterviewInterviews = () => {
         );
 
       if (error) throw error;
+      // Update interview status to completed
+      const { error: statusError } = await supabase
+        .from("interviews")
+        .update({ status: "completed", updated_at: new Date().toISOString() })
+        .eq("id", reviewTarget.id);
+
+      if (statusError) throw statusError;
+
 
       setRecords((prev) =>
         prev.map((it) =>
@@ -336,6 +361,7 @@ const LeadershipInterviewInterviews = () => {
                 feedbackState: "sent",
                 submittedOn: format(new Date(), "dd/MM/yyyy"),
                 evaluationLabel: "Feedback submitted",
+                status: "completed",
               }
             : it
         )
@@ -410,38 +436,35 @@ const LeadershipInterviewInterviews = () => {
               </h1>
               <p className="mt-4 max-w-2xl text-base font-medium leading-7 text-slate-600 sm:text-lg">My Interviews</p>
               <p className="mt-2 max-w-2xl text-base font-medium leading-7 text-slate-600 sm:text-lg">
-                Manage your leadership interviews and evaluations
+                Manage your leadership interviews and feedback
               </p>
             </div>
           </div>
         </section>
 
         <div className="mb-8 rounded-3xl border border-orange-100 bg-white p-4 shadow-lg">
-          <div className="relative mb-4">
-            <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-orange-400" />
-            <Input
-              placeholder="Search by candidate, role, or company..."
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              className="h-12 rounded-xl border-orange-200 pl-12 focus:border-orange-400 focus:ring-orange-400"
-            />
-          </div>
+          <div className="grid gap-3 lg:grid-cols-[1fr_220px]">
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-orange-400" />
+              <Input
+                placeholder="Search by candidate, role, or company..."
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                className="h-12 rounded-xl border-orange-200 pl-12 focus:border-orange-400 focus:ring-orange-400"
+              />
+            </div>
 
-          <div className="flex flex-wrap gap-2">
-            {filters.map((filter) => (
-              <button
-                key={filter}
-                type="button"
-                onClick={() => setActiveFilter(filter)}
-                className={`rounded-full px-4 py-2 text-sm font-semibold transition-all ${
-                  activeFilter === filter
-                    ? "bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md"
-                    : "border border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100"
-                }`}
-              >
-                {filter}
-              </button>
-            ))}
+            <Select value={activeFilter} onValueChange={(value) => setActiveFilter(value as InterviewFilter)}>
+              <SelectTrigger className="h-12 rounded-xl border-orange-200 focus:ring-orange-400">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All ({statusCounts(records).All})</SelectItem>
+                <SelectItem value="scheduled">Scheduled ({statusCounts(records).scheduled})</SelectItem>
+                <SelectItem value="completed">Completed ({statusCounts(records).completed})</SelectItem>
+                <SelectItem value="no-show">No-show ({statusCounts(records)["no-show"]})</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -453,7 +476,7 @@ const LeadershipInterviewInterviews = () => {
             </div>
           </div>
         ) : filteredInterviews.length > 0 ? (
-          <div className="grid gap-6">
+          <div className="grid gap-6 md:grid-cols-2">
             {filteredInterviews.map((interview) => (
               <article
                 key={interview.id}
@@ -500,8 +523,8 @@ const LeadershipInterviewInterviews = () => {
                         </div>
                       </div>
 
-                      <div className="grid gap-4 rounded-2xl border border-orange-100 bg-orange-50/40 p-4 md:grid-cols-[1fr_auto] md:items-center">
-                        <div>
+                      <div className="rounded-2xl border border-orange-100 bg-orange-50/40 p-4">
+                        <div className="mb-6">
                           <p className="inline-flex items-center gap-2 text-sm font-bold text-orange-700">
                             {isCompleted ? <CheckCircle2 className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
                             {interview.evaluationLabel}
@@ -514,71 +537,65 @@ const LeadershipInterviewInterviews = () => {
                           ) : null}
                         </div>
 
-                        <div className="flex flex-wrap items-center justify-end gap-2">
-                          {interview.rating ? (
-                            <div className="inline-flex items-center justify-center gap-1 rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-700">
-                              {renderRatingStars(interview.rating)}
-                            </div>
-                          ) : (
-                            <div className="inline-flex items-center justify-center rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-700">
-                              Pending
-                            </div>
-                          )}
+                        <div className="space-y-3">
+                          <div className="flex gap-2">
+                            {canJoin && (
+                              <Button
+                                className="flex-1 gap-2 rounded-lg bg-orange-600 text-white shadow-md hover:bg-orange-700"
+                                disabled={isCompleted}
+                                onClick={() => {
+                                  window.open(interview.meetLink as string, "_blank", "noopener,noreferrer");
+                                }}
+                              >
+                                <Video className="h-4 w-4" />
+                                Join Now
+                              </Button>
+                            )}
 
-                          {canJoin && (
-                            <Button
-                              className="gap-2 rounded-full bg-orange-600 text-white shadow-md hover:bg-orange-700"
-                              onClick={() => {
-                                window.open(interview.meetLink as string, "_blank", "noopener,noreferrer");
-                              }}
-                            >
-                              <Video className="h-4 w-4" />
-                              Join Now
-                            </Button>
-                          )}
-
-                          <Button
-                            disabled={isFeedbackSent}
-                            className={`gap-2 rounded-full text-white shadow-md ${
-                              isFeedbackSent ? "bg-orange-300 hover:bg-orange-300" : "bg-orange-600 hover:bg-orange-700"
-                            }`}
-                            onClick={() => {
-                              if (isFeedbackSent) return;
-                              openReview(interview);
-                            }}
-                          >
-                            {isFeedbackSent ? <CheckCircle2 className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
-                            {isFeedbackSent ? "Feedback Sent" : "Submit Feedback"}
-                          </Button>
-
-                          <Button
-                            type="button"
-                            variant="outline"
-                            disabled={cvLoading}
-                            className="rounded-full border-orange-200 text-slate-700 hover:bg-orange-50"
-                            onClick={() => openCvPreview(interview)}
-                          >
-                            View Resume
-                          </Button>
-
-                          {canMarkNoShow && (
                             <Button
                               type="button"
                               variant="outline"
-                              disabled={noShowLoadingId === interview.id}
-                              className="rounded-full border-orange-300 text-orange-700 hover:bg-orange-50"
-                              onClick={() => void markInterviewNoShow(interview)}
+                              disabled={isCompleted || cvLoading}
+                              className="flex-1 rounded-lg border-orange-200 text-slate-700 hover:bg-orange-50"
+                              onClick={() => openCvPreview(interview)}
                             >
-                              {noShowLoadingId === interview.id ? "Saving..." : "No-show"}
+                              View Resume
                             </Button>
-                          )}
+                          </div>
+
+                          <div className="flex gap-2">
+                            <Button
+                              disabled={isFeedbackSent || isCompleted}
+                              className={`flex-1 gap-2 rounded-lg text-white shadow-md ${
+                                isFeedbackSent ? "bg-orange-300 hover:bg-orange-300" : "bg-orange-600 hover:bg-orange-700"
+                              }`}
+                              onClick={() => {
+                                if (isFeedbackSent) return;
+                                openReview(interview);
+                              }}
+                            >
+                              {isFeedbackSent ? <CheckCircle2 className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
+                              {isFeedbackSent ? "Feedback Sent" : "Submit Feedback"}
+                            </Button>
+
+                            {canMarkNoShow && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                disabled={noShowLoadingId === interview.id || isCompleted}
+                                className="flex-1 rounded-lg border-orange-300 text-orange-700 hover:bg-orange-50"
+                                onClick={() => void markInterviewNoShow(interview)}
+                              >
+                                {noShowLoadingId === interview.id ? "Saving..." : "No-show"}
+                              </Button>
+                            )}
+                          </div>
 
                           {canMarkNoShow && (
-                            <p className="basis-full text-right text-xs font-medium text-slate-500">
+                            <p className="text-xs font-medium text-slate-500">
                               Use No-show when the candidate did not attend or a technical issue prevented the interview.
                             </p>
                           )}
-
                         </div>
                       </div>
                     </>

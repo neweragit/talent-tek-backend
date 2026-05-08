@@ -54,6 +54,7 @@ type TalentRow = {
   current_position: string | null;
   years_of_experience: string | null;
   education_level: string | null;
+  has_carte_entrepreneur: boolean | null;
   skills: string[] | null;
   resume_url: string[] | null;
   created_at: string | null;
@@ -134,7 +135,7 @@ export default function OwnerUsers() {
         supabase
           .from("talents")
           .select(
-            "id,user_id,full_name,phone_number,city,current_position,years_of_experience,education_level,skills,resume_url,created_at",
+            "id,user_id,full_name,phone_number,city,current_position,years_of_experience,education_level,has_carte_entrepreneur,skills,resume_url,created_at",
           )
           .order("created_at", { ascending: false }),
         supabase.from("applications").select("id", { count: "exact", head: true }),
@@ -431,6 +432,14 @@ export default function OwnerUsers() {
   const renderValue = (key: string, value: any) => {
     if (value === null || value === undefined || value === "") return <span className="text-slate-500">—</span>;
 
+    if (key === "has_carte_entrepreneur") {
+      return (
+        <Badge className={value ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-600"}>
+          {value ? "Yes" : "No"}
+        </Badge>
+      );
+    }
+
     if (key === "resume_url" && Array.isArray(value)) {
       const urls = value as string[];
       return (
@@ -636,6 +645,19 @@ export default function OwnerUsers() {
                         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Email</p>
                         <p className="mt-0.5 truncate text-sm font-semibold text-slate-900">
                           {talent.users?.email || "—"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {talent.has_carte_entrepreneur ? (
+                        <CheckCircle className="h-4 w-4 text-emerald-600" />
+                      ) : (
+                        <Ban className="h-4 w-4 text-slate-400" />
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Entrepreneur Card</p>
+                        <p className="mt-0.5 truncate text-sm font-semibold text-slate-900">
+                          {talent.has_carte_entrepreneur ? "Yes" : "No"}
                         </p>
                       </div>
                     </div>

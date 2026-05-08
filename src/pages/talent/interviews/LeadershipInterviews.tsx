@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import {
@@ -19,7 +20,7 @@ import {
 } from "lucide-react";
 
 type InterviewType = "video" | "phone" | "in-person";
-type InterviewStatus = "upcoming" | "completed" | "cancelled";
+type InterviewStatus = "upcoming" | "completed" | "cancelled" | "passed" | "all";
 
 interface Interview {
   id: string;
@@ -58,10 +59,18 @@ const getCompanyInitials = (company: string) => {
     .toUpperCase();
 };
 
-const toInterviewStatus = (status: string | null | undefined): InterviewStatus => {
+const toInterviewStatus = (status: string | null | undefined, scheduledDate?: string | null | undefined): InterviewStatus => {
   const normalized = (status ?? "").toLowerCase();
   if (normalized === "completed") return "completed";
   if (normalized === "cancelled" || normalized === "no-show") return "cancelled";
+  
+  if (scheduledDate) {
+    const scheduledTime = new Date(scheduledDate).getTime();
+    if (!Number.isNaN(scheduledTime) && scheduledTime < Date.now()) {
+      return "passed";
+    }
+  }
+  
   return "upcoming";
 };
 
@@ -108,6 +117,12 @@ const getInterviewStatusMeta = (status: InterviewStatus) => {
         badgeClassName: "border border-orange-300 bg-orange-100 text-orange-800",
         icon: CalendarDays,
       };
+    case "passed":
+      return {
+        label: "Passed",
+        badgeClassName: "border border-red-200 bg-red-50 text-red-700",
+        icon: Clock3,
+      };
     default:
       return {
         label: "Interview",
@@ -136,7 +151,7 @@ const getInterviewSummary = (interview: Interview) => {
 export default function LeadershipInterviews() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"upcoming" | "completed">("upcoming");
+  const [statusFilter, setStatusFilter] = useState<InterviewStatus>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [interviews, setInterviews] = useState<Interview[]>([]);
@@ -223,7 +238,7 @@ export default function LeadershipInterviews() {
             duration: `${record.duration_minutes ?? 60} mins`,
             type: meetingLink ? "video" : "in-person",
             meetingLink,
-            status: toInterviewStatus(record.status),
+            status: toInterviewStatus(record.status, record.scheduled_date),
             notes: undefined,
           } satisfies Interview;
         });
@@ -252,7 +267,7 @@ export default function LeadershipInterviews() {
 
   const filteredInterviews = useMemo(() => {
     return interviews.filter((interview) => {
-      const matchesTab = activeTab === "upcoming" ? interview.status === "upcoming" : interview.status === "completed";
+      const matchesStatus = statusFilter === "all" ? true : interview.status === statusFilter;
       const normalizedSearch = searchQuery.toLowerCase();
       const matchesSearch =
         normalizedSearch.length === 0 ||
@@ -260,12 +275,10 @@ export default function LeadershipInterviews() {
         interview.jobTitle.toLowerCase().includes(normalizedSearch) ||
         interview.interviewerName.toLowerCase().includes(normalizedSearch);
 
-      return matchesTab && matchesSearch;
+      return matchesStatus && matchesSearch;
     });
-  }, [activeTab, interviews, searchQuery]);
+  }, [statusFilter, interviews, searchQuery]);
 
-  const upcomingCount = interviews.filter((interview) => interview.status === "upcoming").length;
-  const completedCount = interviews.filter((interview) => interview.status === "completed").length;
 
   const resultsLabel =
     filteredInterviews.length === interviews.length
@@ -281,13 +294,6 @@ export default function LeadershipInterviews() {
     toast({
       title: "Opening meeting link",
       description: "Joining interview session...",
-    });
-  };
-
-  const handleDownloadMaterials = () => {
-    toast({
-      title: "Materials requested",
-      description: "Your leadership prep resources are being prepared.",
     });
   };
 
@@ -312,46 +318,29 @@ export default function LeadershipInterviews() {
           </div>
         </section>
 
-        <div className="relative z-[999] mb-8 grid items-center gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <div className="rounded-3xl border border-orange-100 bg-white p-4 shadow-lg">
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-orange-400" />
-              <Input
-                placeholder="Search by company, job title, or interviewer..."
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                className="h-12 rounded-xl border-orange-200 pl-12 focus:border-orange-400 focus:ring-orange-400"
-              />
-            </div>
+        <div className="relative z-[999] mb-8 flex flex-col gap-4 sm:flex-row sm:items-center">
+          <div className="relative w-full sm:flex-1">
+            <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-orange-400" />
+            <Input
+              placeholder="Search by company, job title, or interviewer..."
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              className="h-12 w-full rounded-3xl border-orange-200 bg-white pl-12 shadow-sm focus:border-orange-400 focus:ring-orange-400"
+            />
           </div>
 
-          <div className="relative z-[999] isolate flex w-full items-center rounded-3xl border border-orange-100 bg-white p-4 shadow-lg pointer-events-auto lg:max-w-[360px] lg:justify-self-end">
-            <div className="grid h-12 w-full grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setActiveTab("upcoming")}
-                className={`relative flex h-full items-center justify-center gap-2 whitespace-nowrap rounded-full px-4 text-sm font-semibold transition-all pointer-events-auto ${
-                  activeTab === "upcoming"
-                    ? "bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md"
-                    : "text-orange-700 hover:bg-orange-50"
-                }`}
-              >
-                <Clock3 className="h-4 w-4" />
-                Upcoming ({upcomingCount})
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("completed")}
-                className={`relative flex h-full items-center justify-center gap-2 whitespace-nowrap rounded-full px-4 text-sm font-semibold transition-all pointer-events-auto ${
-                  activeTab === "completed"
-                    ? "bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md"
-                    : "text-orange-700 hover:bg-orange-50"
-                }`}
-              >
-                <CheckCircle2 className="h-4 w-4" />
-                Completed ({completedCount})
-              </button>
-            </div>
+          <div className="relative z-[999] isolate w-full sm:w-[200px]">
+            <Select value={statusFilter} onValueChange={(val: any) => setStatusFilter(val)}>
+              <SelectTrigger className="h-12 w-full rounded-3xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="upcoming">Upcoming</SelectItem>
+                <SelectItem value="passed">Passed</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -366,8 +355,12 @@ export default function LeadershipInterviews() {
             </p>
           </div>
         ) : filteredInterviews.length > 0 ? (
-          <div className="grid gap-5 xl:grid-cols-2">
-            {filteredInterviews.map((interview) => {
+          <div className="space-y-6">
+            <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800 shadow-sm">
+              <span className="font-semibold">Note:</span> If the interview didn't take place or is not marked as completed after the date passes (e.g., interviewer no-show), you have the right to send a support ticket regarding the posted job to reach our support team. More details can be found on the Support Tickets page.
+            </div>
+            <div className="grid gap-5 xl:grid-cols-2">
+              {filteredInterviews.map((interview) => {
               const statusMeta = getInterviewStatusMeta(interview.status);
               const typeMeta = getInterviewTypeMeta(interview.type);
               const StatusIcon = statusMeta.icon;
@@ -450,20 +443,13 @@ export default function LeadershipInterviews() {
                           <Play className="h-4 w-4" />
                           Join Meeting
                         </Button>
-                        <Button
-                          type="button"
-                          onClick={handleDownloadMaterials}
-                          className="gap-2 whitespace-nowrap rounded-full bg-gradient-to-r from-orange-500 to-orange-400 text-white shadow-md hover:from-orange-600 hover:to-orange-500"
-                        >
-                          <FileText className="h-4 w-4" />
-                          Materials
-                        </Button>
                       </div>
                     ) : null}
                   </div>
                 </article>
               );
-            })}
+              })}
+            </div>
           </div>
         ) : (
           <div className="rounded-[2rem] border border-dashed border-orange-200 bg-orange-50/50 px-6 py-16 text-center shadow-sm">

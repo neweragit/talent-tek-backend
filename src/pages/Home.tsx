@@ -151,7 +151,7 @@ const Home = () => {
               <Briefcase className="w-12 h-12 text-orange-600 mb-4" />
               <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-slate-900 mb-4">Company Space</h2>
               <p className="text-sm sm:text-base leading-relaxed text-gray-700 mb-6">
-                Post jobs, run technical and leadership evaluations, and track your entire hiring pipeline in one place.
+                Post jobs, run technical and leadership feedback, and track your entire hiring pipeline in one place.
               </p>
               <Button asChild variant="outline" className="rounded-full px-8 py-4">
                 <Link to="/for-company">Learn More</Link>

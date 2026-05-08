@@ -26,10 +26,16 @@ import {
   Briefcase,
   GraduationCap,
   Building,
+  CheckCircle,
+  Ban,
+  Video,
+  MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { StarRatingInput } from "@/components/ui/star-rating";
+import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -97,6 +103,7 @@ interface Application {
   linkedinUrl?: string;
   githubUrl?: string;
   portfolioUrl?: string;
+  has_carte_entrepreneur?: boolean | null;
   taReviewRating?: number;
   taReviewText?: string;
   taReviewSubmittedOn?: string;
@@ -106,6 +113,10 @@ interface Application {
   leadershipFeedbackRating?: number;
   leadershipFeedbackText?: string;
   leadershipFeedbackSubmittedOn?: string;
+  taInterviewId?: string;
+  taInterviewMeetLink?: string;
+  taInterviewScheduledAt?: string;
+  taInterviewStatus?: "scheduled" | "confirmed" | "completed" | "rescheduled" | "no-show";
 }
 
 interface InterviewerOption {
@@ -115,6 +126,8 @@ interface InterviewerOption {
 }
 
 type AvailabilityStatus = "idle" | "checking" | "available" | "conflict" | "error";
+
+type PipelineTabId = "all" | "in-progress" | "maybe" | "rejected" | "archived";
 
 const filterTabs = [
   { id: "all", label: "All Applications", status: "pending" },
@@ -160,6 +173,19 @@ const ceilToNextMinute = (date: Date) => {
   return d;
 };
 
+const formatSafeDate = (date: Date | null | undefined, pattern: string) => {
+  if (!date || Number.isNaN(date.getTime())) return "";
+  return format(date, pattern);
+};
+
+const toLocalDateTimeInputValue = (date: Date | string | null | undefined) => {
+  if (!date) return "";
+  const parsed = typeof date === "string" ? new Date(date) : new Date(date);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const offset = parsed.getTimezoneOffset() * 60000;
+  return new Date(parsed.getTime() - offset).toISOString().slice(0, 16);
+};
+
 const maxTime = (a: string, b: string) => (a.localeCompare(b) >= 0 ? a : b);
 
 const computeOfferResponseDeadline = (responseDays: number): Date => {
@@ -178,7 +204,9 @@ export default function EmployerPipeline() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [jobs, setJobs] = useState<RecruiterJob[]>([]);
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("all");
+  const [activeTab, setActiveTab] = useState<PipelineTabId>("all");
+  const PIPELINE_TAB_STORAGE_KEY = "recruiter-pipeline-active-tab";
+  const PIPELINE_JOB_STORAGE_KEY = "recruiter-pipeline-selected-job";
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCandidate, setSelectedCandidate] = useState<Application | null>(null);
   const [showMoveDialog, setShowMoveDialog] = useState(false);
@@ -193,6 +221,8 @@ export default function EmployerPipeline() {
   const [confirmMoveOpen, setConfirmMoveOpen] = useState(false);
   const [pendingMoveStatus, setPendingMoveStatus] = useState<ApplicationStatus | null>(null);
   
+  const [pipelineMode, setPipelineMode] = useState<"hiring" | "onboarding">("hiring");
+
   const [currentEmployerId, setCurrentEmployerId] = useState<string | null>(null);
   const [currentTeamMemberId, setCurrentTeamMemberId] = useState<string | null>(null);
   const [currentRecruiterName, setCurrentRecruiterName] = useState<string>("");
@@ -249,6 +279,19 @@ export default function EmployerPipeline() {
   const [schedulingLoading, setSchedulingLoading] = useState(false);
   const [availabilityStatus, setAvailabilityStatus] = useState<AvailabilityStatus>("idle");
   const [availabilityMessage, setAvailabilityMessage] = useState<string>("");
+  const [scheduledDatePickerOpen, setScheduledDatePickerOpen] = useState(false);
+
+  // Talent acquisition feedback state
+  const [showTaReviewDialog, setShowTaReviewDialog] = useState(false);
+  const [taReviewCandidate, setTaReviewCandidate] = useState<Application | null>(null);
+  const [taReviewRating, setTaReviewRating] = useState<number>(5);
+  const [taReviewText, setTaReviewText] = useState<string>("");
+  const [taReviewSaving, setTaReviewSaving] = useState(false);
+
+  const [showTaRescheduleDialog, setShowTaRescheduleDialog] = useState(false);
+  const [taRescheduleCandidate, setTaRescheduleCandidate] = useState<Application | null>(null);
+  const [taRescheduleDateTime, setTaRescheduleDateTime] = useState<string>("");
+  const [taRescheduleSaving, setTaRescheduleSaving] = useState(false);
 
   // Technical interview scheduling state (from Talent Acquisition -> Technical)
   const [showTechnicalDialog, setShowTechnicalDialog] = useState(false);
@@ -257,12 +300,14 @@ export default function EmployerPipeline() {
   const [selectedInterviewerId, setSelectedInterviewerId] = useState<string>("");
   const [technicalInterviewersLoading, setTechnicalInterviewersLoading] = useState(false);
   const [technicalDay, setTechnicalDay] = useState<Date | undefined>(undefined);
+  const [technicalDatePickerOpen, setTechnicalDatePickerOpen] = useState(false);
   const [technicalTime, setTechnicalTime] = useState<string>("07:30");
   const [technicalDurationMinutes, setTechnicalDurationMinutes] = useState<number>(60);
   const [technicalMeetLink, setTechnicalMeetLink] = useState<string>("");
   const [technicalSchedulingLoading, setTechnicalSchedulingLoading] = useState(false);
   const [technicalAvailabilityStatus, setTechnicalAvailabilityStatus] = useState<AvailabilityStatus>("idle");
   const [technicalAvailabilityMessage, setTechnicalAvailabilityMessage] = useState<string>("");
+  const [technicalDialogMode, setTechnicalDialogMode] = useState<"schedule" | "reschedule">("schedule");
 
   // Leadership interview scheduling state (from Technical -> Leadership)
   const [showLeadershipDialog, setShowLeadershipDialog] = useState(false);
@@ -271,12 +316,14 @@ export default function EmployerPipeline() {
   const [selectedLeadershipInterviewerId, setSelectedLeadershipInterviewerId] = useState<string>("");
   const [leadershipInterviewersLoading, setLeadershipInterviewersLoading] = useState(false);
   const [leadershipDay, setLeadershipDay] = useState<Date | undefined>(undefined);
+  const [leadershipDatePickerOpen, setLeadershipDatePickerOpen] = useState(false);
   const [leadershipTime, setLeadershipTime] = useState<string>("07:30");
   const [leadershipDurationMinutes, setLeadershipDurationMinutes] = useState<number>(60);
   const [leadershipMeetLink, setLeadershipMeetLink] = useState<string>("");
   const [leadershipSchedulingLoading, setLeadershipSchedulingLoading] = useState(false);
   const [leadershipAvailabilityStatus, setLeadershipAvailabilityStatus] = useState<AvailabilityStatus>("idle");
   const [leadershipAvailabilityMessage, setLeadershipAvailabilityMessage] = useState<string>("");
+  const [leadershipDialogMode, setLeadershipDialogMode] = useState<"schedule" | "reschedule">("schedule");
 
   // Offer creation state (from Technical -> Offer)
   const [showOfferDialog, setShowOfferDialog] = useState(false);
@@ -503,6 +550,7 @@ export default function EmployerPipeline() {
     setShowScheduleDialog(true);
     setAvailabilityStatus("idle");
     setAvailabilityMessage("");
+    setScheduledDatePickerOpen(false);
 
     // Resolve employer + current team member context
     if (user?.id) {
@@ -991,16 +1039,215 @@ export default function EmployerPipeline() {
   const archiveApplication = async (app: Application) => {
     if (applicationBusyById[app.id]) return;
     setSelectedCandidate(null);
-    await updateApplication(app.id, { status: "archived", stage: null });
-    toast({ title: "Archived", description: `${app.name} has been archived.` });
+    await updateApplication(app.id, { status: "rejected", stage: null });
+    toast({ title: "Rejected", description: `${app.name} has been rejected.` });
   };
 
-  const openTechnicalInterviewDialog = async (app: Application) => {
+  const openTaReviewDialog = (candidate: Application) => {
+    if (candidate.taInterviewStatus === "completed") {
+      toast({
+        title: "Interview Completed",
+        description: "This talent acquisition interview is already completed.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSelectedCandidate(null);
+    setTaReviewCandidate(candidate);
+    setTaReviewRating(candidate.taReviewRating ?? 5);
+    setTaReviewText(candidate.taReviewText ?? "");
+    setShowTaReviewDialog(true);
+  };
+
+  const openTaInterviewLink = (candidate: Application) => {
+    if (candidate.taInterviewStatus === "completed") {
+      toast({
+        title: "Interview Completed",
+        description: "This talent acquisition interview is already completed.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!candidate.taInterviewMeetLink) {
+      toast({
+        title: "No Join Link",
+        description: "This talent acquisition interview does not have a meet link yet.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    window.open(candidate.taInterviewMeetLink, "_blank", "noopener,noreferrer");
+  };
+
+  const openTaRescheduleDialog = (candidate: Application) => {
+    if (candidate.taInterviewStatus === "completed") {
+      toast({
+        title: "Interview Completed",
+        description: "This talent acquisition interview is already completed.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!candidate.taInterviewId) {
+      toast({
+        title: "No Interview Linked",
+        description: "This talent acquisition candidate does not have a scheduled interview yet.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSelectedCandidate(null);
+    setTaRescheduleCandidate(candidate);
+    setTaRescheduleDateTime(toLocalDateTimeInputValue(candidate.taInterviewScheduledAt));
+    setShowTaRescheduleDialog(true);
+  };
+
+  const saveTaReschedule = async () => {
+    if (!taRescheduleCandidate?.taInterviewId || !taRescheduleDateTime) return;
+
+    setTaRescheduleSaving(true);
+    try {
+      const nextIso = new Date(taRescheduleDateTime).toISOString();
+
+      const { error } = await supabase
+        .from("interviews")
+        .update({
+          scheduled_date: nextIso,
+          status: "scheduled",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", taRescheduleCandidate.taInterviewId);
+
+      if (error) throw error;
+
+      setApplications((prev) =>
+        prev.map((app) =>
+          app.id === taRescheduleCandidate.id
+            ? {
+                ...app,
+                taInterviewScheduledAt: nextIso,
+                taInterviewStatus: "scheduled",
+              }
+            : app
+        )
+      );
+
+      setSelectedCandidate((prev) =>
+        prev?.id === taRescheduleCandidate.id
+          ? {
+              ...prev,
+              taInterviewScheduledAt: nextIso,
+              taInterviewStatus: "scheduled",
+            }
+          : prev
+      );
+
+      toast({
+        title: "Interview Rescheduled",
+        description: "Talent acquisition interview time updated successfully.",
+      });
+
+      setShowTaRescheduleDialog(false);
+      setTaRescheduleCandidate(null);
+      setTaRescheduleDateTime("");
+    } catch (err) {
+      console.error("Failed to reschedule TA interview:", err);
+      toast({
+        title: "Error",
+        description: err instanceof Error ? err.message : "Failed to reschedule talent acquisition interview.",
+        variant: "destructive",
+      });
+    } finally {
+      setTaRescheduleSaving(false);
+    }
+  };
+
+  const submitTaReview = async () => {
+    setTaReviewSaving(true);
+    try {
+      const submittedOn = format(new Date(), "dd/MM/yyyy");
+
+      if (taReviewCandidate?.taInterviewId) {
+        const { error } = await supabase
+          .from("interview_reviews")
+          .upsert(
+            {
+              interview_id: taReviewCandidate.taInterviewId,
+              rating: taReviewRating,
+              review_text: taReviewText || null,
+            },
+            { onConflict: "interview_id" }
+          );
+
+        if (error) throw error;
+
+        const { error: interviewError } = await supabase
+          .from("interviews")
+          .update({
+            status: "completed",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", taReviewCandidate.taInterviewId);
+
+        if (interviewError) throw interviewError;
+      }
+
+      setApplications((prev) =>
+        prev.map((app) =>
+          app.id === taReviewCandidate?.id
+            ? {
+                ...app,
+                taReviewRating,
+                taReviewText,
+                taReviewSubmittedOn: submittedOn,
+                taInterviewStatus: "completed",
+              }
+            : app
+        )
+      );
+      setSelectedCandidate((prev) =>
+        prev?.id === taReviewCandidate?.id
+          ? {
+              ...prev,
+              taReviewRating,
+              taReviewText,
+              taReviewSubmittedOn: submittedOn,
+              taInterviewStatus: "completed",
+            }
+          : prev
+      );
+
+      toast({
+        title: "Feedback saved",
+        description: "Talent acquisition feedback submitted successfully.",
+      });
+      setShowTaReviewDialog(false);
+      setTaReviewCandidate(null);
+    } catch (err) {
+      console.error("Failed to save TA feedback:", err);
+      toast({
+        title: "Error",
+        description: err instanceof Error ? err.message : "Failed to save talent acquisition feedback.",
+        variant: "destructive",
+      });
+    } finally {
+      setTaReviewSaving(false);
+    }
+  };
+
+  const openTechnicalInterviewDialog = async (app: Application, mode: "schedule" | "reschedule" = "schedule") => {
     // Close the candidate details card so it doesn't "jump" stages after moving to Technical.
     setSelectedCandidate(null);
+    setTechnicalDialogMode(mode);
     setCandidateForTechnical(app);
     setSelectedInterviewerId("");
     setTechnicalDay(undefined);
+    setTechnicalDatePickerOpen(false);
     setTechnicalTime("07:30");
     setTechnicalDurationMinutes(60);
     setTechnicalMeetLink("");
@@ -1129,12 +1376,14 @@ export default function EmployerPipeline() {
     }
   };
 
-  const openLeadershipInterviewDialog = async (app: Application) => {
+  const openLeadershipInterviewDialog = async (app: Application, mode: "schedule" | "reschedule" = "schedule") => {
     // Close the candidate details card so it doesn't "jump" stages after moving to Leadership.
     setSelectedCandidate(null);
+    setLeadershipDialogMode(mode);
     setCandidateForLeadership(app);
     setSelectedLeadershipInterviewerId("");
     setLeadershipDay(undefined);
+    setLeadershipDatePickerOpen(false);
     setLeadershipTime("07:30");
     setLeadershipDurationMinutes(60);
     setLeadershipMeetLink("");
@@ -1342,7 +1591,7 @@ export default function EmployerPipeline() {
       const doc = new jsPDF({ unit: "pt", format: "a4" });
       const salaryValue = offerSalary.trim();
       const salaryStored = salaryValue.toLowerCase().includes("dzd") ? salaryValue : `${salaryValue} DZD`;
-      const startDateStored = format(offerStartDay, "MMMM d, yyyy");
+      const startDateStored = formatSafeDate(offerStartDay, "MMMM d, yyyy");
       const issueDateStored = format(new Date(), "MMMM d, yyyy");
       const responseDeadlineStored = format(computeOfferResponseDeadline(offerResponseDays), "MMMM d, yyyy");
       const pageWidth = doc.internal.pageSize.getWidth();
@@ -1641,7 +1890,7 @@ export default function EmployerPipeline() {
     try {
       const salaryValue = offerSalary.trim();
       const salaryStored = salaryValue.toLowerCase().includes("dzd") ? salaryValue : `${salaryValue} DZD`;
-      const startDateStored = format(offerStartDay, "yyyy-MM-dd");
+      const startDateStored = formatSafeDate(offerStartDay, "yyyy-MM-dd");
       const responseDeadlineStored = computeOfferResponseDeadline(offerResponseDays).toISOString();
 
       const objectPath = [
@@ -1812,7 +2061,19 @@ export default function EmployerPipeline() {
         setJobs(jobsData);
 
         if (jobsData.length > 0 && !selectedJob) {
-          setSelectedJob(jobsData[0].id);
+          let savedJobId: string | null = null;
+          try {
+            savedJobId = window.localStorage.getItem(PIPELINE_JOB_STORAGE_KEY);
+          } catch (err) {
+            // ignore localStorage errors
+          }
+
+          const fallbackJobId = jobsData[0]?.id ?? null;
+          const preferredJobId = savedJobId && jobsData.some((job) => job.id === savedJobId) ? savedJobId : fallbackJobId;
+
+          if (preferredJobId) {
+            setSelectedJob(preferredJobId);
+          }
         }
 
         const jobIds = jobsData.map((j) => j.id);
@@ -1850,14 +2111,14 @@ export default function EmployerPipeline() {
           }
         }
 
-        const taReviewByApplicationId = new Map<string, { rating?: number; text?: string; submittedOn?: string }>();
+        const taReviewByApplicationId = new Map<string, { interviewId?: string; meetLink?: string; scheduledAt?: string; status?: string; rating?: number; text?: string; submittedOn?: string }>();
         const technicalFeedbackByApplicationId = new Map<string, { rating?: number; text?: string; submittedOn?: string }>();
         const leadershipFeedbackByApplicationId = new Map<string, { rating?: number; text?: string; submittedOn?: string }>();
 
         if (applicationIds.length > 0) {
           const taInterviewsRes = await supabase
             .from("interviews")
-            .select("application_id, scheduled_date, review:interview_reviews(rating, review_text, created_at)")
+            .select("id, application_id, scheduled_date, meet_link, status, review:interview_reviews(rating, review_text, created_at)")
             .eq("interview_type", "talent-acquisition")
             .in("application_id", applicationIds)
             .order("scheduled_date", { ascending: false });
@@ -1867,13 +2128,18 @@ export default function EmployerPipeline() {
               const appId = row.application_id as string | undefined;
               if (!appId || taReviewByApplicationId.has(appId)) continue;
 
+              const interviewId = row.id as string | undefined;
+              const meetLink = row.meet_link as string | undefined;
+              const scheduledAt = row.scheduled_date ? format(new Date(row.scheduled_date), "dd/MM/yyyy") : undefined;
               const review = Array.isArray(row.review) ? row.review[0] : row.review;
-              if (!review) continue;
-
               taReviewByApplicationId.set(appId, {
-                rating: review.rating ? Number(review.rating) : undefined,
-                text: review.review_text || undefined,
-                submittedOn: review.created_at ? format(new Date(review.created_at), "dd/MM/yyyy") : undefined,
+                interviewId,
+                meetLink,
+                scheduledAt,
+                status: row.status as string | undefined,
+                rating: review?.rating ? Number(review.rating) : undefined,
+                text: review?.review_text || undefined,
+                submittedOn: review?.created_at ? format(new Date(review.created_at), "dd/MM/yyyy") : undefined,
               });
             }
           }
@@ -1993,6 +2259,10 @@ export default function EmployerPipeline() {
             taReviewRating: taReview?.rating,
             taReviewText: taReview?.text,
             taReviewSubmittedOn: taReview?.submittedOn,
+            taInterviewId: taReview?.interviewId,
+            taInterviewMeetLink: taReview?.meetLink,
+            taInterviewScheduledAt: taReview?.scheduledAt,
+            taInterviewStatus: taReview?.status as Application["taInterviewStatus"],
             technicalFeedbackRating: technicalFeedback?.rating,
             technicalFeedbackText: technicalFeedback?.text,
             technicalFeedbackSubmittedOn: technicalFeedback?.submittedOn,
@@ -2239,6 +2509,35 @@ export default function EmployerPipeline() {
     );
   };
 
+  useEffect(() => {
+    try {
+      const savedTab = window.localStorage.getItem(PIPELINE_TAB_STORAGE_KEY);
+      if (!savedTab) return;
+      const isValidTab = filterTabs.some((t) => t.id === savedTab);
+      if (isValidTab) setActiveTab(savedTab as PipelineTabId);
+    } catch (err) {
+      // ignore localStorage errors
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PIPELINE_TAB_STORAGE_KEY, activeTab);
+    } catch (err) {
+      // ignore
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!selectedJob) return;
+
+    try {
+      window.localStorage.setItem(PIPELINE_JOB_STORAGE_KEY, selectedJob);
+    } catch (err) {
+      // ignore
+    }
+  }, [selectedJob]);
+
   return (
     <RecruiterLayout>
       <div className="relative z-10 max-w-7xl mx-auto px-3 sm:px-4 py-12 sm:py-20">
@@ -2336,24 +2635,76 @@ export default function EmployerPipeline() {
 
         {/* Filter Tabs */}
         <div className="flex flex-wrap gap-2 mb-8">
-          {filterTabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2 rounded-full font-medium text-sm transition-all ${
-                activeTab === tab.id
-                  ? "bg-orange-600 text-white shadow-md"
-                  : "bg-white border border-orange-200 text-slate-700 hover:bg-orange-50"
-              }`}
-            >
-              {tab.label}
-              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-                activeTab === tab.id ? "bg-white/20" : "bg-orange-100 text-orange-600"
-              }`}>
-                {getTabCount(tab.id)}
-              </span>
-            </button>
-          ))}
+          {filterTabs.map((tab) => {
+            if (tab.id === "in-progress") {
+              return (
+                <Popover key={tab.id}>
+                  <PopoverTrigger asChild>
+                    <button
+                      onClick={() => setActiveTab(tab.id as PipelineTabId)}
+                      className={`px-4 py-2 rounded-full font-medium text-sm transition-all ${
+                        activeTab === tab.id
+                          ? "bg-orange-600 text-white shadow-md"
+                          : "bg-white border border-orange-200 text-slate-700 hover:bg-orange-50"
+                      }`}
+                    >
+                      {pipelineMode === "hiring" ? "Hiring Pipeline" : "Onboarding"}
+                      <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                        activeTab === tab.id ? "bg-white/20" : "bg-orange-100 text-orange-600"
+                      }`}>
+                        {getTabCount(tab.id)}
+                      </span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-48 p-2 border-orange-200">
+                    <div className="flex flex-col gap-1">
+                      <button
+                        className={`text-left px-3 py-2 text-sm rounded-md transition-colors ${
+                          pipelineMode === "hiring" ? "bg-orange-50 text-orange-700 font-semibold" : "hover:bg-slate-50 text-slate-700"
+                        }`}
+                        onClick={() => {
+                          setPipelineMode("hiring");
+                          setActiveTab("in-progress");
+                        }}
+                      >
+                        Hiring Pipeline
+                      </button>
+                      <button
+                        className={`text-left px-3 py-2 text-sm rounded-md transition-colors ${
+                          pipelineMode === "onboarding" ? "bg-orange-50 text-orange-700 font-semibold" : "hover:bg-slate-50 text-slate-700"
+                        }`}
+                        onClick={() => {
+                          setPipelineMode("onboarding");
+                          setActiveTab("in-progress");
+                        }}
+                      >
+                        Onboarding
+                      </button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              );
+            }
+
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as PipelineTabId)}
+                className={`px-4 py-2 rounded-full font-medium text-sm transition-all ${
+                  activeTab === tab.id
+                    ? "bg-orange-600 text-white shadow-md"
+                    : "bg-white border border-orange-200 text-slate-700 hover:bg-orange-50"
+                }`}
+              >
+                {tab.label}
+                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                  activeTab === tab.id ? "bg-white/20" : "bg-orange-100 text-orange-600"
+                }`}>
+                  {getTabCount(tab.id)}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Loading State */}
@@ -2416,6 +2767,14 @@ export default function EmployerPipeline() {
                               <span className="flex items-center gap-1">
                                 <Mail className="w-3 h-3 text-orange-500" />
                                 {app.email || "—"}
+                              </span>
+                              <span className="flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 font-medium text-orange-700">
+                                {app.has_carte_entrepreneur ? (
+                                  <CheckCircle className="w-3 h-3" />
+                                ) : (
+                                  <Ban className="w-3 h-3" />
+                                )}
+                                {app.has_carte_entrepreneur ? "Entrepreneur card: Yes" : "Entrepreneur card: No"}
                               </span>
                               {app.phone ? (
                                 <span className="flex items-center gap-1">
@@ -2483,43 +2842,56 @@ export default function EmployerPipeline() {
             </div>
 
             <div className="rounded-3xl border border-orange-100 bg-white p-5 shadow-lg">
-              <div className="flex flex-nowrap items-center justify-between gap-3 overflow-x-auto px-1">
-                <Button
-                  variant="outline"
-                  onClick={() => selectedCandidate && handleMoveCandidate("archived")}
-                  className="h-10 whitespace-nowrap rounded-full border-2 border-orange-300 bg-white text-orange-700 hover:bg-orange-50 hover:text-orange-800 font-semibold"
-                  disabled={!selectedCandidate || !!(selectedCandidate && applicationBusyById[selectedCandidate.id])}
-                >
-                  <Archive className="w-4 h-4 mr-2" />
-                  Archive
-                </Button>
-                <Button
-                  variant="outline"
+              <div className="grid gap-2 grid-cols-4">
+                {(activeTab as string) !== "maybe" ? (
+                  <button
+                    type="button"
+                    onClick={() => selectedCandidate && handleMoveCandidate("maybe")}
+                    className="flex flex-col items-center gap-1 rounded-xl border border-orange-200 bg-white p-2 text-center text-xs font-medium transition-all hover:border-orange-400 hover:bg-orange-50"
+                    disabled={!selectedCandidate || !!(selectedCandidate && applicationBusyById[selectedCandidate.id])}
+                  >
+                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-orange-600">
+                      <Clock className="h-3 w-3 text-white" />
+                    </div>
+                    <span className="truncate text-slate-900">Maybe</span>
+                  </button>
+                ) : null}
+
+                <button
+                  type="button"
                   onClick={() => selectedCandidate && handleMoveCandidate("rejected")}
-                  className="h-10 whitespace-nowrap rounded-full border-2 border-orange-300 bg-white text-orange-700 hover:bg-orange-50 hover:text-orange-800 font-semibold"
+                  className="flex flex-col items-center gap-1 rounded-xl border border-orange-200 bg-white p-2 text-center text-xs font-medium transition-all hover:border-orange-400 hover:bg-orange-50"
                   disabled={!selectedCandidate || !!(selectedCandidate && applicationBusyById[selectedCandidate.id])}
                 >
-                  <UserX className="w-4 h-4 mr-2" />
-                  Rejected
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => selectedCandidate && handleMoveCandidate("maybe")}
-                  className="h-10 whitespace-nowrap rounded-full border-2 border-orange-300 bg-white text-orange-700 hover:bg-orange-50 hover:text-orange-800 font-semibold"
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-orange-600">
+                    <UserX className="h-3 w-3 text-white" />
+                  </div>
+                  <span className="truncate text-slate-900">Rejected</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => selectedCandidate && handleMoveCandidate("archived")}
+                  className="flex flex-col items-center gap-1 rounded-xl border border-orange-200 bg-white p-2 text-center text-xs font-medium transition-all hover:border-orange-400 hover:bg-orange-50"
                   disabled={!selectedCandidate || !!(selectedCandidate && applicationBusyById[selectedCandidate.id])}
                 >
-                  <Clock className="w-4 h-4 mr-2" />
-                  Maybe
-                </Button>
-                <Button
-                  variant="outline"
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-orange-600">
+                    <Archive className="h-3 w-3 text-white" />
+                  </div>
+                  <span className="truncate text-slate-900">Archived</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => selectedCandidate && handleMoveCandidate("in-progress")}
-                  className="h-10 whitespace-nowrap rounded-full border-2 border-orange-300 bg-white text-orange-700 hover:bg-orange-50 hover:text-orange-800 font-semibold"
+                  className="flex flex-col items-center gap-1 rounded-xl border border-orange-200 bg-white p-2 text-center text-xs font-medium transition-all hover:border-orange-400 hover:bg-orange-50"
                   disabled={!selectedCandidate || !!(selectedCandidate && applicationBusyById[selectedCandidate.id])}
                 >
-                  <UserCheck className="w-4 h-4 mr-2" />
-                  To Contact
-                </Button>
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-orange-600">
+                    <UserCheck className="h-3 w-3 text-white" />
+                  </div>
+                  <span className="truncate text-slate-900">To Contact</span>
+                </button>
               </div>
 
               <div className="mt-5 rounded-2xl border border-orange-100 bg-orange-50/30 p-4 min-h-[420px]">
@@ -2655,7 +3027,13 @@ export default function EmployerPipeline() {
 
         {/* Pipeline View */}
         {!loading && viewMode === "pipeline" && (
-          <div className="overflow-x-auto pb-4">
+          pipelineMode === "onboarding" ? (
+            <div className="rounded-[2rem] border border-dashed border-orange-200 bg-orange-50/50 px-6 py-16 text-center shadow-sm">
+              <h3 className="text-xl font-bold text-slate-900 mb-2">Coming Soon</h3>
+              <p className="text-slate-600">The Onboarding view is currently under development.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto pb-4">
             <div className="flex gap-4 min-w-max">
               {pipelineStages.map((stage) => {
                 const stageApplications = getApplicationsByStage(stage.id as ApplicationStage);
@@ -2705,7 +3083,17 @@ export default function EmployerPipeline() {
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <h4 className="font-semibold text-slate-900 truncate">{app.name}</h4>
-                                  <p className="text-xs text-slate-500 truncate">{app.email}</p>
+                                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                                    <span className="truncate">{app.email}</span>
+                                    <span className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 font-medium text-orange-700">
+                                      {app.has_carte_entrepreneur ? (
+                                        <CheckCircle className="w-3 h-3" />
+                                      ) : (
+                                        <Ban className="w-3 h-3" />
+                                      )}
+                                      {app.has_carte_entrepreneur ? "Entrepreneur card: Yes" : "Entrepreneur card: No"}
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
 
@@ -2845,6 +3233,7 @@ export default function EmployerPipeline() {
               })}
             </div>
           </div>
+          )
         )}
       </div>
 
@@ -2991,9 +3380,10 @@ export default function EmployerPipeline() {
 
                 {/* View CV Button */}
                 <Button
+                  variant="outline"
                   onClick={() => openCvPreview(selectedCandidate)}
                   disabled={cvLoading}
-                  className="w-full rounded-full border-2 border-orange-300 bg-transparent text-white hover:bg-orange-50/80 hover:text-white font-semibold py-6 text-base shadow-sm hover:shadow transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+                  className="w-full rounded-xl border-orange-300 bg-transparent px-4 py-3 text-sm font-semibold text-orange-700 shadow-sm transition-all hover:bg-transparent hover:text-orange-800 disabled:opacity-70 disabled:cursor-not-allowed"
                 >
                   {cvLoading ? (
                     <>
@@ -3003,7 +3393,7 @@ export default function EmployerPipeline() {
                   ) : (
                     <>
                       <FileText className="w-4 h-4 mr-2" />
-                      View CV
+                      View Resume
                     </>
                   )}
                 </Button>
@@ -3012,11 +3402,12 @@ export default function EmployerPipeline() {
 
               {/* Sticky Actions (always visible) */}
               <div className="border-t border-orange-100 pt-4 mt-2 bg-white">
-                <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-2">
                   {selectedCandidate?.stage === "to-contact" ? (
                     <Button
+                      variant="outline"
                       onClick={() => void openScheduleInterviewDialog(selectedCandidate)}
-                      className="w-full bg-orange-600 text-white hover:bg-orange-700 font-semibold py-4 rounded-lg transition-all shadow-md hover:shadow-lg"
+                      className="w-full rounded-xl border-orange-300 bg-transparent px-4 py-3 text-sm font-semibold text-orange-700 shadow-sm transition-all hover:bg-transparent hover:text-orange-800"
                       disabled={!!applicationBusyById[selectedCandidate.id]}
                     >
                       <CalendarIcon className="w-4 h-4 mr-2" />
@@ -3025,40 +3416,86 @@ export default function EmployerPipeline() {
                   ) : null}
 
                   {selectedCandidate?.stage === "talent-acquisition" ? (
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        onClick={() => handleMoveCandidate("archived")}
-                        className="flex-1 border-2 border-amber-300 bg-transparent text-white hover:bg-amber-50/80 hover:text-white font-semibold py-4 rounded-lg transition-all shadow-sm hover:shadow"
-                        disabled={!!applicationBusyById[selectedCandidate.id]}
-                      >
-                        <Archive className="w-4 h-4 mr-2" />
-                        Move to Archive
-                      </Button>
-                      <Button
-                        onClick={() => void openTechnicalInterviewDialog(selectedCandidate)}
-                        className="flex-1 border-2 border-orange-300 bg-transparent text-white hover:bg-orange-50/80 hover:text-white font-semibold py-4 rounded-lg transition-all shadow-sm hover:shadow"
-                        disabled={!!applicationBusyById[selectedCandidate.id]}
-                      >
-                        {applicationBusyById[selectedCandidate.id] ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Loading...
-                          </>
-                        ) : (
-                          "Move to Technical"
-                        )}
-                      </Button>
+                    <div className="flex flex-col gap-2">
+                      {(() => {
+                        const isTaInterviewCompleted = selectedCandidate.taInterviewStatus === "completed";
+
+                        return (
+                          <div className="grid grid-cols-3 gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => openTaInterviewLink(selectedCandidate)}
+                          className="rounded-xl border-orange-300 bg-transparent px-4 py-2.5 text-sm font-semibold text-orange-700 shadow-sm transition-all hover:bg-transparent hover:text-orange-800"
+                          disabled={!!applicationBusyById[selectedCandidate.id] || isTaInterviewCompleted}
+                          title={isTaInterviewCompleted ? "This talent acquisition interview is completed." : undefined}
+                        >
+                          <Video className="w-4 h-4 mr-2" />
+                          Join
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => openTaReviewDialog(selectedCandidate)}
+                          className="rounded-xl border-orange-300 bg-transparent px-4 py-2.5 text-sm font-semibold text-orange-700 shadow-sm transition-all hover:bg-transparent hover:text-orange-800"
+                          disabled={!!applicationBusyById[selectedCandidate.id] || isTaInterviewCompleted}
+                          title={isTaInterviewCompleted ? "This talent acquisition interview is completed." : undefined}
+                        >
+                          <MessageSquare className="w-4 h-4 mr-2" />
+                          Feedback
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => openTaRescheduleDialog(selectedCandidate)}
+                          className="rounded-xl border-orange-300 bg-transparent px-4 py-2.5 text-sm font-semibold text-orange-700 shadow-sm transition-all hover:bg-transparent hover:text-orange-800"
+                          disabled={!!applicationBusyById[selectedCandidate.id] || isTaInterviewCompleted}
+                          title={isTaInterviewCompleted ? "This talent acquisition interview is completed." : undefined}
+                        >
+                          <CalendarIcon className="w-4 h-4 mr-2" />
+                          Reschedule
+                        </Button>
+                          </div>
+                        );
+                      })()}
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => handleMoveCandidate("rejected")}
+                          className="rounded-xl border-orange-300 bg-transparent px-4 py-2.5 text-sm font-semibold text-orange-700 shadow-sm transition-all hover:bg-transparent hover:text-orange-800"
+                          disabled={!!applicationBusyById[selectedCandidate.id]}
+                        >
+                          <UserX className="w-4 h-4 mr-2" />
+                          Move to Reject
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => void openTechnicalInterviewDialog(selectedCandidate, "schedule")}
+                          className="rounded-xl border-orange-300 bg-transparent px-4 py-2.5 text-sm font-semibold text-orange-700 shadow-sm transition-all hover:bg-transparent hover:text-orange-800"
+                          disabled={!!applicationBusyById[selectedCandidate.id]}
+                        >
+                          {applicationBusyById[selectedCandidate.id] ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              Loading...
+                            </>
+                          ) : (
+                            "Move to Technical"
+                          )}
+                        </Button>
+                      </div>
                     </div>
                   ) : null}
 
                   {selectedCandidate?.stage === "technical" ? (
                     <div className="flex flex-col gap-2">
-                      <div className="flex gap-2">
+                      <div className="grid grid-cols-3 gap-2">
                         <Button
                           type="button"
-                          onClick={() => void openLeadershipInterviewDialog(selectedCandidate)}
-                          className="flex-1 bg-orange-600 text-white hover:bg-orange-700 font-semibold py-4 rounded-lg transition-all shadow-md hover:shadow-lg"
+                          variant="outline"
+                          onClick={() => void openLeadershipInterviewDialog(selectedCandidate, "schedule")}
+                          className="rounded-xl border-orange-300 bg-transparent px-4 py-2.5 text-sm font-semibold text-orange-700 shadow-sm transition-all hover:bg-transparent hover:text-orange-800"
                           disabled={!!applicationBusyById[selectedCandidate.id]}
                         >
                           <CalendarIcon className="w-4 h-4 mr-2" />
@@ -3066,8 +3503,19 @@ export default function EmployerPipeline() {
                         </Button>
                         <Button
                           type="button"
+                          variant="outline"
+                          onClick={() => void openTechnicalInterviewDialog(selectedCandidate, "reschedule")}
+                          className="rounded-xl border-orange-300 bg-transparent px-4 py-2.5 text-sm font-semibold text-orange-700 shadow-sm transition-all hover:bg-transparent hover:text-orange-800"
+                          disabled={!!applicationBusyById[selectedCandidate.id]}
+                        >
+                          <CalendarIcon className="w-4 h-4 mr-2" />
+                          Reschedule Technical
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
                           onClick={() => openOfferDialog(selectedCandidate)}
-                          className="flex-1 bg-orange-600 text-white hover:bg-orange-700 font-semibold py-4 rounded-lg transition-all shadow-md hover:shadow-lg"
+                          className="rounded-xl border-orange-300 bg-transparent px-4 py-2.5 text-sm font-semibold text-orange-700 shadow-sm transition-all hover:bg-transparent hover:text-orange-800"
                           disabled={!!applicationBusyById[selectedCandidate.id]}
                         >
                           <Building className="w-4 h-4 mr-2" />
@@ -3076,22 +3524,35 @@ export default function EmployerPipeline() {
                       </div>
                       <Button
                         type="button"
-                        onClick={() => handleMoveCandidate("archived")}
-                        className="w-full bg-amber-500 text-white hover:bg-amber-600 font-semibold py-4 rounded-lg transition-all shadow-md hover:shadow-lg"
+                        variant="outline"
+                        onClick={() => handleMoveCandidate("rejected")}
+                        className="w-full rounded-xl border-orange-300 bg-transparent px-4 py-2.5 text-sm font-semibold text-orange-700 shadow-sm transition-all hover:bg-transparent hover:text-orange-800"
                         disabled={!!applicationBusyById[selectedCandidate.id]}
                       >
-                        <Archive className="w-4 h-4 mr-2" />
-                        Move to Archive
+                        <UserX className="w-4 h-4 mr-2" />
+                        Move to Reject
                       </Button>
                     </div>
                   ) : null}
 
                   {selectedCandidate?.stage === "leadership" ? (
-                    <div className="flex gap-2">
+                    <div className="flex flex-col gap-2">
+                      <div className="grid grid-cols-3 gap-2">
                       <Button
                         type="button"
+                        variant="outline"
+                        onClick={() => void openLeadershipInterviewDialog(selectedCandidate, "reschedule")}
+                        className="rounded-xl border-orange-300 bg-transparent px-4 py-2.5 text-sm font-semibold text-orange-700 shadow-sm transition-all hover:bg-transparent hover:text-orange-800"
+                        disabled={!!applicationBusyById[selectedCandidate.id]}
+                      >
+                        <CalendarIcon className="w-4 h-4 mr-2" />
+                        Reschedule Leadership
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
                         onClick={() => openOfferDialog(selectedCandidate)}
-                        className="flex-1 bg-orange-600 text-white hover:bg-orange-700 font-semibold py-4 rounded-lg transition-all shadow-md hover:shadow-lg"
+                        className="rounded-xl border-orange-300 bg-transparent px-4 py-2.5 text-sm font-semibold text-orange-700 shadow-sm transition-all hover:bg-transparent hover:text-orange-800"
                         disabled={!!applicationBusyById[selectedCandidate.id]}
                       >
                         <Building className="w-4 h-4 mr-2" />
@@ -3099,19 +3560,129 @@ export default function EmployerPipeline() {
                       </Button>
                       <Button
                         type="button"
-                        onClick={() => handleMoveCandidate("archived")}
-                        className="flex-1 bg-amber-500 text-white hover:bg-amber-600 font-semibold py-4 rounded-lg transition-all shadow-md hover:shadow-lg"
+                        variant="outline"
+                        onClick={() => handleMoveCandidate("rejected")}
+                        className="rounded-xl border-orange-300 bg-transparent px-4 py-2.5 text-sm font-semibold text-orange-700 shadow-sm transition-all hover:bg-transparent hover:text-orange-800"
                         disabled={!!applicationBusyById[selectedCandidate.id]}
                       >
-                        <Archive className="w-4 h-4 mr-2" />
-                        Move to Archive
+                        <UserX className="w-4 h-4 mr-2" />
+                        Move to Reject
                       </Button>
+                      </div>
                     </div>
                   ) : null}
                 </div>
               </div>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showTaReviewDialog} onOpenChange={setShowTaReviewDialog}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-slate-900">Talent Acquisition Feedback</DialogTitle>
+            <DialogDescription className="sr-only">Leave a rating and feedback for the talent acquisition interview.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            <div>
+              <p className="text-sm font-semibold text-slate-700">Candidate</p>
+              <p className="text-base font-bold text-slate-900">{taReviewCandidate?.name}</p>
+              <p className="text-sm font-medium text-slate-600">
+                {taReviewCandidate?.taInterviewScheduledAt || "Testing mode - no interview linked yet"}
+              </p>
+            </div>
+
+            <div>
+              <p className="mb-2 text-sm font-semibold text-slate-700">Rating</p>
+              <StarRatingInput value={taReviewRating} onChange={setTaReviewRating} disabled={taReviewSaving} />
+            </div>
+
+            <div>
+              <p className="mb-2 text-sm font-semibold text-slate-700">Feedback</p>
+              <Textarea
+                value={taReviewText}
+                onChange={(e) => setTaReviewText(e.target.value)}
+                placeholder="Write your feedback..."
+                className="min-h-28 rounded-xl border-orange-200 focus:border-orange-400 focus:ring-orange-400"
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 rounded-xl border-orange-200 text-slate-700 hover:bg-orange-50"
+                disabled={taReviewSaving}
+                onClick={() => setShowTaReviewDialog(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="flex-1 rounded-xl bg-orange-600 text-white hover:bg-orange-700"
+                disabled={taReviewSaving}
+                onClick={() => void submitTaReview()}
+              >
+                {taReviewSaving ? "Saving..." : "Save Feedback"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showTaRescheduleDialog} onOpenChange={setShowTaRescheduleDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-slate-900">Reschedule Talent Acquisition Interview</DialogTitle>
+            <DialogDescription className="text-slate-600">
+              Update the date and time for the linked talent acquisition interview.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm font-semibold text-slate-700">Candidate</p>
+              <p className="text-base font-bold text-slate-900">{taRescheduleCandidate?.name}</p>
+              <p className="text-sm font-medium text-slate-600">
+                {taRescheduleCandidate?.taInterviewScheduledAt || "No scheduled interview linked yet"}
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="ta-reschedule-date" className="mb-2 block text-sm font-semibold text-slate-700">
+                New Date & Time
+              </label>
+              <Input
+                id="ta-reschedule-date"
+                type="datetime-local"
+                value={taRescheduleDateTime}
+                onChange={(event) => setTaRescheduleDateTime(event.target.value)}
+                className="rounded-xl border-orange-200 focus:border-orange-400 focus:ring-orange-400"
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 rounded-xl border-orange-200 text-slate-700 hover:bg-orange-50"
+                disabled={taRescheduleSaving}
+                onClick={() => setShowTaRescheduleDialog(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="flex-1 rounded-xl bg-orange-600 text-white hover:bg-orange-700"
+                disabled={taRescheduleSaving || !taRescheduleDateTime || !taRescheduleCandidate?.taInterviewId}
+                onClick={() => void saveTaReschedule()}
+              >
+                {taRescheduleSaving ? "Saving..." : "Save"}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -3128,63 +3699,49 @@ export default function EmployerPipeline() {
           </DialogHeader>
 
           <div className="space-y-3 mt-4">
-            <button
-              onClick={() => handleMoveCandidate("in-progress")}
-              className="w-full p-4 bg-white rounded-2xl border-2 border-orange-200 hover:border-orange-400 hover:bg-orange-50 transition-all text-left flex items-center gap-4 font-medium"
-            >
-              <div className="w-10 h-10 rounded-xl bg-orange-600 flex items-center justify-center">
-                <UserCheck className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h4 className="font-semibold text-slate-900">{activeTab === "maybe" ? "To Contact" : "Hiring Pipeline"}</h4>
-                <p className="text-sm text-slate-600">{activeTab === "maybe" ? "Move back to the pipeline" : "Move to active pipeline"}</p>
-              </div>
-              <ChevronRight className="w-5 h-5 text-slate-400 ml-auto" />
-            </button>
+            <div className="grid gap-2 grid-cols-4">
+              {(activeTab as string) !== "maybe" ? (
+                <button
+                  onClick={() => handleMoveCandidate("maybe")}
+                  className="flex flex-col items-center gap-1 rounded-xl border border-orange-200 bg-white p-2 text-center text-xs font-medium transition-all hover:border-orange-400 hover:bg-orange-50"
+                >
+                  <div className="w-6 h-6 rounded-lg bg-orange-600 flex items-center justify-center">
+                    <Clock className="w-3 h-3 text-white" />
+                  </div>
+                  <span className="text-slate-900">Maybe</span>
+                </button>
+              ) : null}
 
-            {activeTab !== "maybe" ? (
               <button
-                onClick={() => handleMoveCandidate("maybe")}
-                className="w-full p-4 bg-white rounded-2xl border-2 border-orange-200 hover:border-orange-400 hover:bg-orange-50 transition-all text-left flex items-center gap-4 font-medium"
+                onClick={() => handleMoveCandidate("rejected")}
+                className="flex flex-col items-center gap-1 rounded-xl border border-orange-200 bg-white p-2 text-center text-xs font-medium transition-all hover:border-orange-400 hover:bg-orange-50"
               >
-                <div className="w-10 h-10 rounded-xl bg-orange-600 flex items-center justify-center">
-                  <Clock className="w-5 h-5 text-white" />
+                <div className="w-6 h-6 rounded-lg bg-orange-600 flex items-center justify-center">
+                  <UserX className="w-3 h-3 text-white" />
                 </div>
-                <div>
-                  <h4 className="font-semibold text-slate-900">Maybe</h4>
-                  <p className="text-sm text-slate-600">Keep for consideration</p>
-                </div>
-                <ChevronRight className="w-5 h-5 text-slate-400 ml-auto" />
+                <span className="text-slate-900">Rejected</span>
               </button>
-            ) : null}
 
-            <button
-              onClick={() => handleMoveCandidate("rejected")}
-              className="w-full p-4 bg-white rounded-2xl border-2 border-orange-200 hover:border-orange-400 hover:bg-orange-50 transition-all text-left flex items-center gap-4 font-medium"
-            >
-              <div className="w-10 h-10 rounded-xl bg-orange-600 flex items-center justify-center">
-                <UserX className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h4 className="font-semibold text-slate-900">Rejected</h4>
-                <p className="text-sm text-slate-600">Candidate refused or was rejected</p>
-              </div>
-              <ChevronRight className="w-5 h-5 text-slate-400 ml-auto" />
-            </button>
+              <button
+                onClick={() => handleMoveCandidate("rejected")}
+                className="flex flex-col items-center gap-1 rounded-xl border border-orange-200 bg-white p-2 text-center text-xs font-medium transition-all hover:border-orange-400 hover:bg-orange-50"
+              >
+                <div className="w-6 h-6 rounded-lg bg-orange-600 flex items-center justify-center">
+                  <UserX className="w-3 h-3 text-white" />
+                </div>
+                <span className="text-slate-900">Reject</span>
+              </button>
 
-            <button
-              onClick={() => handleMoveCandidate("archived")}
-              className="w-full p-4 bg-white rounded-2xl border-2 border-orange-200 hover:border-orange-400 hover:bg-orange-50 transition-all text-left flex items-center gap-4 font-medium"
-            >
-              <div className="w-10 h-10 rounded-xl bg-orange-600 flex items-center justify-center">
-                <Archive className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h4 className="font-semibold text-slate-900">Archive</h4>
-                <p className="text-sm text-slate-500">Remove from active view</p>
-              </div>
-              <ChevronRight className="w-5 h-5 text-slate-400 ml-auto" />
-            </button>
+              <button
+                onClick={() => handleMoveCandidate("in-progress")}
+                className="flex flex-col items-center gap-1 rounded-xl border border-orange-200 bg-white p-2 text-center text-xs font-medium transition-all hover:border-orange-400 hover:bg-orange-50"
+              >
+                <div className="w-6 h-6 rounded-lg bg-orange-600 flex items-center justify-center">
+                  <UserCheck className="w-3 h-3 text-white" />
+                </div>
+                <span className="text-slate-900">To Contact</span>
+              </button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -3242,7 +3799,7 @@ export default function EmployerPipeline() {
           </DialogHeader>
 
           <div className="space-y-6 mt-4">
-            <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
+            <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
               <p className="text-sm text-slate-700">
                 <span className="font-semibold text-orange-600">Interview Type:</span> Talent Acquisition
               </p>
@@ -3254,12 +3811,31 @@ export default function EmployerPipeline() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">Date</label>
-                  <Input
-                    type="date"
-                    value={scheduledDay ? format(scheduledDay, "yyyy-MM-dd") : ""}
-                    onChange={(e) => setScheduledDay(e.target.value ? new Date(`${e.target.value}T00:00:00`) : undefined)}
-                    className="rounded-lg border-2 border-orange-300 h-11 font-medium"
-                  />
+                  <Popover open={scheduledDatePickerOpen} onOpenChange={setScheduledDatePickerOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-11 w-full justify-between rounded-lg border-2 border-orange-300 bg-white px-3 text-left font-medium text-slate-700 hover:bg-orange-50"
+                      >
+                        <span className={scheduledDay ? "text-slate-700" : "text-slate-400"}>
+                          {formatSafeDate(scheduledDay, "EEEE, MMMM d, yyyy") || "Select interview date"}
+                        </span>
+                        <CalendarIcon className="h-4 w-4 text-orange-600" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0 border-orange-200" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={scheduledDay}
+                        onSelect={(day) => {
+                          setScheduledDay(day);
+                          if (day) setScheduledDatePickerOpen(false);
+                        }}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </div>
 
                 <div className="space-y-4">
@@ -3314,7 +3890,7 @@ export default function EmployerPipeline() {
             </div>
 
             {/* Meet Link */}
-            <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100">
+            <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-slate-700">Meet Link</h3>
                 <Button
@@ -3425,12 +4001,36 @@ export default function EmployerPipeline() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">Date</label>
-                  <Input
-                    type="date"
-                    value={technicalDay ? format(technicalDay, "yyyy-MM-dd") : ""}
-                    onChange={(e) => setTechnicalDay(e.target.value ? new Date(`${e.target.value}T00:00:00`) : undefined)}
-                    className="rounded-lg border-2 border-orange-300 h-11 font-medium"
-                  />
+                  <div className="grid grid-cols-1 gap-2">
+                    <Popover open={technicalDatePickerOpen} onOpenChange={setTechnicalDatePickerOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-11 w-full justify-between rounded-lg border-2 border-orange-300 bg-white px-3 text-left font-medium text-slate-700 hover:bg-orange-50"
+                        >
+                          <span className={technicalDay ? "text-slate-700" : "text-slate-400"}>
+                            {formatSafeDate(technicalDay, "EEEE, MMMM d, yyyy") || "Select date"}
+                          </span>
+                          <CalendarIcon className="h-4 w-4 text-orange-600" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0 border-orange-200" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={technicalDay}
+                          onSelect={(day) => {
+                            setTechnicalDay(day);
+                            if (day) setTechnicalDatePickerOpen(false);
+                          }}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <p className="text-xs font-medium text-slate-500">
+                      Pick the date for this technical interview.
+                    </p>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -3537,12 +4137,14 @@ export default function EmployerPipeline() {
                 {technicalSchedulingLoading ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Scheduling...
+                    {technicalDialogMode === "reschedule" ? "Rescheduling..." : "Scheduling..."}
                   </>
                 ) : (
                   <>
                     <CalendarIcon className="w-4 h-4 mr-2" />
-                    Schedule Technical Interview
+                    {technicalDialogMode === "reschedule"
+                      ? "Reschedule Technical Interview"
+                      : "Schedule Technical Interview"}
                   </>
                 )}
               </Button>
@@ -3605,14 +4207,36 @@ export default function EmployerPipeline() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">Date</label>
-                  <Input
-                    type="date"
-                    value={leadershipDay ? format(leadershipDay, "yyyy-MM-dd") : ""}
-                    onChange={(e) =>
-                      setLeadershipDay(e.target.value ? new Date(`${e.target.value}T00:00:00`) : undefined)
-                    }
-                    className="rounded-lg border-2 border-orange-300 h-11 font-medium"
-                  />
+                  <div className="grid grid-cols-1 gap-2">
+                    <Popover open={leadershipDatePickerOpen} onOpenChange={setLeadershipDatePickerOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-11 w-full justify-between rounded-lg border-2 border-orange-300 bg-white px-3 text-left font-medium text-slate-700 hover:bg-orange-50"
+                        >
+                          <span className={leadershipDay ? "text-slate-700" : "text-slate-400"}>
+                            {formatSafeDate(leadershipDay, "EEEE, MMMM d, yyyy") || "Select date"}
+                          </span>
+                          <CalendarIcon className="h-4 w-4 text-orange-600" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0 border-orange-200" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={leadershipDay}
+                          onSelect={(day) => {
+                            setLeadershipDay(day);
+                            if (day) setLeadershipDatePickerOpen(false);
+                          }}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <p className="text-xs font-medium text-slate-500">
+                      Pick the date for this leadership interview.
+                    </p>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -3719,12 +4343,14 @@ export default function EmployerPipeline() {
                 {leadershipSchedulingLoading ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Scheduling...
+                    {leadershipDialogMode === "reschedule" ? "Rescheduling..." : "Scheduling..."}
                   </>
                 ) : (
                   <>
                     <CalendarIcon className="w-4 h-4 mr-2" />
-                    Schedule Leadership Interview
+                    {leadershipDialogMode === "reschedule"
+                      ? "Reschedule Leadership Interview"
+                      : "Schedule Leadership Interview"}
                   </>
                 )}
               </Button>
@@ -3834,7 +4460,7 @@ export default function EmployerPipeline() {
                           className="h-11 w-full justify-between rounded-lg border-2 border-orange-300 bg-white px-3 text-left font-medium text-slate-700 hover:bg-orange-50"
                         >
                           <span className={offerStartDay ? "text-slate-700" : "text-slate-400"}>
-                            {offerStartDay ? format(offerStartDay, "EEEE, MMMM d, yyyy") : "Select start date"}
+                            {formatSafeDate(offerStartDay, "EEEE, MMMM d, yyyy") || "Select start date"}
                           </span>
                           <CalendarIcon className="h-4 w-4 text-orange-600" />
                         </Button>
@@ -3907,7 +4533,7 @@ export default function EmployerPipeline() {
                   ) : (
                     <>
                       <FileText className="w-4 h-4 mr-2" />
-                      Show Result
+                      Show Preview
                     </>
                   )}
                 </Button>

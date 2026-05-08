@@ -1,9 +1,10 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Home, Briefcase, UserCheck, GitBranch, Users, Video, MessageSquare, User, Menu, X, LogOut, Bell } from "lucide-react";
-import { useState } from "react";
+import { Home, Briefcase, UserCheck, GitBranch, Users, Video, MessageSquare, User, Menu, X, LogOut, Bell, BellOff } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { supabase } from "@/lib/supabase";
 import logo from "@/logo/logo.jfif";
 
 interface RecruiterLayoutProps {
@@ -15,17 +16,132 @@ const RecruiterLayout = ({ children }: RecruiterLayoutProps) => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [scheduledInterviewsCount, setScheduledInterviewsCount] = useState(0);
+  const [pendingApplicationsCount, setPendingApplicationsCount] = useState(0);
+  const [openTicketsCount, setOpenTicketsCount] = useState(0);
 
   const navLinks = [
     { name: "Overview", path: "/recruiter/overview", icon: Home },
     { name: "Jobs", path: "/recruiter/jobs", icon: Briefcase },
-    { name: "Applicants", path: "/recruiter/applicants", icon: UserCheck },
-    { name: "Pipeline", path: "/recruiter/pipeline", icon: GitBranch },
+    { name: "Pipeline", path: "/recruiter/pipeline", icon: GitBranch, count: pendingApplicationsCount > 0 ? pendingApplicationsCount : undefined },
+    { name: "Interviews", path: "/recruiter/interviews", icon: Video, count: scheduledInterviewsCount > 0 ? scheduledInterviewsCount : undefined },
     { name: "Interviewers", path: "/recruiter/interviewers", icon: Users },
-    { name: "Interviews", path: "/recruiter/interviews", icon: Video },
-    { name: "Support Tickets", path: "/recruiter/tickets", icon: MessageSquare },
     { name: "Profile", path: "/recruiter/profile", icon: User },
+    { name: "Support Tickets", path: "/recruiter/tickets", icon: MessageSquare, count: openTicketsCount > 0 ? openTicketsCount : undefined },
   ];
+
+  useEffect(() => {
+    const loadSidebarCounts = async () => {
+      if (!user?.id) {
+        setScheduledInterviewsCount(0);
+        setPendingApplicationsCount(0);
+        setOpenTicketsCount(0);
+        return;
+      }
+
+      try {
+        const { data: membershipData } = await supabase
+          .from("employer_team_members")
+          .select("id, employer_id")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        const teamMemberId = membershipData?.id ?? null;
+        const employerId = membershipData?.employer_id ?? null;
+
+        if (!teamMemberId || !employerId) {
+          setScheduledInterviewsCount(0);
+          setPendingApplicationsCount(0);
+          setOpenTicketsCount(0);
+          return;
+        }
+
+        const { data: jobsData, error: jobsError } = await supabase
+          .from("jobs")
+          .select("id")
+          .eq("employer_id", employerId);
+
+        if (jobsError) throw jobsError;
+
+        const employerJobIds = (jobsData ?? []).map((job: { id: string }) => job.id).filter(Boolean);
+
+        if (employerJobIds.length === 0) {
+          setScheduledInterviewsCount(0);
+          setPendingApplicationsCount(0);
+          return;
+        }
+
+        const { data: applicationsData, error: applicationsError } = await supabase
+          .from("applications")
+          .select("id, status")
+          .in("job_id", employerJobIds);
+
+        if (applicationsError) throw applicationsError;
+
+        const applicationIds = (applicationsData ?? []).map((application: { id: string }) => application.id).filter(Boolean);
+
+        const offeredApplicationIds = new Set<string>();
+        if (applicationIds.length > 0) {
+          const { data: offersData, error: offersError } = await supabase
+            .from("offers")
+            .select("application_id")
+            .in("application_id", applicationIds);
+
+          if (offersError) throw offersError;
+
+          for (const row of offersData ?? []) {
+            if (row?.application_id) {
+              offeredApplicationIds.add(row.application_id);
+            }
+          }
+        }
+
+        const pendingCount = (applicationsData ?? []).filter(
+          (application: { id?: string; status?: string }) =>
+            application.status === "pending" && !!application.id && !offeredApplicationIds.has(application.id)
+        ).length;
+
+        setPendingApplicationsCount(pendingCount);
+
+        if (applicationIds.length === 0) {
+          setScheduledInterviewsCount(0);
+          return;
+        }
+
+        const { data: interviewsData, error: interviewsError } = await supabase
+          .from("interviews")
+          .select("application_id, status")
+          .eq("team_member_id", teamMemberId)
+          .eq("status", "scheduled")
+          .in("application_id", applicationIds);
+
+        const scheduledCount = (interviewsData ?? []).filter(
+          (interview: { application_id?: string | null }) =>
+            !!interview.application_id && !offeredApplicationIds.has(interview.application_id)
+        ).length;
+
+        setScheduledInterviewsCount(scheduledCount);
+
+        // Fetch open tickets count
+        const { count: ticketsCount, error: ticketsError } = await supabase
+          .from("support_tickets")
+          .select("*", { count: "exact", head: true })
+          .eq("assigned_to", user.id)
+          .eq("status", "open");
+
+        if (!ticketsError) {
+          setOpenTicketsCount(ticketsCount || 0);
+        }
+      } catch (error) {
+        console.error("Failed to load sidebar counts:", error);
+        setScheduledInterviewsCount(0);
+        setPendingApplicationsCount(0);
+        setOpenTicketsCount(0);
+      }
+    };
+
+    void loadSidebarCounts();
+  }, [user?.id]);
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -61,6 +177,15 @@ const RecruiterLayout = ({ children }: RecruiterLayoutProps) => {
               >
                 <link.icon className="w-5 h-5" />
                 {link.name}
+                {typeof link.count === "number" ? (
+                  <span
+                    className={`ml-auto rounded-full px-2 py-0.5 text-xs font-bold ${
+                      isActive(link.path) ? "bg-white/20 text-white" : "bg-orange-100 text-orange-700"
+                    }`}
+                  >
+                    {link.count}
+                  </span>
+                ) : null}
               </Link>
             ))}
           </div>
@@ -78,21 +203,21 @@ const RecruiterLayout = ({ children }: RecruiterLayoutProps) => {
               <p className="text-xs text-gray-500 truncate">{user?.email}</p>
             </div>
             <Link
-              to="/recruiter/tickets"
-              aria-label="Open support tickets"
+              to=""
+              aria-label="Notifications"
               className={`relative rounded-full border p-2 transition-colors ${
-                location.pathname === "/recruiter/tickets"
+                location.pathname === ""
                   ? "border-orange-500 bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-sm"
                   : "border-orange-200 bg-white text-orange-600 hover:bg-orange-50 hover:text-orange-700"
               }`}
             >
-              <Bell className="h-4 w-4" />
-              <span
-                aria-hidden="true"
-                className={`absolute right-1 top-1 h-1.5 w-1.5 rounded-full ${
-                  location.pathname === "/recruiter/tickets" ? "bg-white" : "bg-orange-500"
-                }`}
-              />
+              {scheduledInterviewsCount + pendingApplicationsCount > 0 ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+              {scheduledInterviewsCount + pendingApplicationsCount > 0 ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-red-500"
+                />
+              ) : null}
             </Link>
           </div>
           <Button
@@ -139,6 +264,15 @@ const RecruiterLayout = ({ children }: RecruiterLayoutProps) => {
                   >
                     <link.icon className="w-5 h-5" />
                     {link.name}
+                    {typeof link.count === "number" ? (
+                      <span
+                        className={`ml-auto rounded-full px-2 py-0.5 text-xs font-bold ${
+                          isActive(link.path) ? "bg-white/20 text-white" : "bg-orange-100 text-orange-700"
+                        }`}
+                      >
+                        {link.count}
+                      </span>
+                    ) : null}
                   </Link>
                 ))}
               </div>

@@ -31,7 +31,7 @@ const responseRules: Array<{ keywords: string[]; response: string }> = [
   {
     keywords: ["interview", "schedule", "technical", "leadership"],
     response:
-      "Interview flow is managed from your dashboard. You can monitor technical and leadership evaluations, check pending reviews, and follow each candidate stage in one place.",
+      "Interview flow is managed from your dashboard. You can monitor technical and leadership feedback, check pending reviews, and follow each candidate stage in one place.",
   },
   {
     keywords: ["application", "offer", "talent"],

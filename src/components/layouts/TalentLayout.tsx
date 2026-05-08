@@ -1,9 +1,10 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Home, FileText, User, MessageSquare, Gift, Video, Briefcase, Menu, X, LogOut, ChevronDown, Bell } from "lucide-react";
-import { useState } from "react";
+import { Home, FileText, User, MessageSquare, Gift, Video, Briefcase, Menu, X, LogOut, ChevronDown, Bell, BellOff } from "lucide-react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { supabase } from "@/lib/supabase";
 import logo from "@/logo/logo.jfif";
 
 interface TalentLayoutProps {
@@ -16,25 +17,132 @@ const TalentLayout = ({ children }: TalentLayoutProps) => {
   const { user, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [interviewsOpen, setInterviewsOpen] = useState(location.pathname.startsWith("/talent/interviews"));
+  const [interviewsCount, setInterviewsCount] = useState(0);
+  const [taInterviewsCount, setTaInterviewsCount] = useState(0);
+  const [itInterviewsCount, setItInterviewsCount] = useState(0);
+  const [leadInterviewsCount, setLeadInterviewsCount] = useState(0);
+  const [applicationsCount, setApplicationsCount] = useState(0);
+  const [offersCount, setOffersCount] = useState(0);
+  const [openTicketsCount, setOpenTicketsCount] = useState(0);
+
+  useEffect(() => {
+    const loadSidebarCounts = async () => {
+      if (!user?.id) {
+        setInterviewsCount(0);
+        setTaInterviewsCount(0);
+        setItInterviewsCount(0);
+        setLeadInterviewsCount(0);
+        setApplicationsCount(0);
+        setOffersCount(0);
+        setOpenTicketsCount(0);
+        return;
+      }
+
+      try {
+        const { data: talent } = await supabase
+          .from("talents")
+          .select("id")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (!talent?.id) {
+          setInterviewsCount(0);
+          setTaInterviewsCount(0);
+          setItInterviewsCount(0);
+          setLeadInterviewsCount(0);
+          setApplicationsCount(0);
+          setOffersCount(0);
+          setOpenTicketsCount(0);
+          return;
+        }
+
+        const { data: applicationsData, error: applicationsError } = await supabase
+          .from("applications")
+          .select("id, status")
+          .eq("talent_id", talent.id);
+
+        if (applicationsError) throw applicationsError;
+
+        const applicationIds = (applicationsData ?? []).map((app: any) => app.id).filter(Boolean);
+
+        const inProgressCount = (applicationsData ?? []).filter(
+          (app: any) => app.status === "in-progress" || app.status === "pending"
+        ).length;
+        setApplicationsCount(inProgressCount);
+
+        if (applicationIds.length === 0) {
+          setInterviewsCount(0);
+          setTaInterviewsCount(0);
+          setItInterviewsCount(0);
+          setLeadInterviewsCount(0);
+          setOffersCount(0);
+          return;
+        }
+
+        const { data: interviewsData } = await supabase
+          .from("interviews")
+          .select("id, interview_type")
+          .eq("status", "scheduled")
+          .in("application_id", applicationIds);
+
+        const allInterviews = interviewsData ?? [];
+        setInterviewsCount(allInterviews.length);
+        setTaInterviewsCount(allInterviews.filter((i: any) => i.interview_type === "talent-acquisition").length);
+        setItInterviewsCount(allInterviews.filter((i: any) => i.interview_type === "technical").length);
+        setLeadInterviewsCount(allInterviews.filter((i: any) => i.interview_type === "leadership").length);
+
+        const { data: offersData } = await supabase
+          .from("offers")
+          .select("id")
+          .eq("status", "pending")
+          .in("application_id", applicationIds);
+
+        setOffersCount((offersData ?? []).length);
+
+        // Fetch open tickets count
+        const { count: ticketsCount, error: ticketsError } = await supabase
+          .from("support_tickets")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .eq("status", "open");
+
+        if (!ticketsError) {
+          setOpenTicketsCount(ticketsCount || 0);
+        }
+      } catch (error) {
+        console.error("Failed to load sidebar counts:", error);
+        setInterviewsCount(0);
+        setTaInterviewsCount(0);
+        setItInterviewsCount(0);
+        setLeadInterviewsCount(0);
+        setApplicationsCount(0);
+        setOffersCount(0);
+        setOpenTicketsCount(0);
+      }
+    };
+
+    void loadSidebarCounts();
+  }, [user?.id]);
 
   const navLinks = [
     { name: "Overview", path: "/talent/overview", icon: Home },
+    { name: "My Applications", path: "/talent/applications", icon: FileText, count: applicationsCount > 0 ? applicationsCount : undefined },
     {
       name: "Interviews",
       path: null,
       icon: Video,
+      count: interviewsCount > 0 ? interviewsCount : undefined,
       subItems: [
-        { name: "TA Interviews", path: "/talent/interviews/ta" },
-        { name: "Technical Interviews", path: "/talent/interviews/it" },
-        { name: "Leadership Interviews", path: "/talent/interviews/leadership" },
+        { name: "TA Interviews", path: "/talent/interviews/ta", count: taInterviewsCount > 0 ? taInterviewsCount : undefined },
+        { name: "Technical Interviews", path: "/talent/interviews/it", count: itInterviewsCount > 0 ? itInterviewsCount : undefined },
+        { name: "Leadership Interviews", path: "/talent/interviews/leadership", count: leadInterviewsCount > 0 ? leadInterviewsCount : undefined },
       ],
     },
-    { name: "My Applications", path: "/talent/applications", icon: FileText },
-    { name: "Offers", path: "/talent/offers", icon: Gift },
+    { name: "Offers", path: "/talent/offers", icon: Gift, count: offersCount > 0 ? offersCount : undefined },
     { name: "Profile", path: "/talent/profile", icon: User },
     { name: "My Services", path: "/talent/services", icon: Briefcase },
-    { name: "Support Tickets", path: "/talent/support-tickets", icon: MessageSquare },
-
+    { name: "Settings", path: "/talent/settings", icon: User },
+    { name: "Support Tickets", path: "/talent/support-tickets", icon: MessageSquare, count: openTicketsCount > 0 ? openTicketsCount : undefined },
   ];
 
   const isActive = (path: string | null) => path && location.pathname === path;
@@ -70,31 +178,47 @@ const TalentLayout = ({ children }: TalentLayoutProps) => {
               <div key={link.name}>
                 <button
                   onClick={() => setInterviewsOpen(!interviewsOpen)}
-                  className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
                     isInterviewActive
                       ? "bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md"
                       : "text-slate-600 hover:bg-white hover:text-orange-600"
                   }`}
                 >
-                  <span className="flex items-center gap-3">
-                    <link.icon className="w-5 h-5" />
-                    {link.name}
-                  </span>
-                  <ChevronDown className={`w-4 h-4 transition-transform ${interviewsOpen ? "rotate-180" : ""}`} />
+                  <link.icon className="w-5 h-5 shrink-0" />
+                  <span className="flex-1 text-left">{link.name}</span>
+                  {typeof link.count === "number" ? (
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${
+                        isInterviewActive ? "bg-white/20 text-white" : "bg-orange-100 text-orange-700"
+                      }`}
+                    >
+                      {link.count}
+                    </span>
+                  ) : null}
+                  <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${interviewsOpen ? "rotate-180" : ""}`} />
                 </button>
                 {interviewsOpen && (
                   <div className="ml-8 mt-2 space-y-1 border-l-2 border-orange-200 pl-3">
-                    {link.subItems.map((sub) => (
+                    {link.subItems.map((sub: any) => (
                       <Link
                         key={sub.path}
                         to={sub.path}
-                        className={`block text-sm px-2 py-1.5 rounded-lg font-medium transition-all ${
+                        className={`flex items-center justify-between text-sm px-2 py-1.5 rounded-lg font-medium transition-all ${
                           location.pathname === sub.path
                             ? "bg-white text-orange-700 shadow-sm"
                             : "text-slate-600 hover:text-orange-600 hover:bg-white"
                         }`}
                       >
-                        {sub.name}
+                        <span>{sub.name}</span>
+                        {typeof sub.count === "number" ? (
+                          <span
+                            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                              location.pathname === sub.path ? "bg-orange-100 text-orange-700" : "bg-orange-100/50 text-orange-600"
+                            }`}
+                          >
+                            {sub.count}
+                          </span>
+                        ) : null}
                       </Link>
                     ))}
                   </div>
@@ -110,8 +234,19 @@ const TalentLayout = ({ children }: TalentLayoutProps) => {
                     : "text-slate-600 hover:bg-white hover:text-orange-600"
                 }`}
               >
-                <link.icon className="w-5 h-5" />
-                {link.name}
+                <link.icon className="w-5 h-5 shrink-0" />
+                <span className="flex-1 text-left">{link.name}</span>
+                {typeof link.count === "number" ? (
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${
+                      isActive(link.path) ? "bg-white/20 text-white" : "bg-orange-100 text-orange-700"
+                    }`}
+                  >
+                    {link.count}
+                  </span>
+                ) : null}
+                {/* Spacer to align counts properly with submenu items */}
+                <div className="w-4 h-4 shrink-0" />
               </Link>
             )
           )}
@@ -130,7 +265,23 @@ const TalentLayout = ({ children }: TalentLayoutProps) => {
               <p className="text-sm font-semibold text-slate-900 truncate">{user?.name}</p>
               <p className="text-xs text-gray-500 truncate">{user?.email}</p>
             </div>
-
+            <Link
+              to=""
+              aria-label="Notifications"
+              className={`relative rounded-full border p-2 transition-colors ${
+                location.pathname === ""
+                  ? "border-orange-500 bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-sm"
+                  : "border-orange-200 bg-white text-orange-600 hover:bg-orange-50 hover:text-orange-700"
+              }`}
+            >
+              {interviewsCount + applicationsCount + offersCount > 0 ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+              {interviewsCount + applicationsCount + offersCount > 0 ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-red-500"
+                />
+              ) : null}
+            </Link>
           </div>
           <Button
             variant="ghost"
@@ -170,19 +321,38 @@ const TalentLayout = ({ children }: TalentLayoutProps) => {
                   <div key={link.name}>
                     <button
                       onClick={() => setInterviewsOpen(!interviewsOpen)}
-                      className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
                         isInterviewActive ? "bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md" : "text-slate-600 hover:bg-white hover:text-orange-600"
                       }`}
                     >
-                      <span className="flex items-center gap-3"><link.icon className="w-5 h-5" />{link.name}</span>
-                      <ChevronDown className={`w-4 h-4 transition-transform ${interviewsOpen ? "rotate-180" : ""}`} />
+                      <link.icon className="w-5 h-5 shrink-0" />
+                      <span className="flex-1 text-left">{link.name}</span>
+                      {typeof link.count === "number" ? (
+                        <span
+                          className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${
+                            isInterviewActive ? "bg-white/20 text-white" : "bg-orange-100 text-orange-700"
+                          }`}
+                        >
+                          {link.count}
+                        </span>
+                      ) : null}
+                      <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${interviewsOpen ? "rotate-180" : ""}`} />
                     </button>
                     {interviewsOpen && (
                       <div className="ml-8 mt-2 space-y-1 border-l-2 border-orange-200 pl-3">
-                        {link.subItems.map((sub) => (
+                        {link.subItems.map((sub: any) => (
                           <Link key={sub.path} to={sub.path} onClick={() => setMobileMenuOpen(false)}
-                            className={`block text-sm px-2 py-1.5 rounded-lg font-medium ${location.pathname === sub.path ? "bg-white text-orange-700 shadow-sm" : "text-slate-600 hover:text-orange-600 hover:bg-white"}`}>
-                            {sub.name}
+                            className={`flex items-center justify-between text-sm px-2 py-1.5 rounded-lg font-medium ${location.pathname === sub.path ? "bg-white text-orange-700 shadow-sm" : "text-slate-600 hover:text-orange-600 hover:bg-white"}`}>
+                            <span>{sub.name}</span>
+                            {typeof sub.count === "number" ? (
+                              <span
+                                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                  location.pathname === sub.path ? "bg-orange-100 text-orange-700" : "bg-orange-100/50 text-orange-600"
+                                }`}
+                              >
+                                {sub.count}
+                              </span>
+                            ) : null}
                           </Link>
                         ))}
                       </div>
@@ -193,7 +363,19 @@ const TalentLayout = ({ children }: TalentLayoutProps) => {
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
                       isActive(link.path) ? "bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md" : "text-slate-600 hover:bg-white hover:text-orange-600"
                     }`}>
-                    <link.icon className="w-5 h-5" />{link.name}
+                    <link.icon className="w-5 h-5 shrink-0" />
+                    <span className="flex-1 text-left">{link.name}</span>
+                    {typeof link.count === "number" ? (
+                      <span
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${
+                          isActive(link.path) ? "bg-white/20 text-white" : "bg-orange-100 text-orange-700"
+                        }`}
+                      >
+                        {link.count}
+                      </span>
+                    ) : null}
+                    {/* Spacer to align counts properly with submenu items */}
+                    <div className="w-4 h-4 shrink-0" />
                   </Link>
                 )
               )}

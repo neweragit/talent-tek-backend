@@ -123,7 +123,7 @@ const LeadershipInterviewOverview = () => {
             TalenTek Leadership Interviewer
           </span>
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tighter leading-tight text-slate-900 mb-4">
-            Pending Evaluations
+            Pending feedback
           </h1>
           <p className="text-lg font-semibold text-gray-700 leading-relaxed">Your to-do list of candidates to evaluate today</p>
         </div>

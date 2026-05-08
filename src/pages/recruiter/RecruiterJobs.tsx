@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import RecruiterLayout from "@/components/layouts/RecruiterLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Archive, Briefcase, CalendarDays, Edit, Loader2, MapPin, Plus, Share2, Sparkles, Upload } from "lucide-react";
+import { Archive, Briefcase, CalendarDays, Edit, GraduationCap, Loader2, MapPin, Plus, Share2, Sparkles, Upload, Users } from "lucide-react";
 import citiesData from "../../../cities.json";
 import type { JobDetailsData } from "@/data/talentJobs";
 import { useAuth } from "@/contexts/AuthContext";
@@ -673,40 +673,7 @@ export default function EmployerJobs() {
           </div>
         </section>
 
-        <div className="mb-8 rounded-3xl border border-orange-100 bg-white p-3 shadow-lg">
-          <div className="grid grid-cols-3 gap-2">
-            {(["Published", "Unpublished", "Archived"] as JobSection[]).map((section) => (
-              <button
-                key={section}
-                type="button"
-                onClick={() => setActiveSection(section)}
-                className={`rounded-2xl px-4 py-3 text-sm font-semibold transition-all ${
-                  activeSection === section
-                    ? "bg-orange-600 text-white shadow-md"
-                    : "bg-orange-50 text-orange-700 hover:bg-orange-100"
-                }`}
-              >
-                {section}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {[
-            { label: "Published", value: postedCounts.Published },
-            { label: "Unpublished", value: postedCounts.Unpublished },
-            { label: "Archived", value: postedCounts.Archived },
-          ].map((stat) => (
-            <div key={stat.label} className="rounded-3xl border border-orange-100 bg-white p-6 shadow-lg">
-              <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-orange-600 text-white shadow-md">
-                <Briefcase className="h-5 w-5" />
-              </div>
-              <div className="text-3xl font-bold text-slate-900">{stat.value}</div>
-              <div className="mt-1 text-sm font-semibold text-slate-700">{stat.label}</div>
-            </div>
-          ))}
-        </div>
+        {/* Statistics (Published/Unpublished/Archived) removed as requested */}
 
         <section className="rounded-3xl border border-orange-100 bg-white p-6 shadow-lg">
           <h2 className="mb-4 text-2xl font-bold text-slate-900">{activeSection}</h2>
@@ -718,9 +685,9 @@ export default function EmployerJobs() {
               </div>
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="grid gap-6 xl:grid-cols-2">
               {filteredJobs.map((postedJob) => (
-                <article key={postedJob.id} className="rounded-3xl border border-orange-100 bg-orange-50/40 p-6 shadow-sm">
+                <article key={postedJob.id} className="flex flex-col h-full rounded-3xl border border-orange-100 bg-orange-50/40 p-6 shadow-sm">
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
                       <div className="flex h-11 w-11 items-center justify-center rounded-full bg-orange-600 text-sm font-bold text-white">
@@ -793,13 +760,11 @@ export default function EmployerJobs() {
                         View details
                       </Button>
                     </div>
-                    <p className="mt-2 text-sm leading-6 text-slate-700">{truncateText(postedJob.job.summary, 180)}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-700 line-clamp-3">{postedJob.job.summary}</p>
                   </div>
 
-                  <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-orange-100 pt-4">
-                    <p className="text-sm font-medium text-slate-600">
-                      {postedJob.job.initials} {postedJob.job.company} hiring for this role now across active teams.
-                    </p>
+                  <div className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-orange-100 pt-4">
+
                     <div className="flex gap-2">
                       {postedJob.status === "Published" ? (
                         <>
@@ -867,28 +832,34 @@ export default function EmployerJobs() {
                   <p className="mt-2 text-sm leading-6 text-slate-700 whitespace-pre-line">{viewingJob.job.summary}</p>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="rounded-2xl border border-orange-100 bg-white p-4">
-                    <h4 className="text-sm font-bold uppercase tracking-wide text-slate-900">What You Will Do</h4>
-                    <ul className="mt-2 space-y-2 text-sm text-slate-700">
-                      {viewingJob.responsibilities.map((line) => (
-                        <li key={line} className="flex gap-2">
-                          <span className="mt-1 text-orange-500">•</span>
-                          <span>{line}</span>
-                        </li>
-                      ))}
-                    </ul>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-2xl border border-orange-100 bg-orange-50/60 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">Location</p>
+                    <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                      <MapPin className="h-4 w-4 text-orange-500" />
+                      {viewingJob.job.location || "Not specified"}
+                    </div>
                   </div>
-                  <div className="rounded-2xl border border-orange-100 bg-white p-4">
-                    <h4 className="text-sm font-bold uppercase tracking-wide text-slate-900">Requirements</h4>
-                    <ul className="mt-2 space-y-2 text-sm text-slate-700">
-                      {viewingJob.requirements.map((line) => (
-                        <li key={line} className="flex gap-2">
-                          <span className="mt-1 text-orange-500">•</span>
-                          <span>{line}</span>
-                        </li>
-                      ))}
-                    </ul>
+                  <div className="rounded-2xl border border-orange-100 bg-orange-50/60 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">Contract Type</p>
+                    <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                      <Briefcase className="h-4 w-4 text-orange-500" />
+                      {viewingJob.contractType || "Not specified"}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-orange-100 bg-orange-50/60 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">Positions</p>
+                    <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                      <Users className="h-4 w-4 text-orange-500" />
+                      {viewingJob.positionsAvailable || 1} opening{viewingJob.positionsAvailable === 1 ? "" : "s"}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-orange-100 bg-orange-50/60 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">Education</p>
+                    <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                      <GraduationCap className="h-4 w-4 text-orange-500" />
+                      {viewingJob.educationRequired || "Not specified"}
+                    </div>
                   </div>
                 </div>
 

@@ -23,7 +23,6 @@ import TalentServices from "./pages/talent/TalentServices";
 import TalentSupportTickets from "./pages/talent/TalentSupportTickets";
 import RecruiterOverview from "./pages/recruiter/RecruiterOverview";
 import RecruiterJobs from "./pages/recruiter/RecruiterJobs";
-import RecruiterApplicants from "./pages/recruiter/RecruiterApplicants";
 import RecruiterInterviewers from "./pages/recruiter/RecruiterInterviewers";
 import RecruiterInterviews from "./pages/recruiter/RecruiterInterviews";
 import RecruiterPipeline from "./pages/recruiter/RecruiterPipeline";
@@ -66,6 +65,7 @@ import TermsOfService from "./pages/TermsOfService";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 
 import GlobalChatbot from "@/components/GlobalChatbot";
+import TalentProfileGuard from "./components/guards/TalentProfileGuard";
 
 const queryClient = new QueryClient();
 
@@ -129,7 +129,9 @@ const App = () => {
                 path="/talent/interviews/ta"
                 element={
                   <ProtectedRoute allowedRoles={['talent']}>
-                    <TAInterviews />
+                    <TalentProfileGuard>
+                      <TAInterviews />
+                    </TalentProfileGuard>
                   </ProtectedRoute>
                 }
               />
@@ -137,7 +139,9 @@ const App = () => {
                 path="/talent/interviews/it"
                 element={
                   <ProtectedRoute allowedRoles={['talent']}>
-                    <ITInterviews />
+                    <TalentProfileGuard>
+                      <ITInterviews />
+                    </TalentProfileGuard>
                   </ProtectedRoute>
                 }
               />
@@ -145,7 +149,9 @@ const App = () => {
                 path="/talent/interviews/leadership"
                 element={
                   <ProtectedRoute allowedRoles={['talent']}>
-                    <LeadershipInterviews />
+                    <TalentProfileGuard>
+                      <LeadershipInterviews />
+                    </TalentProfileGuard>
                   </ProtectedRoute>
                 }
               />
@@ -153,7 +159,9 @@ const App = () => {
                 path="/talent/applications"
                 element={
                   <ProtectedRoute allowedRoles={['talent']}>
-                    <TalentApplications />
+                    <TalentProfileGuard>
+                      <TalentApplications />
+                    </TalentProfileGuard>
                   </ProtectedRoute>
                 }
               />
@@ -161,7 +169,9 @@ const App = () => {
                 path="/talent/offers"
                 element={
                   <ProtectedRoute allowedRoles={['talent']}>
-                    <TalentOffers />
+                    <TalentProfileGuard>
+                      <TalentOffers />
+                    </TalentProfileGuard>
                   </ProtectedRoute>
                 }
               />
@@ -185,7 +195,9 @@ const App = () => {
                 path="/talent/services"
                 element={
                   <ProtectedRoute allowedRoles={['talent']}>
-                    <TalentServices />
+                    <TalentProfileGuard>
+                      <TalentServices />
+                    </TalentProfileGuard>
                   </ProtectedRoute>
                 }
               />
@@ -204,14 +216,6 @@ const App = () => {
                 element={
                   <ProtectedRoute allowedRoles={["recruiter"]}>
                     <RecruiterJobs />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/recruiter/applicants"
-                element={
-                  <ProtectedRoute allowedRoles={["recruiter"]}>
-                    <RecruiterApplicants />
                   </ProtectedRoute>
                 }
               />

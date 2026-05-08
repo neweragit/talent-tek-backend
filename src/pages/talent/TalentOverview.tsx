@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import TalentLayout from "@/components/layouts/TalentLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
 import CvViewer from "@/components/CvViewer";
+import logo from "@/logo/logo.jfif";
 import {
   Select,
   SelectContent,
@@ -44,6 +45,7 @@ import {
   Users,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import citiesData from "../../../cities.json";
 
 type JobType = "Full-time" | "Part-time" | "Contract" | "Internship" | "Freelance";
 type WorkMode = "Remote" | "Hybrid" | "On-site";
@@ -508,6 +510,7 @@ const matchesDistance = (job: Job, distanceFilter: string) => {
 
 function TalentOverviewLegacy() {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [locationFilter, setLocationFilter] = useState(" ");
   const [jobTypeFilter, setJobTypeFilter] = useState(" ");
@@ -630,11 +633,6 @@ function TalentOverviewLegacy() {
     }, 1900);
   };
 
-  const jobsResultsLabel =
-    filteredJobs.length === jobs.length
-      ? `Showing   ${jobs.length} open roles`
-      : `Showing ${filteredJobs.length} of ${jobs.length} open roles`;
-
   return (
     <TalentLayout>
       <div className="relative z-10 max-w-7xl mx-auto px-3 sm:px-4 py-12 sm:py-20">
@@ -652,9 +650,7 @@ function TalentOverviewLegacy() {
                 Track your job search progress, discover fresh platform roles, and use the same clean application-style surfaces across your dashboard.
               </p>
               <div className="mt-6 flex flex-wrap gap-3">
-                <div className="inline-flex rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-700 shadow-sm">
-                  {jobsResultsLabel}
-                </div>
+
                 <Button
                   onClick={handleAiMatch}
                   className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 px-5 text-white shadow-lg hover:from-orange-700 hover:to-orange-600"
@@ -750,7 +746,7 @@ function TalentOverviewLegacy() {
               <SelectValue placeholder="Date posted" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value=" ">  dates</SelectItem>
+              <SelectItem value=" "> </SelectItem>
               <SelectItem value="1">Last 24 hours</SelectItem>
               <SelectItem value="3">Last 3 days</SelectItem>
               <SelectItem value="7">Last 7 days</SelectItem>
@@ -881,62 +877,79 @@ function TalentOverviewLegacy() {
             {filteredJobs.map((job) => (
               <article
                 key={job.id}
-                className="group relative overflow-hidden rounded-3xl border border-orange-100 bg-white p-6 shadow-lg transition hover:-translate-y-1 hover:shadow-2xl"
+                className="flex flex-col h-full rounded-3xl border border-orange-100 bg-orange-50/40 p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
               >
-                <div className="mb-5 flex items-start justify-between gap-4">
-                  <div className="flex items-start gap-4">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-lg font-bold text-white shadow-lg">
-                      {job.initials}
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-orange-600 text-sm font-bold text-white">
+                      {job.initials || "JT"}
                     </div>
-                    <div>
-                      <h3 className="text-xl font-bold leading-tight text-slate-900">{job.title}</h3>
-                      <p className="mt-1 text-sm font-semibold text-orange-600">{job.company}</p>
-                      <p className="mt-1 text-xs text-gray-500">
-                        Posted {job.postedDays === 1 ? "1 day" : `${job.postedDays} days`} ago
-                      </p>
-                    </div>
+                    <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">Career Opportunity</Badge>
                   </div>
-
                   <div className="flex items-center gap-2">
-                    <button type="button" className="rounded-full p-2 text-orange-600 hover:bg-orange-50" aria-label="Share job">
-                      <Share2 className="h-4 w-4" />
-                    </button>
-                    <button type="button" className="rounded-full p-2 text-orange-600 hover:bg-orange-50" aria-label="Save job">
-                      <Share2 className="h-4 w-4" />
-                    </button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={async () => {
+                        const url = `${window.location.origin}/jobs/${job.id}`;
+                        await navigator.clipboard.writeText(url);
+                        toast({ title: "Link copied to clipboard" });
+                      }}
+                      className="h-10 w-10 rounded-full border-orange-200 bg-white text-orange-700 hover:bg-orange-50"
+                      aria-label={`Share ${job.title}`}
+                    >
+                      <Share2 className="h-5 w-5" />
+                    </Button>
                   </div>
                 </div>
 
-                <p className="mb-5 text-sm leading-6 text-gray-600">{job.summary}</p>
+                <h3 className="text-2xl font-bold text-slate-900">{job.title}</h3>
+                <p className="mt-1 text-base font-semibold text-slate-700">{job.company}</p>
 
-                <div className="mb-5 grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
-                  <div className="flex items-center gap-2"><MapPin className="h-4 w-4 text-orange-600" />{job.location}</div>
-                  <div className="flex items-center gap-2"><Briefcase className="h-4 w-4 text-orange-600" />{job.jobType} · {job.workMode}</div>
-                  <div className="flex items-center gap-2"><Users className="h-4 w-4 text-orange-600" />{job.companySize}</div>
-                  <div className="flex items-center gap-2"><GraduationCap className="h-4 w-4 text-orange-600" />{job.experience}</div>
-                  <div className="flex items-center gap-2"><Route className="h-4 w-4 text-orange-600" />{job.workMode === "Remote" ? "No commute required" : `${job.distanceKm} km from home`}</div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">{job.jobType}</Badge>
+                  <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">{job.workMode}</Badge>
+                  <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">{job.experience}</Badge>
+                  <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">{job.companySize}</Badge>
+                  {job.visaSupport ? <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">Visa Support</Badge> : null}
                 </div>
 
-                <div className="mb-5 flex flex-wrap gap-2">
-                  <Badge className="border border-orange-200 bg-orange-50 text-orange-700">{job.visaSupport ? "Visa Support" : "No Visa Support"}</Badge>
-	                  {job.skills.map((skill, index) => (
-	                    <Badge key={`${skill}-${index}`} variant="outline" className="border-orange-200 bg-white text-orange-700">
-	                      {skill}
-	                    </Badge>
-	                  ))}
-                </div>
-
-                <div className="flex items-center justify-between gap-4 border-t border-orange-100 pt-5">
-                  <div className="text-xs leading-6 text-gray-500">
-                    Strong fit for candidates looking for {job.workMode.toLowerCase()} {job.jobType.toLowerCase()} roles.
+                <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
+                  <div className="rounded-2xl border border-orange-100 bg-white px-4 py-3">
+                    <p className="font-semibold text-slate-700">Location</p>
+                    <p className="mt-1 flex items-center gap-2 text-slate-600">
+                      <MapPin className="h-4 w-4 text-orange-500" />
+                      {job.location}
+                    </p>
                   </div>
-                  <Button
-                    onClick={() => navigate(`/jobs/${job.id}`)}
-                    className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md hover:from-orange-700 hover:to-orange-600"
-                  >
-                    <Link className="h-4 w-4" />
-                    View Job
-                  </Button>
+                  <div className="rounded-2xl border border-orange-100 bg-white px-4 py-3">
+                    <p className="font-semibold text-slate-700">Posted</p>
+                    <p className="mt-1 flex items-center gap-2 text-slate-600">
+                      <CalendarDays className="h-4 w-4 text-orange-500" />
+                      {job.postedDays === 1 ? "1 day ago" : `${job.postedDays} days ago`}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-5 rounded-2xl border border-orange-100 bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h4 className="text-sm font-bold uppercase tracking-wide text-slate-900">Job description</h4>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-700 line-clamp-3">{job.summary}</p>
+                </div>
+
+                <div className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-orange-100 pt-4">
+
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => navigate(`/jobs/${job.id}`)}
+                      className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 px-5 text-white shadow-md hover:from-orange-700 hover:to-orange-600"
+                    >
+                      <Link className="h-4 w-4" />
+                      View Job
+                    </Button>
+                  </div>
                 </div>
               </article>
             ))}
@@ -1015,6 +1028,59 @@ type TalentJob = {
   industry: string;
   companySize: string;
 };
+
+const professionOptions = ["Design", "Product", "Engineering"];
+const workplaceOptions = ["On-site", "Hybrid", "Remote"];
+const employmentTypeOptions = ["Full-time", "Part-time", "Contract", "Internship"];
+const contractTypeOptions = ["Permanent (CDI)", "Fixed-term (CDD)", "Freelance", "Self-Entrepreneur (auto-entrepreneur)"];
+const experienceLevelOptions = ["0-1 years", "1-3 years", "3-5 years", "5-8 years", "8+ years"];
+
+const toUiJobType = (employmentType: string) => {
+  if (employmentType === "full-time") return "Full-time";
+  if (employmentType === "part-time") return "Part-time";
+  if (employmentType === "internship") return "Internship";
+  if (employmentType === "contract") return "Contract";
+  return employmentType || "Contract";
+};
+
+const toUiWorkMode = (workplace: string) => {
+  if (workplace === "on-site") return "On-site";
+  if (workplace === "hybrid") return "Hybrid";
+  if (workplace === "remote") return "Remote";
+  return workplace || "Remote";
+};
+
+const toTitleCase = (value: string) =>
+  value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+
+const canonicalExperience = (value: string) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const normalized = raw.replace(/–/g, "-").toLowerCase();
+
+  if (normalized === "0-1 years") return "0-1 years";
+  if (normalized === "1-3 years") return "1-3 years";
+  if (normalized === "3-5 years") return "3-5 years";
+  if (normalized === "5-8 years") return "5-8 years";
+  if (normalized === "8+ years") return "8+ years";
+
+  return raw;
+};
+
+const wilayaOptions = (() => {
+  const wilayas = Array.isArray((citiesData as any)?.wilayas) ? (citiesData as any).wilayas : [];
+  return wilayas
+    .filter((item: any) => Number(item?.wilaya_id) >= 1 && Number(item?.wilaya_id) <= 58)
+    .map((item: any) => ({
+      id: Number(item.wilaya_id),
+      name: String(item.wilaya_name_latin || "").trim(),
+    }))
+    .filter((item: any) => item.name);
+})();
 
 const toFixed3ResumeUrls = (value: unknown): [string, string, string] => {
   if (Array.isArray(value)) {
@@ -1114,8 +1180,10 @@ export default function TalentOverview() {
 	  const [jobs, setJobs] = useState<TalentJob[]>([]);
 	  const [linkedJob, setLinkedJob] = useState<TalentJob | null>(null);
 	  const [searchQuery, setSearchQuery] = useState("");
+    const [professionFilter, setProfessionFilter] = useState(" ");
 	  const [locationFilter, setLocationFilter] = useState(" ");
 	  const [employmentFilter, setEmploymentFilter] = useState(" ");
+    const [contractTypeFilter, setContractTypeFilter] = useState(" ");
 	  const [workplaceFilter, setWorkplaceFilter] = useState(" ");
 	  const [experienceFilter, setExperienceFilter] = useState(" ");
 	  const [postedFilter, setPostedFilter] = useState(" ");
@@ -1146,15 +1214,22 @@ export default function TalentOverview() {
     return String(url).trim();
   }, [talent?.resumeUrls, selectedCvSlot]);
 
-	  const jobFilterOptions = useMemo(() => {
-	    const unique = (values: string[]) => Array.from(new Set(values.map((v) => v.trim()).filter(Boolean))).sort();
-	    return {
-	      locations: unique(jobs.map((j) => j.location || "")),
-	      employmentTypes: unique(jobs.map((j) => j.employmentType || "")),
-	      workplaces: unique(jobs.map((j) => j.workplace || "")),
-	      experienceLevels: unique(jobs.map((j) => j.experienceLevel || "")),
-	    };
-	  }, [jobs]);
+    const jobFilterOptions = useMemo(() => {
+      const sortValues = (values: string[]) =>
+        [...values]
+          .map((v) => v.trim())
+          .filter(Boolean)
+          .sort((a, b) => a.localeCompare(b));
+
+      return {
+        professions: sortValues(professionOptions),
+        locations: sortValues(wilayaOptions.map((w) => w.name)),
+        employmentTypes: sortValues(employmentTypeOptions),
+        contractTypes: sortValues(contractTypeOptions),
+        workplaces: sortValues(workplaceOptions),
+        experienceLevels: sortValues(experienceLevelOptions),
+      };
+    }, []);
 
 	  const availableSkills = useMemo(() => {
 	    const skillSet = new Set<string>();
@@ -1185,16 +1260,28 @@ export default function TalentOverview() {
 	        job.skillsRequired.some((s) => String(s).toLowerCase().includes(term));
 
 	      const matchesLocation = locationFilter === " " || String(job.location || "") === locationFilter;
+        const matchesProfession = professionFilter === " " || String(job.profession || "") === professionFilter;
 	      const matchesEmployment = employmentFilter === " " || String(job.employmentType || "") === employmentFilter;
+        const matchesContractType = contractTypeFilter === " " || String(job.contractType || "") === contractTypeFilter;
 	      const matchesWorkplace = workplaceFilter === " " || String(job.workplace || "") === workplaceFilter;
 	      const matchesExperience = experienceFilter === " " || String(job.experienceLevel || "") === experienceFilter;
 	      const matchesPosted = postedFilter === " " || getAgeDays(job.createdAt) <= Number(postedFilter);
 	      const matchesSkills =
 	        selectedSkills.length === 0 || selectedSkills.every((skill) => job.skillsRequired.includes(skill));
 
-	      return matchesSearch && matchesLocation && matchesEmployment && matchesWorkplace && matchesExperience && matchesPosted && matchesSkills;
-	    });
-	  }, [employmentFilter, experienceFilter, jobs, locationFilter, postedFilter, searchQuery, workplaceFilter, selectedSkills]);
+        return (
+          matchesSearch &&
+          matchesLocation &&
+          matchesProfession &&
+          matchesEmployment &&
+          matchesContractType &&
+          matchesWorkplace &&
+          matchesExperience &&
+          matchesPosted &&
+          matchesSkills
+        );
+      });
+    }, [contractTypeFilter, employmentFilter, experienceFilter, jobs, locationFilter, postedFilter, professionFilter, searchQuery, workplaceFilter, selectedSkills]);
 
 	  const toggleSkillFilter = (skill: string) => {
 	    setSelectedSkills((current) =>
@@ -1273,14 +1360,14 @@ export default function TalentOverview() {
 	      const mappedJobs: TalentJob[] = (jobRows || []).map((row: any) => ({
 	        id: row.id,
 	        title: row.title || "Untitled Position",
-	        profession: row.profession || "",
+          profession: toTitleCase(String(row.profession || "")),
 	        description: row.description || "",
-	        location: row.location || "",
-	        workplace: row.workplace || "",
-	        employmentType: row.employment_type || "",
+          location: String(row.location || "").trim(),
+          workplace: toUiWorkMode(String(row.workplace || "")),
+          employmentType: toUiJobType(String(row.employment_type || "")),
 	        contractType: row.contract_type || "",
 	        jobLevel: row.job_level || "",
-	        experienceLevel: row.experience_level || "",
+          experienceLevel: canonicalExperience(String(row.experience_level || "")),
 	        skillsRequired: normalizeTextArray(row.skills_required),
 	        positionsAvailable: Number(row.positions_available) || 0,
 	        whatYouWillDo: normalizeTextArray(row.what_you_will_do),
@@ -1370,14 +1457,14 @@ export default function TalentOverview() {
 		    const mapRowToTalentJob = (row: any): TalentJob => ({
 		      id: String(row.id),
 		      title: row.title || "Untitled Position",
-		      profession: row.profession || "",
+          profession: toTitleCase(String(row.profession || "")),
 		      description: row.description || "",
-		      location: row.location || "",
-		      workplace: row.workplace || "",
-		      employmentType: row.employment_type || "",
+          location: String(row.location || "").trim(),
+          workplace: toUiWorkMode(String(row.workplace || "")),
+          employmentType: toUiJobType(String(row.employment_type || "")),
 		      contractType: row.contract_type || "",
 		      jobLevel: row.job_level || "",
-		      experienceLevel: row.experience_level || "",
+          experienceLevel: canonicalExperience(String(row.experience_level || "")),
 		      skillsRequired: normalizeTextArray(row.skills_required),
 		      positionsAvailable: Number(row.positions_available) || 0,
 		      whatYouWillDo: normalizeTextArray(row.what_you_will_do),
@@ -1642,17 +1729,15 @@ export default function TalentOverview() {
                   Track your job search progress, discover fresh platform roles, and use the same clean application-style surfaces across your dashboard.
                 </p>
                 <div className="mt-6 flex flex-wrap items-center gap-3 sm:flex-nowrap">
-                  <div className="inline-flex items-center rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-700 shadow-sm whitespace-nowrap">
-                    {filteredJobs.length === jobs.length
-                      ? `Showing   ${jobs.length} open roles`
-                      : `Showing ${filteredJobs.length} of ${jobs.length} open roles`}
-                  </div>
+
                   <Button
                     type="button"
                     onClick={() => {
                       setSearchQuery("");
+                      setProfessionFilter(" ");
                       setLocationFilter(" ");
                       setEmploymentFilter(" ");
+                      setContractTypeFilter(" ");
                       setWorkplaceFilter(" ");
                       setExperienceFilter(" ");
                       setPostedFilter(" ");
@@ -1810,13 +1895,27 @@ export default function TalentOverview() {
 	        {viewMode === "list" ? (
 	          <section>
             <div className="mb-5 space-y-3 rounded-3xl border border-orange-100 bg-white/80 p-4 shadow-sm backdrop-blur-sm">
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-3 md:grid-cols-3">
+                <Select value={professionFilter} onValueChange={setProfessionFilter}>
+                  <SelectTrigger className="h-12 rounded-2xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700">
+                    <SelectValue placeholder="Profession" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value=" ">All professions</SelectItem>
+                    {jobFilterOptions.professions.map((value, index) => (
+                      <SelectItem key={`${value}-${index}`} value={value}>
+                        {value}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
                 <Select value={locationFilter} onValueChange={setLocationFilter}>
                   <SelectTrigger className="h-12 rounded-2xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700">
                     <SelectValue placeholder="Location" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value=" ">  locations</SelectItem>
+                    <SelectItem value=" ">All locations</SelectItem>
                     {jobFilterOptions.locations.map((loc, index) => (
                       <SelectItem key={`${loc}-${index}`} value={loc}>
                         {loc}
@@ -1830,7 +1929,7 @@ export default function TalentOverview() {
                     <SelectValue placeholder="Employment" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value=" ">  types</SelectItem>
+                    <SelectItem value=" ">All employment types</SelectItem>
                     {jobFilterOptions.employmentTypes.map((value, index) => (
                       <SelectItem key={`${value}-${index}`} value={value}>
                         {value}
@@ -1840,13 +1939,27 @@ export default function TalentOverview() {
                 </Select>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-3 md:grid-cols-4">
+                <Select value={contractTypeFilter} onValueChange={setContractTypeFilter}>
+                  <SelectTrigger className="h-12 rounded-2xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700">
+                    <SelectValue placeholder="Contract type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value=" ">All contract types</SelectItem>
+                    {jobFilterOptions.contractTypes.map((value, index) => (
+                      <SelectItem key={`${value}-${index}`} value={value}>
+                        {value}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
                 <Select value={workplaceFilter} onValueChange={setWorkplaceFilter}>
                   <SelectTrigger className="h-12 rounded-2xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700">
                     <SelectValue placeholder="Workplace" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value=" ">work mode</SelectItem>
+                    <SelectItem value=" ">All work modes</SelectItem>
                     {jobFilterOptions.workplaces.map((value, index) => (
                       <SelectItem key={`${value}-${index}`} value={value}>
                         {value}
@@ -1860,7 +1973,7 @@ export default function TalentOverview() {
                     <SelectValue placeholder="Experience" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value=" ">  levels</SelectItem>
+                    <SelectItem value=" ">All experience levels</SelectItem>
                     {jobFilterOptions.experienceLevels.map((value, index) => (
                       <SelectItem key={`${value}-${index}`} value={value}>
                         {value}
@@ -1874,7 +1987,7 @@ export default function TalentOverview() {
                     <SelectValue placeholder="Posted" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value=" ">  dates</SelectItem>
+                    <SelectItem value=" ">Any time</SelectItem>
                     <SelectItem value="1">Last 24 hours</SelectItem>
                     <SelectItem value="3">Last 3 days</SelectItem>
                     <SelectItem value="7">Last 7 days</SelectItem>
@@ -1895,8 +2008,10 @@ export default function TalentOverview() {
                   type="button"
                   variant="outline"
                   onClick={() => {
+                    setProfessionFilter(" ");
                     setLocationFilter(" ");
                     setEmploymentFilter(" ");
+                    setContractTypeFilter(" ");
                     setWorkplaceFilter(" ");
                     setExperienceFilter(" ");
                     setPostedFilter(" ");
@@ -1968,84 +2083,91 @@ export default function TalentOverview() {
                     .join("");
 
 	                  return (
-                      <article key={job.id} className="group relative overflow-hidden rounded-3xl border border-orange-100 bg-white p-6 shadow-lg transition hover:-translate-y-1 hover:shadow-2xl">
-	                      <div className="mb-5 flex items-start justify-between gap-4">
-	                        <div className="flex items-start gap-4">
-	                          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-600 to-orange-500 text-lg font-bold text-white shadow-lg">
-	                            {initials || "JT"}
-	                          </div>
-	                          <div>
-	                            <div className="flex flex-wrap items-center gap-2">
-	                              <h3 className="text-xl font-bold leading-tight text-slate-900">{job.title}</h3>
-	                              {applied ? <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-700">Applied</Badge> : null}
-	                            </div>
-	                            <p className="mt-1 text-sm font-semibold text-orange-600">{job.companyName}</p>
-	                            <p className="mt-1 text-xs text-gray-500">{formatPostedAgo(job.createdAt)}</p>
-	                          </div>
-	                        </div>
-	                        <div className="flex items-center gap-2">
-	                          <button
-	                            type="button"
-	                            className="rounded-full p-2 text-orange-600 hover:bg-orange-50"
-	                            aria-label="Share job"
+                      <article key={job.id} className="flex flex-col h-full rounded-3xl border border-orange-100 bg-orange-50/40 p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-md">
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            {job.companyLogoUrl ? (
+                              <img src={job.companyLogoUrl} alt={`${job.companyName} logo`} className="h-11 w-11 rounded-full object-cover border border-orange-100 bg-white" />
+                            ) : (
+                              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-orange-600 text-sm font-bold text-white">
+                                {initials || "JT"}
+                              </div>
+                            )}
+                            <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">Career Opportunity</Badge>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
                               onClick={async () => {
                                 const url = `${window.location.origin}/jobs/${job.id}`;
                                 await navigator.clipboard.writeText(url);
                                 toast({ title: "Link copied to clipboard" });
-	                            }}
-	                          >
-	                            <Share2 className="h-4 w-4" />
-	                          </button>
-	                        </div>
-	                      </div>
-
-	                      <p className="mb-5 text-sm leading-6 text-gray-600">
-	                        {String(job.description || "")
-	                          .trim()
-	                          .slice(0, 220)}
-	                        {String(job.description || "").trim().length > 220 ? "…" : ""}
-	                      </p>
-
-	                      <div className="mb-5 grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
-	                        <div className="flex items-center gap-2"><MapPin className="h-4 w-4 text-orange-600" />{job.location || "—"}</div>
-	                        <div className="flex items-center gap-2"><Briefcase className="h-4 w-4 text-orange-600" />{job.employmentType || "—"}{job.workplace ? ` · ${job.workplace}` : ""}</div>
-	                        <div className="flex items-center gap-2"><Users className="h-4 w-4 text-orange-600" />{job.companySize || "—"}</div>
-	                        <div className="flex items-center gap-2"><GraduationCap className="h-4 w-4 text-orange-600" />{job.experienceLevel || job.jobLevel || "—"}</div>
-	                        <div className="flex items-center gap-2"><Route className="h-4 w-4 text-orange-600" />{String(job.workplace).toLowerCase() === "remote" ? "No commute required" : "Commute required"}</div>
-	                      </div>
-
-	                      {job.industry || job.skillsRequired.length > 0 ? (
-	                        <div className="mb-5 flex flex-wrap gap-2">
-	                          {job.industry ? (
-	                            <Badge className="border border-orange-200 bg-orange-50 text-orange-700">{job.industry}</Badge>
-	                          ) : null}
-	                          {job.skillsRequired.slice(0, 8).map((skill, index) => (
-	                            <Badge key={`${skill}-${index}`} variant="outline" className="border-orange-200 bg-white text-orange-700">
-	                              {skill}
-	                            </Badge>
-	                          ))}
-	                        </div>
-	                      ) : null}
-
-                      <div className="flex items-center justify-between gap-4 border-t border-orange-100 pt-5">
-                        <div className="text-xs leading-6 text-gray-500">
-                          Strong fit for candidates looking for {String(job.workplace || "flexible").toLowerCase()} {String(job.employmentType || "work").toLowerCase()} roles.
+                              }}
+                              className="h-10 w-10 rounded-full border-orange-200 bg-white text-orange-700 hover:bg-orange-50"
+                              aria-label={`Share ${job.title}`}
+                            >
+                              <Share2 className="h-5 w-5" />
+                            </Button>
+                            {applied ? <Badge className="rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700">Applied</Badge> : null}
+                          </div>
                         </div>
-                        <Button
-                          type="button"
-                            onClick={() => {
-                              setLinkedJob(null);
-                              setSelectedJobId(job.id);
-                              setViewMode("details");
-                              window.scrollTo({ top: 0, behavior: "smooth" });
-                            }}
-                          className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md hover:from-orange-700 hover:to-orange-600"
-                        >
-                            <ExternalLink className="h-4 w-4" />
-                          View Job
-                        </Button>
-                      </div>
-                    </article>
+
+                        <h3 className="text-2xl font-bold text-slate-900">{job.title}</h3>
+                        <p className="mt-1 text-base font-semibold text-slate-700">{job.companyName}</p>
+
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {job.industry ? <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">{job.industry}</Badge> : null}
+                          <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">{job.employmentType || "Full-time"}</Badge>
+                          <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">{job.workplace || "Remote"}</Badge>
+                          <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">{job.experienceLevel || job.jobLevel || "Mid-Level"}</Badge>
+                          <Badge className="rounded-full border border-orange-200 bg-white text-orange-700">{job.companySize || "Startup"}</Badge>
+                        </div>
+
+                        <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
+                          <div className="rounded-2xl border border-orange-100 bg-white px-4 py-3">
+                            <p className="font-semibold text-slate-700">Location</p>
+                            <p className="mt-1 flex items-center gap-2 text-slate-600">
+                              <MapPin className="h-4 w-4 text-orange-500" />
+                              {job.location || "Not specified"}
+                            </p>
+                          </div>
+                          <div className="rounded-2xl border border-orange-100 bg-white px-4 py-3">
+                            <p className="font-semibold text-slate-700">Posted</p>
+                            <p className="mt-1 flex items-center gap-2 text-slate-600">
+                              <CalendarDays className="h-4 w-4 text-orange-500" />
+                              {formatPostedAgo(job.createdAt)}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-5 rounded-2xl border border-orange-100 bg-white p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <h4 className="text-sm font-bold uppercase tracking-wide text-slate-900">Job description</h4>
+                          </div>
+                          <p className="mt-2 text-sm leading-6 text-slate-700 line-clamp-3">{job.description || "No description provided."}</p>
+                        </div>
+
+                        <div className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-orange-100 pt-4">
+
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              onClick={() => {
+                                setLinkedJob(null);
+                                setSelectedJobId(job.id);
+                                setViewMode("details");
+                                window.scrollTo({ top: 0, behavior: "smooth" });
+                              }}
+                              className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 px-5 text-white shadow-md hover:from-orange-700 hover:to-orange-600"
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                              View Job
+                            </Button>
+                          </div>
+                        </div>
+                      </article>
                   );
                 })}
               </div>
@@ -2086,7 +2208,7 @@ export default function TalentOverview() {
                   .join("") || "JT"}
               </div>
               <h3 className="mt-6 text-3xl font-bold text-slate-900">{selectedJob.companyName}</h3>
-              <p className="mt-2 text-sm font-semibold text-slate-500">Hiring for this role now across active teams.</p>
+
 
               <div className="mt-6 space-y-3 text-sm font-semibold text-slate-700">
                 {selectedJob.industry ? (

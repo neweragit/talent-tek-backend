@@ -27,6 +27,7 @@ import {
   Search,
   Users,
   XCircle,
+  ExternalLink,
 } from "lucide-react";
 
 type ApplicationStatus = "pending" | "in-progress" | "rejected" | "maybe" | "archived";
@@ -37,8 +38,6 @@ const statusOptions: Array<{ value: "all" | ApplicationStatus; label: string }> 
   { value: "pending", label: "Pending" },
   { value: "in-progress", label: "In Progress" },
   { value: "rejected", label: "Rejected" },
-  { value: "maybe", label: "Maybe" },
-  { value: "archived", label: "Archived" },
 ];
 
 const getCompanyInitials = (company: string) => {
@@ -146,6 +145,27 @@ const formatStageLabel = (stage: ApplicationStage) => {
     default:
       return "";
   }
+};
+
+const getFriendlyApplicationStatus = (status: ApplicationStatus, stage: ApplicationStage) => {
+  if (status === "rejected") return "Rejected";
+  if (status === "pending" || (status === "in-progress" && !stage)) return "Pending Review";
+  if (status === "maybe") return "In Consideration";
+  if (status === "archived") return "Archived";
+
+  if (status === "in-progress") {
+    switch (stage) {
+      case "to-contact": return "Under Review";
+      case "talent-acquisition": return "TA Interview";
+      case "technical": return "Technical Interview";
+      case "leadership": return "Leadership Interview";
+      case "offer": return "Offer Extended";
+      case "rejected-offer": return "Offer Declined";
+      case "hired": return "Hired";
+      default: return "In Progress";
+    }
+  }
+  return "Application";
 };
 
 const formatDate = (dateValue: string | null | undefined) => {
@@ -300,12 +320,6 @@ const TalentApplications = () => {
         detail: "Application updates",
         icon: XCircle,
       },
-      {
-        label: "Maybe",
-        value: applications.filter((application) => application.status === "maybe").length,
-        detail: "Under consideration",
-        icon: CheckCircle2,
-      },
     ];
   }, [applications]);
 
@@ -388,7 +402,7 @@ const TalentApplications = () => {
           contact: record.jobs?.employers?.company_name || 'N/A',
           companyLogoUrl: record.jobs?.employers?.logo_url || '',
           cvName: '',
-        }));
+        })).filter((app: any) => app.status !== "maybe" && app.status !== "archived");
 
         setApplications(mapped);
       } catch (error) {
@@ -502,7 +516,7 @@ const TalentApplications = () => {
                   {initials}
                 </div>
                 <h3 className="mt-6 text-3xl font-bold text-slate-900">{selectedApplication.company}</h3>
-                <p className="mt-2 text-sm font-semibold text-slate-500">Hiring for this role now across active teams.</p>
+
 
                 <div className="mt-6 space-y-3 text-sm font-semibold text-slate-700">
                   <div className="flex items-center gap-3">
@@ -525,14 +539,9 @@ const TalentApplications = () => {
                     disabled
                     className="h-14 w-full cursor-default rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-base font-semibold text-white shadow-md disabled:opacity-100"
                   >
-                    <Link className="mr-2 h-5 w-5" />
-                    {statusMeta.label}
+                    <statusMeta.icon className="mr-2 h-5 w-5" />
+                    {getFriendlyApplicationStatus(selectedApplication.status, selectedApplication.stage)}
                   </Button>
-                  {selectedApplication.status === "in-progress" && selectedApplication.stage ? (
-                    <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700">
-                      Stage: {formatStageLabel(selectedApplication.stage)}
-                    </div>
-                  ) : null}
                 
                 </div>
               </aside>
@@ -579,31 +588,31 @@ const TalentApplications = () => {
           </div>
         </section>
 
-        <div className="mb-8 grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-          <div className="rounded-3xl border border-orange-100 bg-white p-4 shadow-lg">
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-orange-400" />
-              <Input
-                placeholder="Search by company or job title..."
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                className="pl-12 h-12 rounded-xl border-orange-200 focus:border-orange-400 focus:ring-orange-400"
-              />
-            </div>
+        <div className="relative z-[999] mb-8 flex flex-col gap-4 sm:flex-row sm:items-center">
+          <div className="relative w-full sm:flex-1">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-orange-400" />
+            <Input
+              placeholder="Search by company or job title..."
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              className="h-12 w-full rounded-3xl border-orange-200 bg-white pl-12 shadow-sm focus:border-orange-400 focus:ring-orange-400"
+            />
           </div>
 
-          <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as "all" | ApplicationStatus)}>
-            <SelectTrigger className="h-full min-h-14 rounded-3xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-lg">
-              <SelectValue placeholder="All Status" />
-            </SelectTrigger>
-            <SelectContent>
-              {statusOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="relative z-[999] isolate w-full sm:w-[200px]">
+            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as "all" | ApplicationStatus)}>
+              <SelectTrigger className="h-12 w-full rounded-3xl border-orange-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm">
+                <SelectValue placeholder="All Status" />
+              </SelectTrigger>
+              <SelectContent>
+                {statusOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {loading ? (
@@ -682,9 +691,7 @@ const TalentApplications = () => {
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Stage</p>
                         <p className="mt-1 text-sm font-semibold text-slate-900">
-                          {application.status === "in-progress" && application.stage
-                            ? formatStageLabel(application.stage)
-                            : statusMeta.label}
+                          {getFriendlyApplicationStatus(application.status, application.stage)}
                         </p>
                       </div>
                     </div>
@@ -713,7 +720,7 @@ const TalentApplications = () => {
                       }}
                       className="gap-2 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md hover:from-orange-700 hover:to-orange-600"
                     >
-                      <Search className="h-4 w-4" />
+                      <ExternalLink className="h-4 w-4" />
                       View Job
                     </Button>
                   </div>

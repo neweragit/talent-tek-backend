@@ -43,22 +43,7 @@ import {
 
 type TabType = "personal" | "professional" | "preferences" | "documents" | "security";
 
-type TalentProfileData = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  city: string;
-  bio: string;
-  title: string;
-  linkedin: string;
-  github: string;
-  website: string;
-  experience: string;
-  education: string;
-  skills: string[];
-  resumeUrls?: string[];
-};
+import { TalentProfileData, calculateProfileCompletion } from "@/utils/talentProfile";
 
 const EMPTY_TALENT_PROFILE: TalentProfileData = {
   firstName: "",
@@ -242,24 +227,7 @@ const TalentProfile = () => {
   const profileInitials = `${profile.firstName?.[0] ?? "T"}${profile.lastName?.[0] ?? "T"}`.toUpperCase();
 
   const profileCompletion = useMemo(() => {
-    const checkpoints = [
-      profile.firstName,
-      profile.lastName,
-      profile.email,
-      profile.phone,
-      profile.city,
-      profile.title,
-      profile.experience,
-      profile.education,
-      profile.bio,
-      profile.linkedin,
-      profile.github,
-      profile.website,
-      profile.skills.length > 0 ? "skills" : "",
-    ];
-
-    const completed = checkpoints.filter((value) => String(value).trim().length > 0).length;
-    return Math.round((completed / checkpoints.length) * 100);
+    return calculateProfileCompletion(profile);
   }, [profile]);
 
   const handleToggleEdit = async () => {
@@ -663,8 +631,16 @@ const TalentProfile = () => {
     setCvMessage("");
 
     try {
-      const fileExt = file.name.split(".").pop();
-      const safeExt = fileExt ? String(fileExt).toLowerCase() : "pdf";
+      const fileExt = file.name.split(".").pop()?.toLowerCase();
+      if (fileExt !== "pdf" || file.type !== "application/pdf") {
+        setCvMessage("Only PDF files are allowed.");
+        setUploadingCv(false);
+        setCvAction(null);
+        if (cvFileInputRef.current) cvFileInputRef.current.value = "";
+        return;
+      }
+
+      const safeExt = "pdf";
       const baseName = file.name.replace(/\.[^/.]+$/, "");
       const safeBase = toSafeFileName(baseName || "resume");
       const fileName = `${user.id}_${Date.now()}__${safeBase}.${safeExt}`;
@@ -873,7 +849,7 @@ const TalentProfile = () => {
           ref={cvFileInputRef}
           className="hidden"
           type="file"
-          accept=".pdf,.doc,.docx"
+          accept=".pdf"
           onChange={(e) => {
             setCvMessage("");
             const file = e.target.files?.[0];

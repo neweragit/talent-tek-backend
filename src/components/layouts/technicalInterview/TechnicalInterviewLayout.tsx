@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Bell, Home, User, LogOut, Menu, X, Video } from "lucide-react";
+import { Bell, BellOff, Home, User, LogOut, Menu, X, Video } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { supabase } from "@/lib/supabase";
 import logo from "@/logo/logo.jfif";
 
 const TechnicalInterviewLayout = ({ children }: { children: React.ReactNode }) => {
@@ -11,15 +12,58 @@ const TechnicalInterviewLayout = ({ children }: { children: React.ReactNode }) =
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [pendingReviewsCount, setPendingReviewsCount] = useState(0);
 
   const handleLogout = () => {
     logout();
     navigate("/login");
   };
 
+  useEffect(() => {
+    const loadPendingReviews = async () => {
+      if (!user?.id) {
+        setPendingReviewsCount(0);
+        return;
+      }
+
+      try {
+        const interviewerRes = await supabase
+          .from("interviewers")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("interview_type", "technical")
+          .maybeSingle();
+
+        const interviewerId = interviewerRes.data?.id ?? null;
+
+        if (!interviewerId) {
+          setPendingReviewsCount(0);
+          return;
+        }
+
+        const interviewsRes = await supabase
+          .from("interviews")
+          .select("id")
+          .eq("interviewer_id", interviewerId)
+          .eq("interview_type", "technical")
+          .eq("status", "scheduled");
+
+        if (interviewsRes.error) throw interviewsRes.error;
+
+        const scheduledCount = (interviewsRes.data ?? []).length;
+        setPendingReviewsCount(scheduledCount);
+      } catch (error) {
+        console.error("Failed to load pending reviews count:", error);
+        setPendingReviewsCount(0);
+      }
+    };
+
+    void loadPendingReviews();
+  }, [user?.id]);
+
   const navLinks = [
     { name: "Overview", path: "/technical-interviewer/overview", icon: Home },
-    { name: "Interviews", path: "/technical-interviewer/interviews", icon: Video },
+    { name: "Interviews", path: "/technical-interviewer/interviews", icon: Video, count: pendingReviewsCount },
     { name: "Profile", path: "/technical-interviewer/profile", icon: User },
   ];
 
@@ -54,6 +98,15 @@ const TechnicalInterviewLayout = ({ children }: { children: React.ReactNode }) =
               >
                 <link.icon className="h-5 w-5" />
                 {link.name}
+                {typeof link.count === "number" ? (
+                  <span
+                    className={`ml-auto rounded-full px-2 py-0.5 text-xs font-bold ${
+                      isActive(link.path) ? "bg-white/20 text-white" : "bg-orange-100 text-orange-700"
+                    }`}
+                  >
+                    {link.count}
+                  </span>
+                ) : null}
               </Link>
             ))}
           </div>
@@ -79,13 +132,13 @@ const TechnicalInterviewLayout = ({ children }: { children: React.ReactNode }) =
                   : "border-orange-200 bg-white text-orange-600 hover:bg-orange-50 hover:text-orange-700"
               }`}
             >
-              <Bell className="h-4 w-4" />
-              <span
-                aria-hidden="true"
-                className={`absolute right-1 top-1 h-1.5 w-1.5 rounded-full ${
-                  location.pathname === "/technical-interviewer/notifications" ? "bg-white" : "bg-orange-500"
-                }`}
-              />
+              {pendingReviewsCount > 0 ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+              {pendingReviewsCount > 0 ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-red-500"
+                />
+              ) : null}
             </Link>
           </div>
           <Button
@@ -134,6 +187,15 @@ const TechnicalInterviewLayout = ({ children }: { children: React.ReactNode }) =
                   >
                     <link.icon className="h-5 w-5" />
                     {link.name}
+                    {typeof link.count === "number" ? (
+                      <span
+                        className={`ml-auto rounded-full px-2 py-0.5 text-xs font-bold ${
+                          isActive(link.path) ? "bg-white/20 text-white" : "bg-orange-100 text-orange-700"
+                        }`}
+                      >
+                        {link.count}
+                      </span>
+                    ) : null}
                   </Link>
                 ))}
               </div>
