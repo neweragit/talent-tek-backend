@@ -141,7 +141,6 @@ const TalentLayout = ({ children }: TalentLayoutProps) => {
     { name: "Offers", path: "/talent/offers", icon: Gift, count: offersCount },
     { name: "Profile", path: "/talent/profile", icon: User },
     { name: "My Services", path: "/talent/services", icon: Briefcase },
-    { name: "Settings", path: "/talent/settings", icon: User },
     { name: "Support Tickets", path: "/talent/support-tickets", icon: MessageSquare, count: openTicketsCount },
   ];
 
