@@ -23,11 +23,11 @@ const RecruiterLayout = ({ children }: RecruiterLayoutProps) => {
   const navLinks = [
     { name: "Overview", path: "/recruiter/overview", icon: Home },
     { name: "Jobs", path: "/recruiter/jobs", icon: Briefcase },
-    { name: "Pipeline", path: "/recruiter/pipeline", icon: GitBranch, count: pendingApplicationsCount > 0 ? pendingApplicationsCount : undefined },
-    { name: "Interviews", path: "/recruiter/interviews", icon: Video, count: scheduledInterviewsCount > 0 ? scheduledInterviewsCount : undefined },
+    { name: "Pipeline", path: "/recruiter/pipeline", icon: GitBranch, count: pendingApplicationsCount },
+    { name: "Interviews", path: "/recruiter/interviews", icon: Video, count: scheduledInterviewsCount },
     { name: "Interviewers", path: "/recruiter/interviewers", icon: Users },
     { name: "Profile", path: "/recruiter/profile", icon: User },
-    { name: "Support Tickets", path: "/recruiter/tickets", icon: MessageSquare, count: openTicketsCount > 0 ? openTicketsCount : undefined },
+    { name: "Support Tickets", path: "/recruiter/tickets", icon: MessageSquare, count: openTicketsCount },
   ];
 
   useEffect(() => {

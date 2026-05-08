@@ -126,23 +126,23 @@ const TalentLayout = ({ children }: TalentLayoutProps) => {
 
   const navLinks = [
     { name: "Overview", path: "/talent/overview", icon: Home },
-    { name: "My Applications", path: "/talent/applications", icon: FileText, count: applicationsCount > 0 ? applicationsCount : undefined },
+    { name: "My Applications", path: "/talent/applications", icon: FileText, count: applicationsCount },
     {
       name: "Interviews",
       path: null,
       icon: Video,
-      count: interviewsCount > 0 ? interviewsCount : undefined,
+      count: interviewsCount,
       subItems: [
-        { name: "TA Interviews", path: "/talent/interviews/ta", count: taInterviewsCount > 0 ? taInterviewsCount : undefined },
-        { name: "Technical Interviews", path: "/talent/interviews/it", count: itInterviewsCount > 0 ? itInterviewsCount : undefined },
-        { name: "Leadership Interviews", path: "/talent/interviews/leadership", count: leadInterviewsCount > 0 ? leadInterviewsCount : undefined },
+        { name: "TA Interviews", path: "/talent/interviews/ta", count: taInterviewsCount },
+        { name: "Technical Interviews", path: "/talent/interviews/it", count: itInterviewsCount },
+        { name: "Leadership Interviews", path: "/talent/interviews/leadership", count: leadInterviewsCount },
       ],
     },
-    { name: "Offers", path: "/talent/offers", icon: Gift, count: offersCount > 0 ? offersCount : undefined },
+    { name: "Offers", path: "/talent/offers", icon: Gift, count: offersCount },
     { name: "Profile", path: "/talent/profile", icon: User },
     { name: "My Services", path: "/talent/services", icon: Briefcase },
     { name: "Settings", path: "/talent/settings", icon: User },
-    { name: "Support Tickets", path: "/talent/support-tickets", icon: MessageSquare, count: openTicketsCount > 0 ? openTicketsCount : undefined },
+    { name: "Support Tickets", path: "/talent/support-tickets", icon: MessageSquare, count: openTicketsCount },
   ];
 
   const isActive = (path: string | null) => path && location.pathname === path;
