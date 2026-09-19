@@ -9,45 +9,53 @@ const disableBackend = disableBackendFlag === 'true';
 
 type QueryResult<T = any> = { data?: T; error?: { message: string } | null };
 
+const createMockQueryBuilder = () => {
+	const terminalResult = { data: [], error: null, count: 0 };
+	const singleResult = { data: null, error: null };
+
+	const target: Record<string, any> = {
+		single: async (): Promise<QueryResult<any>> => singleResult,
+		maybeSingle: async (): Promise<QueryResult<any>> => singleResult,
+	};
+
+	const builder: any = new Proxy(target, {
+		get(obj, prop: string | symbol) {
+			if (prop in obj) return obj[prop as keyof typeof obj];
+
+			if (prop === 'then') {
+				const promise = Promise.resolve(terminalResult);
+				return promise.then.bind(promise);
+			}
+
+			return (..._args: any[]) => builder;
+		},
+	});
+
+	return builder;
+};
+
 const mockSupabase = {
 	from(_table: string) {
-		return {
-			select(_columns?: string) {
-				return {
-					eq(_col: string, _val: any) {
-						return {
-							single(): QueryResult<any> {
-								return { data: null, error: null };
-							},
-							maybeSingle(): QueryResult<any> {
-								return { data: null, error: null };
-							},
-						};
-					},
-				} as any;
+		return createMockQueryBuilder();
+	},
+	rpc(_fn: string, _params?: Record<string, any>) {
+		return Promise.resolve({ data: null, error: null });
+	},
+	auth: {
+		api: {
+			sendVerificationEmail(_email: string) {
+				return Promise.resolve({ error: null });
 			},
-			insert(_rows: any[]) {
-				const builder = {
-					select(): QueryResult<any[]> {
-						return { data: [{ id: 'mock-id' }], error: null };
-					},
-				};
-				return builder as any;
-			},
-			update(_values: Record<string, any>) {
-				return {
-					eq(_col: string, _val: any): QueryResult<void> {
-						return { error: null };
-					},
-				} as any;
-			},
-		} as any;
+		},
 	},
 	storage: {
 		from(_bucket: string) {
 			return {
-				upload(_path: string, _file: File, _opts?: any): QueryResult<{ path: string }> {
-					return { data: { path: 'mock-path' }, error: null };
+				upload(_path: string, _file: File, _opts?: any): Promise<QueryResult<{ path: string }>> {
+					return Promise.resolve({ data: { path: 'mock-path' }, error: null });
+				},
+				remove(_paths: string[]): Promise<QueryResult<string[]>> {
+					return Promise.resolve({ data: [], error: null });
 				},
 				getPublicUrl(path: string) {
 					return { data: { publicUrl: `https://example.com/${path}` } };
